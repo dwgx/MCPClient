@@ -62,7 +62,7 @@
         <dependency>
             <groupId>io.netty</groupId>
             <artifactId>netty-all</artifactId>
-            <version>4.1.124.Final</version>
+            <version>4.2.16.Final</version>
         </dependency>
 
         <!-- ==== Logging: log4j 2.23.1 (Log4Shell-patched, up from 2.0-beta9) ==== -->
