@@ -58,7 +58,7 @@
             <scope>runtime</scope>
         </dependency>
 
-        <!-- ==== Networking: Netty 4.1.124 (up from 4.0.23) ==== -->
+        <!-- ==== Networking: Netty 4.2.16 (up from 4.0.23) ==== -->
         <dependency>
             <groupId>io.netty</groupId>
             <artifactId>netty-all</artifactId>
@@ -77,7 +77,8 @@
             <version>2.23.1</version>
         </dependency>
 
-        <!-- ==== Guava kept at 17.0 (MC uses removed Guava-17 APIs) ==== -->
+        <!-- ==== Guava 33.6.0-jre (up from 17.0; MC's removed Guava-17 APIs
+             adapted: MoreObjects/Collections.emptyIterator/Futures 3-arg) ==== -->
         <dependency>
             <groupId>com.google.guava</groupId>
             <artifactId>guava</artifactId>
