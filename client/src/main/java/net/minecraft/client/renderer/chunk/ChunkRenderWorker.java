@@ -187,7 +187,7 @@ public class ChunkRenderWorker implements Runnable
                         Minecraft.getMinecraft().crashed(CrashReport.makeCrashReport(p_onFailure_1_, "Rendering chunk"));
                     }
                 }
-            });
+            }, com.google.common.util.concurrent.MoreExecutors.directExecutor());
         }
     }
 

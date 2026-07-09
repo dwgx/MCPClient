@@ -238,7 +238,7 @@ public class ResourcePackRepository
                 {
                     settablefuture.setException(p_onFailure_1_);
                 }
-            });
+            }, com.google.common.util.concurrent.MoreExecutors.directExecutor());
             ListenableFuture listenablefuture = this.downloadingPacks;
             return listenablefuture;
         }

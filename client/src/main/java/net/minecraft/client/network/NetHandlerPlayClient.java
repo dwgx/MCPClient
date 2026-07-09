@@ -1722,7 +1722,7 @@ public class NetHandlerPlayClient implements INetHandlerPlayClient
                     {
                         NetHandlerPlayClient.this.netManager.sendPacket(new C19PacketResourcePackStatus(s1, C19PacketResourcePackStatus.Action.FAILED_DOWNLOAD));
                     }
-                });
+                }, com.google.common.util.concurrent.MoreExecutors.directExecutor());
             }
             else
             {
@@ -1744,7 +1744,7 @@ public class NetHandlerPlayClient implements INetHandlerPlayClient
                     {
                         NetHandlerPlayClient.this.netManager.sendPacket(new C19PacketResourcePackStatus(s1, C19PacketResourcePackStatus.Action.FAILED_DOWNLOAD));
                     }
-                });
+                }, com.google.common.util.concurrent.MoreExecutors.directExecutor());
             }
             else if (this.gameController.getCurrentServerData() != null && this.gameController.getCurrentServerData().getResourceMode() != ServerData.ServerResourceMode.PROMPT)
             {
@@ -1780,7 +1780,7 @@ public class NetHandlerPlayClient implements INetHandlerPlayClient
                                         {
                                             NetHandlerPlayClient.this.netManager.sendPacket(new C19PacketResourcePackStatus(s1, C19PacketResourcePackStatus.Action.FAILED_DOWNLOAD));
                                         }
-                                    });
+                                    }, com.google.common.util.concurrent.MoreExecutors.directExecutor());
                                 }
                                 else
                                 {

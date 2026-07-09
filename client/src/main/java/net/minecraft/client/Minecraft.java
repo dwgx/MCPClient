@@ -3240,7 +3240,7 @@ public class Minecraft implements IThreadListener, IPlayerUsage
             }
             catch (Exception exception)
             {
-                return Futures.immediateFailedCheckedFuture(exception);
+                return Futures.immediateFailedFuture(exception);
             }
         }
     }
