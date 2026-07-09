@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>net.marcloud.mcp.189</groupId>
+    <artifactId>mcpclient-parent</artifactId>
+    <version>1.8.9</version>
+    <packaging>pom</packaging>
+    <description>Minecraft 1.8.9 on LWJGL3 + JDK25 — multi-module (shim library + client)</description>
+
+    <modules>
+        <module>lwjgl2-shim</module>
+        <module>client</module>
+    </modules>
+
+    <properties>
+        <!-- Compile to Java 8 bytecode; builds/runs on JDK 25 via the release setting -->
+        <maven.compiler.release>8</maven.compiler.release>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <lwjgl.version>3.3.6</lwjgl.version>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <!-- LWJGL 3 BOM: single version knob for all lwjgl artifacts + natives -->
+            <dependency>
+                <groupId>org.lwjgl</groupId>
+                <artifactId>lwjgl-bom</artifactId>
+                <version>${lwjgl.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <!-- Our shim library, consumed by the client module -->
+            <dependency>
+                <groupId>net.marcloud.mcp.189</groupId>
+                <artifactId>lwjgl2-shim</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <build>
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-compiler-plugin</artifactId>
+                    <version>3.13.0</version>
+                    <configuration>
+                        <release>${maven.compiler.release}</release>
+                    </configuration>
+                </plugin>
+            </plugins>
+        </pluginManagement>
+    </build>
+
+    <repositories>
+        <repository>
+            <id>marcloud-development-repository</id>
+            <name>marCloud-Repository</name>
+            <url>https://repo.marcloud.net/</url>
+        </repository>
+    </repositories>
+</project>

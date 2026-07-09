@@ -1,0 +1,54 @@
+name: build
+
+# CI for the MC 1.8.9 → JDK25/LWJGL3 port. Works on private repos
+# (GitHub-hosted runners include free minutes for private repositories).
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+
+      # Reactor build: compiles the lwjgl2-shim library, then the client,
+      # then produces the shaded fat jar. This is the regression guard —
+      # any compile break in either module fails the build.
+      - name: Build (reactor package)
+        run: ./mvnw -B -ntp clean package -DskipTests
+
+      # Verify the publishable shim jar and the client fat jar were produced.
+      - name: Verify artifacts
+        run: |
+          test -f lwjgl2-shim/target/lwjgl2-shim-*.jar
+          test -f client/target/MCP-1.8.9.jar
+          echo "shim + client artifacts present"
+
+      # Failsafe smoke tests. On CI there are no game assets, so the runtime
+      # smoke IT self-skips via Assume (assets missing) — the phase still runs
+      # and guards the wiring. Enable with -Dsmoke.skip=false locally (with
+      # assets present) to actually drive the client into a world.
+      - name: Smoke tests (skip runtime if no assets)
+        run: ./mvnw -B -ntp verify -Dsmoke.skip=false
+
+      - name: Upload shim library
+        uses: actions/upload-artifact@v4
+        with:
+          name: lwjgl2-shim
+          path: lwjgl2-shim/target/lwjgl2-shim-*.jar
+
+      - name: Upload client fat jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: MCP-client
+          path: client/target/MCP-1.8.9.jar

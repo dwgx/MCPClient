@@ -1,0 +1,39 @@
+# MC 1.8.9 on JDK 25 — JVM argfile.  Usage:  java @jvm-args-jdk25.txt -cp <jar> Start
+# Split into MANDATORY (crash if missing) vs WARN-ONLY (suppresses a warning).
+# Not usable until Phase 2 shim lands (game won't launch on LWJGL3 before then).
+
+-Dfile.encoding=UTF-8
+
+# --- Unsafe: silences Netty/Guava warnings on JDK25 (still 'warn', not 'deny'). JDK26 will need =warn. ---
+--sun-misc-unsafe-memory-access=allow
+# --- Native access: LWJGL3 / JNA / oshi. Optional (warn) on JDK25, forward-safe. ---
+--enable-native-access=ALL-UNNAMED
+
+# --- java.base: reflection paths dependencies force open (MANDATORY — no warn mode since JDK16) ---
+--add-opens java.base/java.lang=ALL-UNNAMED
+--add-opens java.base/java.lang.reflect=ALL-UNNAMED
+--add-opens java.base/java.lang.invoke=ALL-UNNAMED
+--add-opens java.base/java.lang.ref=ALL-UNNAMED
+--add-opens java.base/java.nio=ALL-UNNAMED
+--add-opens java.base/sun.nio.ch=ALL-UNNAMED
+--add-opens java.base/jdk.internal.misc=ALL-UNNAMED
+--add-opens java.base/jdk.internal.ref=ALL-UNNAMED
+--add-opens java.base/java.util=ALL-UNNAMED
+--add-opens java.base/java.util.zip=ALL-UNNAMED
+--add-opens java.base/java.util.jar=ALL-UNNAMED
+
+# --- java.desktop: window icon + ImageIO PNG screenshots ---
+--add-opens java.desktop/com.sun.imageio.plugins.png=ALL-UNNAMED
+--add-opens java.desktop/sun.awt.image=ALL-UNNAMED
+--add-opens java.desktop/sun.awt=ALL-UNNAMED
+
+# --- CONDITIONAL: uncomment only if a runtime InaccessibleObjectException names it ---
+# --add-opens java.base/jdk.internal.loader=ALL-UNNAMED
+# --add-opens java.base/jdk.internal.reflect=ALL-UNNAMED
+# --add-opens java.base/java.util.concurrent.atomic=ALL-UNNAMED
+# --add-opens java.base/java.util.concurrent.locks=ALL-UNNAMED
+# --add-opens java.base/java.io=ALL-UNNAMED
+# --add-opens java.base/java.net=ALL-UNNAMED
+# --add-opens java.base/java.nio.file=ALL-UNNAMED
+# --add-opens java.base/java.nio.charset=ALL-UNNAMED
+# --add-opens java.desktop/sun.lwawt.macosx=ALL-UNNAMED   # macOS only

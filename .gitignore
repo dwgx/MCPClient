@@ -1,0 +1,23 @@
+# --- Build output ---
+target/
+build/
+*.class
+.mvn/maven-dist/
+.mvn/wrapper/maven-wrapper.jar
+
+# --- Runtime working dir (game assets ~2.7GB, saves, logs, natives) ---
+test_run/
+test_natives/
+
+# --- Reference clones / scratch (proprietary + copyleft; never commit) ---
+_analyze_base/
+_refs/
+_shim_raw/
+_server_test/
+
+# --- IDE / OS ---
+.idea/
+*.iml
+.vscode/
+.DS_Store
+Thumbs.db

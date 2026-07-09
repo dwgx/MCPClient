@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>net.marcloud.mcp.189</groupId>
+        <artifactId>mcpclient-parent</artifactId>
+        <version>1.8.9</version>
+    </parent>
+
+    <artifactId>lwjgl2-shim</artifactId>
+    <packaging>jar</packaging>
+    <description>
+        LWJGL 2 API compatibility shim on top of LWJGL 3 (GLFW). Reimplements the
+        org.lwjgl.* classes LWJGL 3 removed (Display, Keyboard, Mouse, Sys,
+        util.vector/glu, GLContext, ContextCapabilities, ...) so LWJGL2-era code
+        runs on modern LWJGL 3. Independent, self-contained, no game coupling.
+        Split-package with the real LWJGL 3 jars on the CLASSPATH only (never module-path).
+    </description>
+
+    <dependencies>
+        <!-- Real LWJGL 3: supplies GL11..GL30, GLFW, AL10/ALC10, MemoryUtil,
+             BufferUtils. Compile scope so downstreams get them transitively.
+             The shim only ADDS the classes LWJGL 3 removed — no overlap. -->
+        <dependency>
+            <groupId>org.lwjgl</groupId>
+            <artifactId>lwjgl</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.lwjgl</groupId>
+            <artifactId>lwjgl-glfw</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.lwjgl</groupId>
+            <artifactId>lwjgl-opengl</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.lwjgl</groupId>
+            <artifactId>lwjgl-openal</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.lwjgl</groupId>
+            <artifactId>lwjgl-stb</artifactId>
+        </dependency>
+        <!-- Note: util.vector/glu math is hand-written (no JOML needed). -->
+    </dependencies>
+
+    <!-- Publish the shim as a PRIVATE versioned library to GitHub Packages.
+         Deploy with:  ./mvnw -pl lwjgl2-shim deploy
+         Requires a GitHub PAT (write:packages) in ~/.m2/settings.xml under the
+         server id 'github', and OWNER/REPO substituted below. Private repo =>
+         private package: only authorized tokens can resolve it. -->
+    <distributionManagement>
+        <repository>
+            <id>github</id>
+            <name>GitHub Packages</name>
+            <url>https://maven.pkg.github.com/OWNER/REPO</url>
+        </repository>
+    </distributionManagement>
+</project>
+
