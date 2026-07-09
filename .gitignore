@@ -21,3 +21,8 @@ _server_test/
 .vscode/
 .DS_Store
 Thumbs.db
+
+# Stray run/log dirs from in-module test launches
+logs/
+*/logs/
+*/run/

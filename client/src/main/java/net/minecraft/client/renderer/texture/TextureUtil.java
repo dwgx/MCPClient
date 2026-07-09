@@ -55,7 +55,7 @@ public class TextureUtil
         {
             boolean flag = false;
 
-            for (int i = 0; i < p_147949_2_.length; ++i)
+            for (int i = 0; i < p_147949_2_[0].length; ++i)
             {
                 if (p_147949_2_[0][i] >> 24 == 0)
                 {
@@ -242,8 +242,10 @@ public class TextureUtil
     {
         if (p_110997_0_)
         {
-            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_S, GL11.GL_CLAMP);
-            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_T, GL11.GL_CLAMP);
+            // GL_CLAMP (0x2900) is invalid in a core-ish profile and falls back to
+            // GL_REPEAT; GL_CLAMP_TO_EDGE is the correct modern equivalent.
+            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_S, GL12.GL_CLAMP_TO_EDGE);
+            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_T, GL12.GL_CLAMP_TO_EDGE);
         }
         else
         {
