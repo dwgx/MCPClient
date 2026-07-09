@@ -146,26 +146,13 @@
             <version>5.0.4</version>
         </dependency>
 
-        <!-- ==== oshi + jna (system info) ==== -->
+        <!-- ==== oshi 6.x (system info for the F3/snooper CPU string). Pulls a
+             modern JNA 5.x transitively; the old oshi 1.1 + jna 3.4 + jutils are
+             gone. Only used in OpenGlHelper.getCpu(), wrapped in catch(Throwable). ==== -->
         <dependency>
-            <groupId>oshi</groupId>
+            <groupId>com.github.oshi</groupId>
             <artifactId>oshi-core</artifactId>
-            <version>1.1</version>
-        </dependency>
-        <dependency>
-            <groupId>net.java.dev.jna</groupId>
-            <artifactId>jna</artifactId>
-            <version>3.4.0</version>
-        </dependency>
-        <dependency>
-            <groupId>net.java.dev.jna</groupId>
-            <artifactId>platform</artifactId>
-            <version>3.4.0</version>
-        </dependency>
-        <dependency>
-            <groupId>net.java.jutils</groupId>
-            <artifactId>jutils</artifactId>
-            <version>1.0.0</version>
+            <version>6.12.0</version>
         </dependency>
 
         <!-- ==== paulscode audio (our libraries.* rewritten for LWJGL3 OpenAL) ==== -->

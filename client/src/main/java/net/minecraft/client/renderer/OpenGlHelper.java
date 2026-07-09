@@ -22,7 +22,7 @@ import org.lwjgl.opengl.GL30;
 import org.lwjgl.opengl.GLContext;
 import org.lwjgl.system.MemoryUtil;
 import oshi.SystemInfo;
-import oshi.hardware.Processor;
+import oshi.hardware.CentralProcessor;
 
 public class OpenGlHelper
 {
@@ -295,8 +295,8 @@ public class OpenGlHelper
 
         try
         {
-            Processor[] aprocessor = (new SystemInfo()).getHardware().getProcessors();
-            cpu = String.format("%dx %s", new Object[] {Integer.valueOf(aprocessor.length), aprocessor[0]}).replaceAll("\\s+", " ");
+            CentralProcessor processor = (new SystemInfo()).getHardware().getProcessor();
+            cpu = String.format("%dx %s", new Object[] {Integer.valueOf(processor.getLogicalProcessorCount()), processor.getProcessorIdentifier().getName()}).replaceAll("\\s+", " ");
         }
         catch (Throwable var3)
         {
