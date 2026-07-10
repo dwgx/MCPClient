@@ -13,6 +13,7 @@
     <modules>
         <module>lwjgl2-shim</module>
         <module>client</module>
+        <module>core</module>
     </modules>
 
     <properties>

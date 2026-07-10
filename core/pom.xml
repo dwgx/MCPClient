@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>net.marcloud.mcp.189</groupId>
+        <artifactId>mcpclient-parent</artifactId>
+        <version>1.8.9</version>
+    </parent>
+
+    <artifactId>core</artifactId>
+    <packaging>jar</packaging>
+    <description>
+        MCP Core — exposes the running Minecraft client to an AI over the Model
+        Context Protocol. Provides live observation (state, packets, disconnects),
+        control (chat, movement, arbitrary packets), and hot-load (compile/redefine
+        code into the running game via JavaCompiler + Instrumentation/DCEVM).
+        Net-new code, compiled to Java 25 bytecode. Does NOT modify the frozen MC
+        source; all MC seams are attached at runtime via bytecode instrumentation.
+    </description>
+
+    <properties>
+        <!-- Override the parent's release=8: this module targets Java 25 so it can
+             use the MCP SDK (needs Java 17+) and modern language features. It runs
+             in the SAME JVM as the Java-8 game bytecode (JDK 25 runs both fine). -->
+        <maven.compiler.release>25</maven.compiler.release>
+        <bytebuddy.version>1.17.6</bytebuddy.version>
+        <mcp.sdk.version>2.0.0</mcp.sdk.version>
+    </properties>
+
+    <dependencies>
+        <!-- The game itself: lets Core reference Minecraft, NetworkManager, Packet,
+             etc. The client already brings LWJGL3/Netty/guava transitively.
+             'provided' so Core does not re-bundle the game — it is loaded by the
+             same classloader at runtime. -->
+        <dependency>
+            <groupId>net.marcloud.mcp.189</groupId>
+            <artifactId>client</artifactId>
+            <version>${project.version}</version>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- Byte Buddy: runtime bytecode generation + agent attach helper.
+             1.17.6 supports JDK 25 (ASM 9.8). Apache-2.0. -->
+        <dependency>
+            <groupId>net.bytebuddy</groupId>
+            <artifactId>byte-buddy</artifactId>
+            <version>${bytebuddy.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>net.bytebuddy</groupId>
+            <artifactId>byte-buddy-agent</artifactId>
+            <version>${bytebuddy.version}</version>
+        </dependency>
+
+        <!-- Official Java MCP SDK (io.modelcontextprotocol.sdk). MIT. Requires
+             Java 17+ (hence this module's release=25). Brings Jackson + Reactor;
+             zero Netty (no clash with the client's netty-all 4.2.16). -->
+        <dependency>
+            <groupId>io.modelcontextprotocol.sdk</groupId>
+            <artifactId>mcp</artifactId>
+            <version>${mcp.sdk.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <version>4.13.2</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>

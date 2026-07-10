@@ -14,6 +14,8 @@ _analyze_base/
 _refs/
 _shim_raw/
 _server_test/
+# --- Vendored toolchains (JBR 25 w/ DCEVM ~278MB; never commit) ---
+_tools/
 
 # --- IDE / OS ---
 .idea/
