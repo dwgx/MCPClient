@@ -18,9 +18,13 @@ import net.marcloud.mcp.core.registry.CapabilityRegistry;
 import net.marcloud.mcp.core.registry.DynamicToolFactory;
 import net.marcloud.mcp.core.registry.MetaTools;
 import net.marcloud.mcp.core.registry.SafeToolExecutor;
+import net.marcloud.mcp.core.security.CapabilitySid;
+import net.marcloud.mcp.core.security.InProcessPolicyEngine;
 import net.marcloud.mcp.core.security.PermissionPolicy;
 import net.marcloud.mcp.core.security.PermissionTools;
+import net.marcloud.mcp.core.security.PolicyEngine;
 import net.marcloud.mcp.core.security.Ring;
+import net.marcloud.mcp.core.security.SecurityContext;
 import net.marcloud.mcp.core.state.DisconnectTracker;
 import net.marcloud.mcp.core.state.PacketLog;
 import net.marcloud.mcp.core.thread.MainThreadExecutor;
@@ -101,8 +105,9 @@ public final class McpCore {
         // (from -Dmcp.core.restoreToken or a random one) gates re-escalation, so
         // drop_privilege is a real kill-switch. Pin lower via -Dmcp.core.clearance.
         PermissionPolicy policy = buildPolicy();
+        PolicyEngine engine = buildEngine(policy);
         SafeToolExecutor executor = new SafeToolExecutor(8, 5000L);
-        CapabilityRegistry registry = new CapabilityRegistry(executor, policy);
+        CapabilityRegistry registry = new CapabilityRegistry(executor, engine);
 
         // Register the built-in game tools through the registry (supervised).
         ToolRegistry builtins = new ToolRegistry(ctx);
@@ -114,8 +119,9 @@ public final class McpCore {
         MetaTools meta = new MetaTools(registry, factory, hotLoad);
         meta.registerAll(registry);
 
-        // Privilege tools (CPU-ring model): drop/restore/list clearance.
-        new PermissionTools(policy, registry).registerAll(registry);
+        // Privilege tools (7-layer model): drop/restore/list clearance. Driven
+        // through the same engine the gate reads, so a drop takes effect at once.
+        new PermissionTools(engine, registry).registerAll(registry);
 
         // Durable memory (persists across restarts) — the knowledge counterpart
         // to create_tool's capabilities. Stored under the game working dir.
@@ -193,6 +199,27 @@ public final class McpCore {
         }
         System.err.println("[MCP Core] initial clearance: " + clearance.tag());
         return new PermissionPolicy(clearance, token);
+    }
+
+    /**
+     * Build the reference monitor (7-layer decision authority). Dev default =
+     * wide open: SYSTEM integrity, all privileges enabled, wildcard capabilities
+     * (only the ring dimension bites, matching the pre-Phase-2 behavior).
+     *
+     * <p>{@code -Dmcp.core.caps=strict} switches L5 to true default-deny: the
+     * subject starts with an EMPTY capability set, so every tool that touches a
+     * gated resource class must be granted its SID first. Use for hardened runs.
+     */
+    private static PolicyEngine buildEngine(PermissionPolicy policy) {
+        String caps = System.getProperty("mcp.core.caps", "wildcard");
+        if ("strict".equalsIgnoreCase(caps.trim())) {
+            System.err.println("[MCP Core] L5 capabilities: STRICT default-deny "
+                    + "(grant SIDs explicitly to use gated tools)");
+            SecurityContext strict = InProcessPolicyEngine.strictSubject(
+                    java.util.EnumSet.noneOf(CapabilitySid.class));
+            return new InProcessPolicyEngine(policy, strict);
+        }
+        return new InProcessPolicyEngine(policy);
     }
 
     /** Marker so callers/tests can confirm the module loaded and its Java level. */

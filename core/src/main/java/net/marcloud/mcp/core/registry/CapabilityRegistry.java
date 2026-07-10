@@ -9,8 +9,12 @@ import io.modelcontextprotocol.server.McpServerFeatures.SyncToolSpecification;
 import io.modelcontextprotocol.server.McpSyncServer;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
+import net.marcloud.mcp.core.security.AccessDecision;
+import net.marcloud.mcp.core.security.InProcessPolicyEngine;
 import net.marcloud.mcp.core.security.PermissionPolicy;
+import net.marcloud.mcp.core.security.PolicyEngine;
 import net.marcloud.mcp.core.security.Ring;
+import net.marcloud.mcp.core.security.ToolRequest;
 
 /**
  * The living catalog of the神器's capabilities — the neural-network-like core.
@@ -35,7 +39,7 @@ public final class CapabilityRegistry {
     private final Map<String, List<Capability>> archive = new ConcurrentHashMap<>();
     private final Map<String, ToolStats> statsByName = new ConcurrentHashMap<>();
     private final SafeToolExecutor executor;
-    private final PermissionPolicy policy;
+    private final PolicyEngine engine;
 
     /** Cap on archived versions kept per tool (bounds long-session growth). */
     private static final int MAX_ARCHIVE_PER_TOOL = 10;
@@ -43,14 +47,38 @@ public final class CapabilityRegistry {
     /** Set once the server is built; enables live add/notify. Null before that. */
     private volatile McpSyncServer server;
 
+    /**
+     * Back-compat constructor: wraps a bare {@link PermissionPolicy} in the
+     * default in-process reference monitor. Existing callers/tests that only know
+     * about ring clearance keep working; the full 7-layer gate still runs (with
+     * safe defaults, so behavior is identical for tools with no extra
+     * requirements).
+     */
     public CapabilityRegistry(SafeToolExecutor executor, PermissionPolicy policy) {
-        this.executor = executor;
-        this.policy = policy;
+        this(executor, new InProcessPolicyEngine(policy));
     }
 
-    /** The permission policy (clearance) governing tool invocation. */
-    public PermissionPolicy policy() {
-        return policy;
+    /** Primary constructor: the reference monitor is the single decision authority. */
+    public CapabilityRegistry(SafeToolExecutor executor, PolicyEngine engine) {
+        this.executor = executor;
+        this.engine = engine;
+    }
+
+    /** The policy engine (reference monitor) governing tool invocation. */
+    public PolicyEngine engine() {
+        return engine;
+    }
+
+    /**
+     * Whether a capability would be permitted right now for the current subject —
+     * the FULL 7-layer decision (ring + integrity + privilege + capability), not
+     * just the ring. Used by the REST facade's "allowed" display so it reflects
+     * the real gate. Evaluated with an empty argument map (schema/boundary layers
+     * are argument-dependent and enforced at call time).
+     */
+    public boolean isAllowed(Capability c) {
+        ToolRequest req = new ToolRequest(c.name(), java.util.Map.of(), c.builtIn());
+        return engine.evaluate(engine.currentSubject(), req).allow();
     }
 
     /** Attach the live server so subsequent registrations propagate to clients. */
@@ -63,20 +91,22 @@ public final class CapabilityRegistry {
      * spec is what actually gets registered — its handler consults the circuit
      * breaker, enforces a timeout, and catches every throwable.
      */
-    private SyncToolSpecification supervise(SyncToolSpecification raw, ToolStats stats, Ring ring) {
+    private SyncToolSpecification supervise(SyncToolSpecification raw, ToolStats stats,
+                                            boolean builtIn) {
         var rawHandler = raw.callHandler();
         String toolName = raw.tool().name();
         return new SyncToolSpecification(raw.tool(), (exchange, request) -> {
-            // Privilege gate FIRST: deny (fail fast, do not touch the breaker) if
-            // the current clearance is less privileged than this tool's ring.
-            if (!policy.allows(ring)) {
+            // Reference-monitor gate FIRST: run the full 7-layer decision (L2 ring
+            // + L3 integrity + L4 privilege + L5 capability, AND-composed) before
+            // the breaker/executor. A deny fails fast and does NOT touch the
+            // circuit breaker (a permission denial is not a tool fault). Safe
+            // defaults mean a tool with no extra requirements is gated by its ring
+            // alone — identical to the pre-Phase-2 behavior.
+            ToolRequest toolReq = new ToolRequest(toolName, request.arguments(), builtIn);
+            AccessDecision decision = engine.evaluate(engine.currentSubject(), toolReq);
+            if (!decision.allow()) {
                 return CallToolResult.builder()
-                        .addTextContent("permission denied: tool '" + toolName + "' requires "
-                                + ring.tag() + " but current clearance is "
-                                + policy.clearance().tag()
-                                + (policy.restorable()
-                                    ? " — raise it with restore_privilege(token)."
-                                    : " — privilege was dropped and cannot be restored this session."))
+                        .addTextContent(decision.message())
                         .isError(true)
                         .build();
             }
@@ -94,7 +124,7 @@ public final class CapabilityRegistry {
         Capability previous = current.get(name);
         int version = (previous == null) ? 1 : previous.version() + 1;
 
-        SyncToolSpecification supervised = supervise(rawSpec, stats, ring);
+        SyncToolSpecification supervised = supervise(rawSpec, stats, builtIn);
         Capability cap = new Capability(name, supervised, source, description, version, stats, builtIn, ring);
 
         // Do the FALLIBLE live-server mutation FIRST. If addTool/notify throws, we

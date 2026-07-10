@@ -25,11 +25,11 @@ import net.marcloud.mcp.core.registry.CapabilityRegistry;
  */
 public final class PermissionTools {
 
-    private final PermissionPolicy policy;
+    private final PolicyEngine engine;
     private final CapabilityRegistry registry;
 
-    public PermissionTools(PermissionPolicy policy, CapabilityRegistry registry) {
-        this.policy = policy;
+    public PermissionTools(PolicyEngine engine, CapabilityRegistry registry) {
+        this.engine = engine;
         this.registry = registry;
     }
 
@@ -84,11 +84,11 @@ public final class PermissionTools {
                 .build();
         return new SyncToolSpecification(tool, (exchange, request) -> {
             StringBuilder sb = new StringBuilder();
-            sb.append("clearance: ").append(policy.clearance().tag())
-                    .append("  (restorable: ").append(policy.restorable()).append(")")
+            sb.append("clearance: ").append(engine.clearance().tag())
+                    .append("  (restorable: ").append(engine.restorable()).append(")")
                     .append(System.lineSeparator());
             for (Capability c : registry.capabilities()) {
-                sb.append(policy.allows(c.ring()) ? "  [ALLOW] " : "  [DENY ] ")
+                sb.append(registry.isAllowed(c) ? "  [ALLOW] " : "  [DENY ] ")
                         .append(c.name()).append("  ").append(c.ring().tag())
                         .append(System.lineSeparator());
             }
@@ -113,7 +113,7 @@ public final class PermissionTools {
             if (target == null) {
                 return err("unknown ring; use R-1, R0, R1, R2, or R3");
             }
-            Ring now = policy.dropTo(target);
+            Ring now = engine.dropTo(target);
             return ok("clearance is now " + now.tag()
                     + (now == target ? "" : " (already at or below " + target.tag() + ")"));
         });
@@ -132,7 +132,7 @@ public final class PermissionTools {
                         List.of("token")))
                 .build();
         return new SyncToolSpecification(tool, (exchange, request) -> {
-            if (!policy.restorable()) {
+            if (!engine.restorable()) {
                 return err("privilege restoration is disabled this session (no token configured)");
             }
             String token = arg(request.arguments(), "token");
@@ -140,8 +140,8 @@ public final class PermissionTools {
             if (target == null) {
                 target = Ring.R_MINUS_1;
             }
-            boolean restored = policy.tryRestore(target, token);
-            return restored ? ok("clearance restored to " + policy.clearance().tag())
+            boolean restored = engine.tryRestore(target, token);
+            return restored ? ok("clearance restored to " + engine.clearance().tag())
                             : err("restore denied: wrong or missing token");
         });
     }

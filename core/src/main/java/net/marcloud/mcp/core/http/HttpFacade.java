@@ -117,7 +117,7 @@ public final class HttpFacade {
             m.put("id", c.name());
             m.put("object", "tool");
             m.put("ring", c.ring().tag());
-            m.put("allowed", registry.policy().allows(c.ring()));
+            m.put("allowed", registry.isAllowed(c));
             m.put("description", c.description());
             data.add(m);
         }
@@ -135,7 +135,7 @@ public final class HttpFacade {
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("name", c.name());
             m.put("ring", c.ring().tag());
-            m.put("allowed", registry.policy().allows(c.ring()));
+            m.put("allowed", registry.isAllowed(c));
             m.put("builtin", c.builtIn());
             m.put("version", c.version());
             m.put("description", t.description());
@@ -152,12 +152,12 @@ public final class HttpFacade {
 
     private Map<String, Object> permissions() {
         Map<String, Object> out = new LinkedHashMap<>();
-        out.put("clearance", registry.policy().clearance().tag());
-        out.put("restorable", registry.policy().restorable());
+        out.put("clearance", registry.engine().clearance().tag());
+        out.put("restorable", registry.engine().restorable());
         List<Object> tools = new ArrayList<>();
         for (Capability c : registry.capabilities()) {
             tools.add(Map.of("name", c.name(), "ring", c.ring().tag(),
-                    "allowed", registry.policy().allows(c.ring())));
+                    "allowed", registry.isAllowed(c)));
         }
         out.put("tools", tools);
         return out;
