@@ -106,7 +106,10 @@ public final class HookTools {
             Map<String, Object> a = request.arguments();
             String targetClass = arg(a, "targetClass");
             String method = arg(a, "method");
-            if (targetClass == null || method == null) {
+            // Reject blank/whitespace as well as null (MEDIUM#11): a blank method
+            // name resolves to no hookable method, so it must never reach install.
+            if (targetClass == null || targetClass.isBlank()
+                    || method == null || method.isBlank()) {
                 return err("targetClass and method are required");
             }
 

@@ -9,6 +9,7 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -30,11 +31,13 @@ import net.marcloud.mcp.core.security.ToolRequest;
  * secret) then newline-delimited JSON {@code evaluate}/{@code clearance}/{@code
  * dropTo}/{@code tryRestore}/{@code restorable} calls. Bound to 127.0.0.1 only.
  *
- * <p>Single-threaded accept loop serving one connection at a time is sufficient:
- * decisions are cheap and the client keeps a long-lived connection. Every failure
- * is contained so a bad frame cannot kill the authority.
+ * <p>The accept loop owns one replaceable client worker. A new connection closes
+ * the previous client, and bounded reads contain silent or oversized frames.
  */
 public final class PSecureServer {
+
+    private static final int READ_TIMEOUT_MILLIS = 1000;
+    private static final int MAX_FRAME_CHARS = 64 * 1024;
 
     private final PolicyEngine authority;
     private final int port;
@@ -43,6 +46,8 @@ public final class PSecureServer {
     private volatile ServerSocket serverSocket;
     private volatile boolean running;
     private volatile int boundPort = -1;
+    private final Object clientLock = new Object();
+    private Socket activeClient;
 
     public PSecureServer(PolicyEngine authority, int port, String authToken) {
         this.authority = authority;
@@ -77,7 +82,7 @@ public final class PSecureServer {
         while (running) {
             try {
                 Socket client = serverSocket.accept();
-                serveClient(client);
+                replaceClient(client);
             } catch (Throwable t) {
                 if (running) {
                     System.err.println("[P-SECURE] accept failed (continuing): " + t);
@@ -86,16 +91,30 @@ public final class PSecureServer {
         }
     }
 
+    private void replaceClient(Socket client) throws IOException {
+        client.setTcpNoDelay(true);
+        client.setSoTimeout(READ_TIMEOUT_MILLIS);
+        synchronized (clientLock) {
+            if (!running) {
+                closeQuietly(client);
+                return;
+            }
+            closeQuietly(activeClient);
+            activeClient = client;
+        }
+        Thread worker = new Thread(() -> serveClient(client), "p-secure-client");
+        worker.setDaemon(true);
+        worker.start();
+    }
+
     private void serveClient(Socket client) {
         try (Socket c = client;
              BufferedReader in = new BufferedReader(
                      new InputStreamReader(c.getInputStream(), StandardCharsets.UTF_8));
              BufferedWriter out = new BufferedWriter(
                      new OutputStreamWriter(c.getOutputStream(), StandardCharsets.UTF_8))) {
-            c.setTcpNoDelay(true);
-
             // Auth handshake: first line must carry the shared secret.
-            String authLine = in.readLine();
+            String authLine = readLine(in);
             if (authLine == null) {
                 return;
             }
@@ -107,12 +126,41 @@ public final class PSecureServer {
             writeLine(out, Map.of(PSecureProtocol.K_AUTHED, true));
 
             String line;
-            while ((line = in.readLine()) != null) {
+            while ((line = readLine(in)) != null) {
                 Map<String, Object> req = Json.readObject(line);
                 writeLine(out, handle(req));
             }
-        } catch (IOException e) {
+        } catch (SocketTimeoutException e) {
+            // A silent client loses its slot so another client can connect.
+        } catch (Throwable e) {
             // client gone / bad frame — contained.
+        } finally {
+            synchronized (clientLock) {
+                if (activeClient == client) {
+                    activeClient = null;
+                }
+            }
+        }
+    }
+
+    private static String readLine(BufferedReader in) throws IOException {
+        StringBuilder line = new StringBuilder();
+        while (true) {
+            int c = in.read();
+            if (c == -1) {
+                return line.isEmpty() ? null : line.toString();
+            }
+            if (c == '\n') {
+                int length = line.length();
+                if (length > 0 && line.charAt(length - 1) == '\r') {
+                    line.setLength(length - 1);
+                }
+                return line.toString();
+            }
+            if (line.length() >= MAX_FRAME_CHARS) {
+                throw new IOException("P-SECURE frame exceeds " + MAX_FRAME_CHARS + " characters");
+            }
+            line.append((char) c);
         }
     }
 
@@ -180,6 +228,20 @@ public final class PSecureServer {
         if (ss != null) {
             try {
                 ss.close();
+            } catch (IOException ignored) {
+                // best effort
+            }
+        }
+        synchronized (clientLock) {
+            closeQuietly(activeClient);
+            activeClient = null;
+        }
+    }
+
+    private static void closeQuietly(Socket socket) {
+        if (socket != null) {
+            try {
+                socket.close();
             } catch (IOException ignored) {
                 // best effort
             }

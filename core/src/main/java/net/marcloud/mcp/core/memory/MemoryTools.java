@@ -80,8 +80,14 @@ public final class MemoryTools {
                     }
                 }
             }
-            String id = store.write(title, content, tags);
-            return ok("remembered as " + id + " (" + store.size() + " total)");
+            try {
+                String id = store.write(title, content, tags);
+                return ok("remembered as " + id + " (" + store.size() + " total)");
+            } catch (java.io.UncheckedIOException io) {
+                // Persistence failed and the in-memory add was rolled back — report
+                // the truth so the AI doesn't believe a lost memory was saved.
+                return err("failed to persist memory (not saved): " + io.getMessage());
+            }
         });
     }
 
@@ -125,7 +131,13 @@ public final class MemoryTools {
             if (id == null) {
                 return err("id is required");
             }
-            return store.delete(id) ? ok("deleted " + id) : err("no memory with id " + id);
+            try {
+                return store.delete(id) ? ok("deleted " + id) : err("no memory with id " + id);
+            } catch (java.io.UncheckedIOException io) {
+                // Persistence failed and the in-memory removal was rolled back —
+                // report failure so the deletion isn't falsely confirmed.
+                return err("failed to persist deletion (not deleted): " + io.getMessage());
+            }
         });
     }
 }

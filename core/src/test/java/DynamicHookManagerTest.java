@@ -90,24 +90,51 @@ public class DynamicHookManagerTest {
      */
     @Test
     public void capabilityGateDenies() {
+        // Non-vacuous (audit #15): drive the REAL install_hook tool handler through
+        // a deny-all gate and assert the tool call is refused naming the capability.
+        // The earlier version asserted on a locally-defined lambda it called itself,
+        // which tested nothing about HookTools. Here the gate is wired INTO HookTools
+        // and reached via the tool's own call path.
         EventBus bus = new EventBus();
         DynamicHookManager mgr = new DynamicHookManager(null, bus);
 
-        // A deny-all gate: require() always throws.
         AccessGate denyAll = (cap, privs) -> {
             throw new SecurityException("capability " + cap + " not granted");
         };
-        try {
-            denyAll.require(CapabilitySid.CAP_CLASS_RETRANSFORM);
-            fail("expected SecurityException when capability absent");
-        } catch (SecurityException e) {
-            assertTrue("message names the capability",
-                    e.getMessage().contains("CAP_CLASS_RETRANSFORM"));
-        }
+        HookTools denied = new HookTools(mgr, denyAll);
+        io.modelcontextprotocol.spec.McpSchema.CallToolResult r = invokeInstallHook(
+                denied, "net.minecraft.network.NetworkManager", "channelRead0");
+        assertTrue("deny-all gate makes install_hook an error", Boolean.TRUE.equals(r.isError()));
+        assertTrue("error names the required capability",
+                r.content().toString().contains("CAP_CLASS_RETRANSFORM"));
 
-        // HookTools accepts the gate; the wildcard dev gate allows through.
-        HookTools tools = new HookTools(mgr, new AllowAllGate());
-        assertNotNull(tools);
+        // An allow-all gate passes the gate; without an agent it then fails at the
+        // instrumentation step (a DIFFERENT error), proving the gate — not the
+        // agent check — is what denied the first call.
+        HookTools allowed = new HookTools(mgr, new AllowAllGate());
+        io.modelcontextprotocol.spec.McpSchema.CallToolResult r2 = invokeInstallHook(
+                allowed, "net.minecraft.network.NetworkManager", "channelRead0");
+        assertTrue("allow-all still errors (no agent) but past the gate",
+                Boolean.TRUE.equals(r2.isError()));
+        assertFalse("allow-all error is NOT a capability denial",
+                r2.content().toString().contains("CAP_CLASS_RETRANSFORM"));
+    }
+
+    /** Invoke the install_hook tool spec from a HookTools instance via a registry. */
+    private static io.modelcontextprotocol.spec.McpSchema.CallToolResult invokeInstallHook(
+            HookTools tools, String targetClass, String method) {
+        net.marcloud.mcp.core.registry.SafeToolExecutor exec =
+                new net.marcloud.mcp.core.registry.SafeToolExecutor(2, 2000L);
+        net.marcloud.mcp.core.registry.CapabilityRegistry reg =
+                new net.marcloud.mcp.core.registry.CapabilityRegistry(exec,
+                        new net.marcloud.mcp.core.security.InProcessPolicyEngine(
+                                new net.marcloud.mcp.core.security.PermissionPolicy(
+                                        net.marcloud.mcp.core.security.Ring.R_MINUS_1, "tok")));
+        tools.registerAll(reg);
+        io.modelcontextprotocol.spec.McpSchema.CallToolResult r =
+                reg.invoke("install_hook", java.util.Map.of("targetClass", targetClass, "method", method));
+        exec.shutdown();
+        return r;
     }
 
     /**
@@ -227,6 +254,36 @@ public class DynamicHookManagerTest {
         // list() should be empty
         List<DynamicHookManager.HookRecord> remaining = mgr.list();
         assertTrue("list() empty after uninstall", remaining.isEmpty());
+    }
+
+    /**
+     * MEDIUM#8 — uninstallAll() (called by McpCore.stop()/close()) reverts every
+     * installed hook so dynamic advice does not outlive the server. Uses a live
+     * agent; self-skips if self-attach is unavailable.
+     */
+    @Test
+    public void uninstallAllRevertsEveryHook() {
+        Instrumentation inst;
+        try {
+            inst = net.bytebuddy.agent.ByteBuddyAgent.install();
+        } catch (Throwable t) {
+            Assume.assumeNoException("ByteBuddyAgent self-attach failed", t);
+            return;
+        }
+        Assume.assumeTrue("Instrumentation supports retransform",
+                inst != null && inst.isRetransformClassesSupported());
+
+        EventBus bus = new EventBus();
+        DynamicHookManager mgr = new DynamicHookManager(inst, bus);
+        String hookId = mgr.install(Sample.class.getName(), "probe");
+        assertNotNull(hookId);
+        assertEquals("one hook installed", 1, mgr.size());
+
+        int failed = mgr.uninstallAll();
+        assertEquals("all hooks reverted cleanly (0 failures)", 0, failed);
+        assertEquals("no hooks remain after uninstallAll", 0, mgr.size());
+        // Idempotent: a second call has nothing to do and reports 0 failures.
+        assertEquals("uninstallAll on empty manager is a clean no-op", 0, mgr.uninstallAll());
     }
 
     /**

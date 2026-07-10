@@ -135,6 +135,17 @@ public final class ToolRegistry {
             }
             var entries = ctx.packetLog().recent(count);
             if (entries.isEmpty()) {
+                // Distinguish "source unavailable" from "genuinely empty": the
+                // packet tap is fed by network hooks that require -javaagent
+                // Instrumentation (see McpCore/HookManager). Without it, packets
+                // are NEVER recorded, so an empty ring must not be reported as an
+                // authoritative "no packets" — that conflates a missing sensor
+                // with a real negative observation.
+                if (!net.marcloud.mcp.core.agent.AgentAccess.isLoaded()) {
+                    return error("packet tap unavailable: network packet hooks require "
+                            + "-javaagent Instrumentation, which is not loaded, so no packets "
+                            + "are being observed. This is NOT an authoritative 'no packets'.");
+                }
                 return ok("(no packets recorded yet)");
             }
             StringBuilder sb = new StringBuilder();

@@ -59,7 +59,7 @@ import net.marcloud.mcp.core.event.EventBus;
  * <p>All public methods are {@code synchronized} to serialize hook bookkeeping
  * and prevent races between concurrent install/uninstall on the same class.
  */
-public final class DynamicHookManager implements HookSource {
+public final class DynamicHookManager implements HookSource, AutoCloseable {
 
     private final Instrumentation inst;
     private final EventBus bus;
@@ -142,14 +142,16 @@ public final class DynamicHookManager implements HookSource {
                     "refusing to hook protected class " + targetClassName);
         }
 
-        // 2. GATE: Instrumentation present + retransform supported
-        if (!canInstall()) {
-            throw new IllegalStateException(
-                    "Cannot install hooks: Instrumentation/retransform unavailable. "
-                    + "Start with -javaagent:core-agent.jar");
+        // 2. Reject a blank/whitespace method name (MEDIUM#11): a hook whose
+        // method never resolves can never fire, so record nothing.
+        if (methodName == null || methodName.isBlank()) {
+            throw new IllegalArgumentException(
+                    "method name must not be blank for hook on " + targetClassName);
         }
 
-        // 3. Resolve the target (without forcing load) and check modifiability
+        // 3. Resolve the target (without forcing load). Done BEFORE the retransform
+        // gate so the method-existence check below is verifiable without a live
+        // agent (mirrors the denylist ordering rationale).
         Class<?> targetClass;
         try {
             targetClass = Class.forName(targetClassName, false, getClass().getClassLoader());
@@ -157,18 +159,37 @@ public final class DynamicHookManager implements HookSource {
             throw new RuntimeException(
                     "target class not loaded or not found: " + targetClassName, e);
         }
+
+        // 4. Require at least one matching DECLARED method (MEDIUM#11): the advice
+        // matches ElementMatchers.named(methodName) on this exact type, so with no
+        // declared method of that name the retransform has NO target and the hook
+        // could never fire. Reject and record nothing rather than hand back a dead
+        // hookId.
+        if (!hasDeclaredMethod(targetClass, methodName)) {
+            throw new IllegalArgumentException(
+                    "no matching method '" + methodName + "' declared on " + targetClassName);
+        }
+
+        // 5. GATE: Instrumentation present + retransform supported
+        if (!canInstall()) {
+            throw new IllegalStateException(
+                    "Cannot install hooks: Instrumentation/retransform unavailable. "
+                    + "Start with -javaagent:core-agent.jar");
+        }
+
+        // 6. Check modifiability (needs the live Instrumentation handle)
         if (!inst.isModifiableClass(targetClass)) {
             throw new RuntimeException(
                     "target class is not modifiable: " + targetClassName);
         }
 
-        // 4. Allocate routeKey + hookId, register route BEFORE installOn (advice
+        // 7. Allocate routeKey + hookId, register route BEFORE installOn (advice
         // may fire immediately on a hot method)
         int routeKey = routeSeq.getAndIncrement();
         String hookId = targetClassName + "#" + methodName + "@" + routeKey;
         HookBridge.registerRoute(routeKey, bus, targetClassName, methodName);
 
-        // 5. Build the AgentBuilder with the appropriate advice visitor
+        // 8. Build the AgentBuilder with the appropriate advice visitor
         ResettableClassFileTransformer transformer;
         try {
             AgentBuilder.Transformer adviceTransformer;
@@ -200,10 +221,28 @@ public final class DynamicHookManager implements HookSource {
                     "failed to install hook on " + targetClassName + "." + methodName, t);
         }
 
-        // 6. Record the hook
+        // 9. Record the hook
         hooks.put(hookId, new HookRecord(hookId, targetClassName, methodName,
                 routeKey, transformer, System.nanoTime()));
         return hookId;
+    }
+
+    /**
+     * True if {@code targetClass} (or any of its superclasses) declares at least
+     * one method named {@code methodName}. Matches the advice's
+     * {@code ElementMatchers.named(methodName)} target selection: if no such
+     * declared method exists, the retransform has nothing to instrument and the
+     * hook could never fire, so {@link #install} must reject it.
+     */
+    private static boolean hasDeclaredMethod(Class<?> targetClass, String methodName) {
+        for (Class<?> c = targetClass; c != null && c != Object.class; c = c.getSuperclass()) {
+            for (java.lang.reflect.Method m : c.getDeclaredMethods()) {
+                if (m.getName().equals(methodName)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /**
@@ -216,7 +255,9 @@ public final class DynamicHookManager implements HookSource {
      * @param hookId the hookId returned by {@link #install}
      * @return true if the hook existed and was successfully reverted, false if
      *         the hookId was unknown or the transformer returned false (class
-     *         no longer modifiable, etc.)
+     *         no longer modifiable, etc.). On a false-from-reset the hook record
+     *         and its route are RETAINED (still listed) so the uninstall can be
+     *         retried; only a confirmed successful reset removes the record.
      */
     public synchronized boolean uninstall(String hookId) {
         HookRecord r = hooks.get(hookId);
@@ -224,14 +265,19 @@ public final class DynamicHookManager implements HookSource {
             return false;
         }
         boolean reverted = r.transformer().reset(inst, AgentBuilder.RedefinitionStrategy.RETRANSFORMATION);
-        // Deregister the route and drop the record UNCONDITIONALLY: even if the
-        // reset failed (class no longer modifiable), keeping the route +
-        // transformer handle around forever is a worse leak than a stale advice
-        // whose dispatch now no-ops (HookBridge.dispatch returns on a missing
-        // route). The return value still reports whether the bytecode reverted.
+        if (!reverted) {
+            // RETAIN on failure (MEDIUM#8): a failed reset means the bytecode was
+            // NOT reverted, so dropping the record here would lose the only handle
+            // that can retry the revert — leaving live advice installed with no way
+            // to remove it. Keep both the record and its route so uninstall(hookId)
+            // can be called again once the class is modifiable. The route must stay
+            // too, or a fire on the still-installed advice would hit a dead route.
+            return false;
+        }
+        // Confirmed revert: now it is safe to drop the record and its route.
         hooks.remove(hookId);
         HookBridge.unregisterRoute(r.routeKey());
-        return reverted;
+        return true;
     }
 
     /**
@@ -245,6 +291,35 @@ public final class DynamicHookManager implements HookSource {
     /** Number of currently-installed hooks. */
     public int size() {
         return hooks.size();
+    }
+
+    /**
+     * Revert every installed hook (MEDIUM#8). Called on Core shutdown so dynamic
+     * advice does not outlive the server and keep firing into a dead bridge.
+     * Iterates a snapshot of hook ids; a hook whose reset returns false is
+     * RETAINED by {@link #uninstall} (its bytecode was not reverted), so this
+     * reports how many could not be torn down rather than lying about a clean stop.
+     *
+     * @return the number of hooks that could NOT be reverted (0 = all clean)
+     */
+    public synchronized int uninstallAll() {
+        int failed = 0;
+        for (String hookId : new ArrayList<>(hooks.keySet())) {
+            if (!uninstall(hookId)) {
+                failed++;
+            }
+        }
+        return failed;
+    }
+
+    /** {@link AutoCloseable}: revert all hooks on close (best-effort teardown). */
+    @Override
+    public void close() {
+        int failed = uninstallAll();
+        if (failed > 0) {
+            System.err.println("[DynamicHookManager] " + failed
+                    + " hook(s) could not be reverted on close (class no longer modifiable)");
+        }
     }
 
     // ---- HookSource: expose dynamic hooks to the aggregate list_hooks tool ----

@@ -1,6 +1,6 @@
 package net.marcloud.mcp.core.seam;
 
-import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 
 import net.marcloud.mcp.core.GameAccess;
 import net.marcloud.mcp.core.event.EventBus;
@@ -19,6 +19,12 @@ import org.lwjgl.glfw.GLFWMouseButtonCallback;
  * guarded behind {@link #isAvailable()} for headless test safety.
  */
 public final class InputHook {
+
+    /** LWJGL2-compat Display façade that exposes the real GLFW window handle. */
+    private static final String DISPLAY_CLASS = "org.lwjgl.opengl.Display";
+    /** Display's "no window" sentinel (LWJGL2 ABI); GLFW NULL is 0L. Both mean
+     *  "no live window" for our purposes. */
+    private static final long NO_WINDOW_SENTINEL = -1L;
 
     private final GameAccess game;
     private final EventBus bus;
@@ -58,25 +64,53 @@ public final class InputHook {
         if (glfwWindow != 0L) {
             return glfwWindow;
         }
-        try {
-            // Minecraft 1.8.9 with LWJGL3: the window handle is typically in
-            // Display.window or a similar field. Scan Minecraft for a long
-            // field that looks like a GLFW window.
-            Object mc = game.mc();
-            for (Field f : mc.getClass().getDeclaredFields()) {
-                if (f.getType() == long.class) {
-                    f.setAccessible(true);
-                    long val = f.getLong(mc);
-                    // GLFW window handles are non-zero pointers.
-                    if (val != 0L) {
-                        glfwWindow = val;
-                        return val;
-                    }
-                }
-            }
+        long handle = resolveWindowHandle();
+        // Treat both GLFW NULL (0L) and the LWJGL2 "not created" sentinel (-1L)
+        // as "no window". Never cache a bogus value.
+        if (handle == 0L || handle == NO_WINDOW_SENTINEL) {
             return 0L;
-        } catch (Exception e) {
-            System.err.println("[InputHook] failed to acquire window: " + e);
+        }
+        glfwWindow = handle;
+        return handle;
+    }
+
+    /**
+     * Resolve the real GLFW window handle via the explicit LWJGL3-compat display
+     * accessor ({@code org.lwjgl.opengl.Display.getWindow()}), NOT by guessing a
+     * "first nonzero long" field — a heuristic that can latch onto an unrelated
+     * long (e.g. a systemTime) and report a bogus handle. If the accessor is
+     * genuinely unavailable, we fail honestly and return 0L rather than guess.
+     *
+     * @return the window handle from the display API, or 0L if it cannot be
+     *         resolved honestly.
+     */
+    private long resolveWindowHandle() {
+        return resolveWindowHandle(DISPLAY_CLASS);
+    }
+
+    /**
+     * Resolve the window handle from {@code className}'s static {@code getWindow()}
+     * accessor. Package-private (not private) so the reset-heuristic regression
+     * (HIGH#7) can be exercised headlessly against fixture display classes.
+     *
+     * <p>Crucially, this NEVER scans for "the first nonzero long" — if the class
+     * has no usable {@code getWindow()} accessor, it returns 0L (honest "no
+     * window") rather than latching onto some unrelated long field.
+     */
+    static long resolveWindowHandle(String className) {
+        try {
+            Class<?> display = Class.forName(className);
+            Method getWindow = display.getMethod("getWindow");
+            Object result = getWindow.invoke(null);
+            if (result instanceof Long) {
+                return (Long) result;
+            }
+            // Accessor exists but did not yield a long handle: do not guess.
+            return 0L;
+        } catch (ReflectiveOperationException | LinkageError e) {
+            // Explicit accessor is genuinely unavailable — report unavailable
+            // honestly instead of scanning for an arbitrary long field.
+            System.err.println("[InputHook] window accessor unavailable, reporting no window: " + e);
             return 0L;
         }
     }

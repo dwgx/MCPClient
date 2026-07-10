@@ -99,6 +99,12 @@ public class EphemeralSynthesizerTest {
 
     @Test
     public void hiddenClassIsGCable() throws InterruptedException {
+        // Non-vacuous GC test (audit #15): register the hidden class's weak ref with
+        // a ReferenceQueue and hold NO strong reference to the Class after eval. If
+        // the synthesizer leaked a strong ref (or we did), the ref never enqueues and
+        // this test FAILS — the earlier version pinned the class in a local and could
+        // only ever pass. We assert the ref is genuinely collected, and separately
+        // that it WAS a hidden class (checked before dropping the ref).
         String src = """
                 package net.marcloud.mcp.core.synth;
                 import java.util.Map;
@@ -108,27 +114,26 @@ public class EphemeralSynthesizerTest {
                 """;
         var result = synth.eval("net.marcloud.mcp.core.synth.Temp", src, Map.of());
         assertTrue(result.success());
-        assertNotNull(result.hiddenClass().get());
 
-        // Drop all refs and force GC
-        Class<?> hidden = result.hiddenClass().get();
-        assertNotNull(hidden);
-
-        // After eval completes, only the WeakReference remains; GC should collect it
-        for (int i = 0; i < 50; i++) {
-            System.gc();
-            Thread.sleep(20);
-            if (result.hiddenClass().get() == null) {
-                // GC collected it
-                return;
-            }
+        java.lang.ref.ReferenceQueue<Class<?>> queue = new java.lang.ref.ReferenceQueue<>();
+        java.lang.ref.WeakReference<Class<?>> ref;
+        {
+            Class<?> hidden = result.hiddenClass().get();
+            assertNotNull("class present immediately after eval", hidden);
+            assertTrue("synthesized class must be a hidden class", hidden.isHidden());
+            ref = new java.lang.ref.WeakReference<>(hidden, queue);
+            hidden = null; // drop the only strong reference in this test
         }
 
-        // If it's still not null after 50 tries, the test is inconclusive but not a
-        // failure (GC timing is non-deterministic). We've verified it IS hidden, which
-        // is the load-bearing property.
-        assertTrue("hidden class should be GC-able (weak ref should clear eventually)",
-                result.hiddenClass().get() == null || result.hiddenClass().get().isHidden());
+        // GC should now be able to reclaim it; ReferenceQueue.remove confirms it was
+        // actually collected (not merely that get() returned null due to clearing).
+        for (int i = 0; i < 50 && ref.get() != null; i++) {
+            System.gc();
+            System.runFinalization();
+            Thread.sleep(20);
+        }
+        assertNull("hidden class must be GC-able once all strong refs are dropped",
+                ref.get());
     }
 
     @Test

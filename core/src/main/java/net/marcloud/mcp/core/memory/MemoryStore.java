@@ -2,9 +2,12 @@ package net.marcloud.mcp.core.memory;
 
 import java.io.IOException;
 import java.io.Reader;
+import java.io.UncheckedIOException;
 import java.io.Writer;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -64,32 +67,74 @@ public final class MemoryStore {
         }
     }
 
-    private void save() {
+    /**
+     * Persist the current entries transactionally: write to a sibling temp file,
+     * fsync-free flush via try-with-resources, then atomically move it over the
+     * target. Either the old file survives intact or the new one fully replaces
+     * it — a partial/torn file is never observed. On any failure the IOException
+     * is PROPAGATED so callers can roll back the in-memory change and report the
+     * failure to the AI, instead of silently claiming success while data is lost
+     * on restart.
+     */
+    private void save() throws IOException {
         synchronized (lock) {
+            if (file.getParent() != null) {
+                Files.createDirectories(file.getParent());
+            }
+            Path dir = file.getParent();
+            Path tmp = (dir != null)
+                    ? Files.createTempFile(dir, ".mcp_memory", ".tmp")
+                    : Files.createTempFile(".mcp_memory", ".tmp");
             try {
-                if (file.getParent() != null) {
-                    Files.createDirectories(file.getParent());
-                }
-                try (Writer w = Files.newBufferedWriter(file)) {
+                try (Writer w = Files.newBufferedWriter(tmp)) {
                     GSON.toJson(new ArrayList<>(entries), w);
                 }
-            } catch (IOException e) {
-                System.err.println("[MCP Core] failed to save memory (" + file + "): " + e);
+                try {
+                    Files.move(tmp, file,
+                            StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+                } catch (AtomicMoveNotSupportedException atomicUnsupported) {
+                    // Some filesystems can't do an atomic cross-node move; fall back
+                    // to a plain replace (still no torn write of the target).
+                    Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING);
+                }
+            } catch (IOException | RuntimeException e) {
+                // Clean up the temp file; never leak it, and never leave the target
+                // half-written (we never wrote the target directly).
+                try {
+                    Files.deleteIfExists(tmp);
+                } catch (IOException ignored) {
+                    // best-effort cleanup
+                }
+                throw e;
             }
         }
     }
 
-    /** Add an experience; returns the assigned id. */
+    /**
+     * Add an experience; returns the assigned id.
+     *
+     * @throws UncheckedIOException if the entry could not be persisted. The
+     *         in-memory add is rolled back first, so a failed write leaves the
+     *         store exactly as it was (no phantom entry that vanishes on restart).
+     */
     public String write(String title, String content, List<String> tags) {
-        MemoryEntry e;
         synchronized (lock) {
-            String id = "m" + seq.incrementAndGet();
-            e = new MemoryEntry(id, title, content,
+            int assigned = seq.incrementAndGet();
+            String id = "m" + assigned;
+            MemoryEntry e = new MemoryEntry(id, title, content,
                     tags == null ? List.of() : List.copyOf(tags), System.currentTimeMillis());
             entries.add(e);
-            save();
+            try {
+                save();
+            } catch (IOException io) {
+                // Roll back the speculative add AND the id sequence so the store is
+                // untouched and the id can be reused on the next attempt.
+                entries.remove(e);
+                seq.compareAndSet(assigned, assigned - 1);
+                throw new UncheckedIOException("failed to persist memory (" + file + ")", io);
+            }
+            return e.id();
         }
-        return e.id();
     }
 
     /** All entries whose title/content/tags contain {@code query} (all if blank). */
@@ -107,14 +152,36 @@ public final class MemoryStore {
         }
     }
 
-    /** Delete by id; true if removed. */
+    /**
+     * Delete by id; true if removed and persisted, false if no such id.
+     *
+     * @throws UncheckedIOException if the removal could not be persisted. The
+     *         in-memory removal is rolled back first (entry re-inserted at its
+     *         original position), so a failed write leaves the store unchanged
+     *         rather than dropping the entry only in memory until the next restart
+     *         resurrects it.
+     */
     public boolean delete(String id) {
         synchronized (lock) {
-            boolean removed = entries.removeIf(e -> e.id().equals(id));
-            if (removed) {
-                save();
+            int idx = -1;
+            for (int i = 0; i < entries.size(); i++) {
+                if (entries.get(i).id().equals(id)) {
+                    idx = i;
+                    break;
+                }
             }
-            return removed;
+            if (idx < 0) {
+                return false;
+            }
+            MemoryEntry removed = entries.remove(idx);
+            try {
+                save();
+            } catch (IOException io) {
+                // Restore the entry at its original index so ordering is preserved.
+                entries.add(idx, removed);
+                throw new UncheckedIOException("failed to persist memory (" + file + ")", io);
+            }
+            return true;
         }
     }
 

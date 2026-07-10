@@ -203,6 +203,20 @@ public final class IntrospectionService {
             }
         }
 
+        // A clean empty result is only trustworthy when the search space is
+        // complete. Without Instrumentation loadedClasses() is the tiny curated
+        // seed (see fallbackClasses()), so "no matches" here means "not found in
+        // ~4 classes", NOT "not found in the JVM". Refuse to return that as an
+        // authoritative negative — raise so the tool layer surfaces isError with
+        // an explicit incompleteness reason instead of a misleading "(no matches)".
+        if (results.isEmpty() && !AgentAccess.isLoaded()) {
+            throw new IllegalStateException(
+                    "find_method ran in agentless/seed-only mode: without -javaagent "
+                    + "Instrumentation only a tiny seed set of classes is searchable, so an "
+                    + "empty result is NOT an authoritative 'no matches'. Start with "
+                    + "-javaagent to search all loaded classes.");
+        }
+
         return results;
     }
 

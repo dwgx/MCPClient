@@ -33,6 +33,21 @@ public final class TickInjector {
     private volatile ResettableClassFileTransformer transformer;
     private volatile Instrumentation inst;
 
+    /**
+     * The revert operation, abstracted so {@link #uninstall()}'s lifecycle can
+     * be exercised without a live {@code -javaagent} JVM. In production it
+     * delegates to {@code transformer.reset(inst, RETRANSFORMATION)}; a test may
+     * seed a controllable one via {@link #primeInstalledForTest}. Non-null iff
+     * a real (or seeded) install is live.
+     */
+    @FunctionalInterface
+    interface ResetAction {
+        /** @return true only if the retransform was confirmed reverted. */
+        boolean reset();
+    }
+
+    private volatile ResetAction resetAction;
+
     public TickInjector(EventBus bus) {
         this.bus = bus;
     }
@@ -66,6 +81,8 @@ public final class TickInjector {
                                 .on(ElementMatchers.named("runTick"))))
                 .installOn(inst);
         this.inst = inst;
+        this.resetAction = () -> transformer.reset(inst,
+                AgentBuilder.RedefinitionStrategy.RETRANSFORMATION);
         installed = true;
     }
 
@@ -76,14 +93,41 @@ public final class TickInjector {
      * seam_tick_disable tool wraps this.
      */
     public synchronized boolean uninstall() {
-        if (!installed || transformer == null || inst == null) {
+        if (!installed || resetAction == null) {
             return false;
         }
-        boolean reverted = transformer.reset(inst,
-                AgentBuilder.RedefinitionStrategy.RETRANSFORMATION);
+        boolean reverted;
+        try {
+            reverted = resetAction.reset();
+        } catch (RuntimeException | Error e) {
+            // reset() blew up: the advice is still installed. Keep our state and
+            // handles intact so the caller sees the honest failure and can retry,
+            // rather than orphaning live advice behind an "uninstalled" claim.
+            System.err.println("[TickInjector] tick reset threw, retaining state: " + e);
+            return false;
+        }
+        if (!reverted) {
+            // reset() reported it could not revert. Do NOT clear installed /
+            // transformer / resetAction — stale advice would otherwise stay live
+            // while the manager wrongly believes it is gone and could never retry.
+            return false;
+        }
+        // Confirmed reverted — only now is it safe to drop the install state.
         transformer = null;
+        resetAction = null;
+        inst = null;
         installed = false;
-        return reverted;
+        return true;
+    }
+
+    /**
+     * Test seam: simulate a live install whose revert is governed by {@code action},
+     * without a {@code -javaagent} JVM or a real Minecraft retransform. Lets the
+     * reset-failure lifecycle (HIGH audit finding) be exercised headlessly.
+     */
+    synchronized void primeInstalledForTest(ResetAction action) {
+        this.resetAction = action;
+        this.installed = true;
     }
 
     public boolean isInstalled() {

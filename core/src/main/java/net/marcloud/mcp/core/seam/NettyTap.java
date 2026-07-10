@@ -1,6 +1,10 @@
 package net.marcloud.mcp.core.seam;
 
 import java.lang.reflect.Field;
+import java.util.ArrayList;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
@@ -30,9 +34,8 @@ public final class NettyTap {
     private final GameAccess game;
     private final EventBus bus;
     private volatile Channel trackedChannel;
-    /** Handler name -> the exact channel it was installed on, so a handler on a
-     *  now-stale channel (after reconnect) can still be removed rather than leaked. */
-    private final java.util.Map<String, Channel> installedOn = new java.util.concurrent.ConcurrentHashMap<>();
+    /** Handler name -> every channel it was installed on, including stale channels. */
+    private final Map<String, Set<Channel>> installedOn = new ConcurrentHashMap<>();
 
     public NettyTap(GameAccess game, EventBus bus) {
         this.game = game;
@@ -79,6 +82,10 @@ public final class NettyTap {
         if (ch == null) {
             return false;
         }
+        return installHandler(ch, name, handler);
+    }
+
+    boolean installHandler(Channel ch, String name, ChannelDuplexHandler handler) {
         try {
             ChannelPipeline p = ch.pipeline();
             if (p.get(name) != null) {
@@ -86,7 +93,7 @@ public final class NettyTap {
                 return false;
             }
             p.addLast(name, handler);
-            installedOn.put(name, ch);
+            installedOn.computeIfAbsent(name, ignored -> ConcurrentHashMap.newKeySet()).add(ch);
             return true;
         } catch (Exception e) {
             System.err.println("[NettyTap] failed to install handler '" + name + "': " + e);
@@ -101,30 +108,32 @@ public final class NettyTap {
      * @return true if removed, false if not found or on failure
      */
     public boolean removeHandler(String name) {
-        // Prefer the exact channel the handler was installed on (survives a
-        // reconnect that moved trackedChannel), else fall back to the current one.
-        Channel ch = installedOn.getOrDefault(name, trackedChannel);
-        if (ch == null) {
+        Set<Channel> channels = installedOn.remove(name);
+        if (channels == null || channels.isEmpty()) {
+            Channel current = trackedChannel;
+            channels = current == null ? Set.of() : Set.of(current);
+        }
+        if (channels.isEmpty()) {
             return false;
         }
-        try {
-            ChannelPipeline p = ch.pipeline();
-            if (p.get(name) == null) {
-                installedOn.remove(name);
-                return false;
+        boolean removed = false;
+        for (Channel ch : channels) {
+            try {
+                ChannelPipeline p = ch.pipeline();
+                if (p.get(name) != null) {
+                    p.remove(name);
+                    removed = true;
+                }
+            } catch (Exception e) {
+                System.err.println("[NettyTap] failed to remove handler '" + name + "': " + e);
             }
-            p.remove(name);
-            installedOn.remove(name);
-            return true;
-        } catch (Exception e) {
-            System.err.println("[NettyTap] failed to remove handler '" + name + "': " + e);
-            return false;
         }
+        return removed;
     }
 
     /** Remove every handler this tap installed, across all channels it tracked. */
     public void removeAll() {
-        for (String name : new java.util.ArrayList<>(installedOn.keySet())) {
+        for (String name : new ArrayList<>(installedOn.keySet())) {
             removeHandler(name);
         }
     }
@@ -155,6 +164,10 @@ public final class NettyTap {
     @ChannelHandler.Sharable
     public static final class PacketTapHandler extends ChannelDuplexHandler {
 
+        /** Immutable metadata published for decoded, mutable message objects. */
+        public record MessageSnapshot(String className) {
+        }
+
         private final EventBus bus;
 
         public PacketTapHandler(EventBus bus) {
@@ -183,18 +196,17 @@ public final class NettyTap {
 
         /**
          * Enforce the wire-bytes-frozen contract at the observation boundary: a
-         * subscriber must not be able to mutate the live buffer that continues
-         * down the pipeline. For a {@link ByteBuf} we hand out a read-only view
-         * over a duplicate (independent reader index, shared-but-unwritable
-         * content); other message types (decoded Packets) are passed as-is —
-         * observers may read them but the frozen-bytes rule is specifically about
-         * the on-wire buffer.
+         * subscriber must not be able to mutate the live message that continues
+         * down the pipeline. Byte buffers are copied into read-only snapshots;
+         * decoded objects are represented only by immutable class metadata.
          */
         private static Object frozen(Object msg) {
             if (msg instanceof ByteBuf b) {
-                return Unpooled.unmodifiableBuffer(b.duplicate());
+                byte[] bytes = new byte[b.readableBytes()];
+                b.getBytes(b.readerIndex(), bytes);
+                return Unpooled.unmodifiableBuffer(Unpooled.wrappedBuffer(bytes));
             }
-            return msg;
+            return new MessageSnapshot(msg == null ? "null" : msg.getClass().getName());
         }
     }
 }

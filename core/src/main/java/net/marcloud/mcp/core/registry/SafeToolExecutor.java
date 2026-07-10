@@ -96,7 +96,15 @@ public final class SafeToolExecutor {
 
         long timeout = timeoutMillis > 0 ? timeoutMillis : defaultTimeoutMillis;
         ExecutorService pool = recovery ? recoveryPool : generalPool;
-        Callable<CallToolResult> task = () -> handler.apply(exchange, request);
+        TaskState state = new TaskState();
+        Callable<CallToolResult> task = () -> {
+            state.enter();
+            try {
+                return handler.apply(exchange, request);
+            } finally {
+                state.exit(abandoned);
+            }
+        };
         Future<CallToolResult> future = pool.submit(task);
         try {
             CallToolResult result = future.get(timeout, TimeUnit.MILLISECONDS);
@@ -106,12 +114,8 @@ public final class SafeToolExecutor {
             stats.recordSuccess();
             return result;
         } catch (TimeoutException e) {
-            // cancel(true) only interrupts; the worker may keep running. Track it
-            // as abandoned until it actually finishes, and decrement then.
-            if (!future.cancel(true)) {
-                abandoned.incrementAndGet();
-                trackAbandonment(future);
-            }
+            future.cancel(true);
+            state.markAbandonedIfRunning(abandoned);
             stats.recordFailure("timeout after " + timeout + "ms", true);
             return errorResult("tool '" + stats.toolName() + "' timed out after " + timeout
                     + "ms (interrupt requested; CPU-bound code may keep running)");
@@ -122,18 +126,29 @@ public final class SafeToolExecutor {
         }
     }
 
-    /** Decrement the abandoned counter once the runaway task really completes. */
-    private void trackAbandonment(Future<CallToolResult> future) {
-        Thread watcher = new Thread(() -> {
-            try {
-                future.get(); // waits for the runaway to end (or stay forever)
-            } catch (Throwable ignored) {
-            } finally {
-                abandoned.decrementAndGet();
+    private static final class TaskState {
+        private boolean entered;
+        private boolean exited;
+        private boolean abandoned;
+
+        synchronized void enter() {
+            entered = true;
+        }
+
+        synchronized void markAbandonedIfRunning(AtomicInteger count) {
+            if (entered && !exited && !abandoned) {
+                abandoned = true;
+                count.incrementAndGet();
             }
-        }, "mcp-abandon-watch");
-        watcher.setDaemon(true);
-        watcher.start();
+        }
+
+        synchronized void exit(AtomicInteger count) {
+            exited = true;
+            if (abandoned) {
+                abandoned = false;
+                count.decrementAndGet();
+            }
+        }
     }
 
     private static CallToolResult errorResult(String message) {

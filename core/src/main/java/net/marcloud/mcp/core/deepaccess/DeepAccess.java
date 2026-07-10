@@ -118,10 +118,14 @@ public final class DeepAccess {
         guardProtected(t.getClass());
 
         Field f = resolveField(t.getClass(), name);
+        // Hierarchy walk may resolve to a superclass; guard the DECLARING class too
+        // so a non-protected subclass cannot reach a protected super's field.
+        guardProtected(f.getDeclaringClass());
         Object coerced = ValueCodec.coerce(f.getType(), value, roots);
 
         if (Modifier.isFinal(f.getModifiers())) {
-            // final: use Unsafe
+            // final: use Unsafe (independent declaring-class check at the choke point)
+            guardProtected(f.getDeclaringClass());
             unsafe.putInstance(t, f, coerced);
         } else {
             // non-final: VarHandle
@@ -144,11 +148,14 @@ public final class DeepAccess {
         guardProtected(owner);
 
         Field f = resolveField(owner, name);
+        // Hierarchy walk may resolve to a superclass; guard the DECLARING class too.
+        guardProtected(f.getDeclaringClass());
         Object coerced = ValueCodec.coerce(f.getType(), value, roots);
 
         int mods = f.getModifiers();
         if (Modifier.isFinal(mods) || Modifier.isStatic(mods)) {
             // static final OR any static final -> Unsafe (VarHandle refuses static final)
+            guardProtected(f.getDeclaringClass());
             unsafe.putStatic(f, coerced);
         } else {
             // non-final static: VarHandle
@@ -177,6 +184,8 @@ public final class DeepAccess {
         guardProtected(t.getClass());
 
         Method m = resolveMethod(t.getClass(), methodName, paramTypes);
+        // Hierarchy walk may resolve to a superclass method; guard the DECLARING class.
+        guardProtected(m.getDeclaringClass());
         MethodHandles.Lookup lookup = lookupFor(t.getClass());
         MethodHandle mh = lookup.unreflect(m);
 
@@ -194,6 +203,8 @@ public final class DeepAccess {
         guardProtected(owner);
 
         Method m = resolveMethod(owner, methodName, paramTypes);
+        // Hierarchy walk may resolve to a superclass method; guard the DECLARING class.
+        guardProtected(m.getDeclaringClass());
         MethodHandles.Lookup lookup = lookupFor(owner);
         MethodHandle mh = lookup.unreflect(m);
 

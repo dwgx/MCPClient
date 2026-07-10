@@ -67,6 +67,9 @@ public final class McpCore {
     private SocketTransportServer socketServer;
     private HttpFacade httpFacade;
     private net.marcloud.mcp.core.seam.SeamController seams;
+    // MEDIUM#8: kept as a field so stop() can revert dynamic hooks before the
+    // transports go down, instead of letting installed advice outlive the server.
+    private net.marcloud.mcp.core.hook.DynamicHookManager dynHooks;
 
     /**
      * Assemble and start Core. Installs runtime hooks (if Instrumentation is
@@ -111,7 +114,8 @@ public final class McpCore {
 
         // C3 INTERCEPT: dynamic (install/uninstall/reset) hooks, sharing the
         // captured Instrumentation. Coexists with the fixed HookManager above.
-        DynamicHookManager dynHooks = new DynamicHookManager(
+        // Assigned to the field so stop() can tear its hooks down (MEDIUM#8).
+        dynHooks = new DynamicHookManager(
                 net.marcloud.mcp.core.agent.AgentAccess.instrumentation(), bus);
 
         ToolContext ctx = new ToolContext(game, actions, hotLoad, packetLog, disconnects);
@@ -219,16 +223,24 @@ public final class McpCore {
         }
     }
 
-    /** Stop the MCP server + REST facade, and tear down any installed seams. */
+    /**
+     * Stop the MCP server + REST facade, and tear down every runtime modification
+     * this Core installed (dynamic hooks + seams) so nothing outlives the server
+     * (MEDIUM#8). Dynamic hooks and seams are reverted BEFORE the transports close,
+     * so installed advice stops firing into a half-torn-down system.
+     */
     public void stop() {
+        if (dynHooks != null) {
+            dynHooks.close();  // revert all dynamic ByteBuddy advice (MEDIUM#8)
+        }
+        if (seams != null) {
+            seams.uninstallAll();
+        }
         if (socketServer != null) {
             socketServer.close();
         }
         if (httpFacade != null) {
             httpFacade.stop();
-        }
-        if (seams != null) {
-            seams.uninstallAll();
         }
     }
 
