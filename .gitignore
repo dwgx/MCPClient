@@ -31,3 +31,8 @@ logs/
 
 # Compiled C6 JVMTI agent (rebuild via core/src/main/native/core-jvmti/build-clang.sh)
 core-jvmti.dll
+
+# --- AI working notes (handoffs, per-area design notes, known-issues, agent
+#     instructions like CLAUDE.md/CONTRIBUTING/SECURITY). AI-only scratch;
+#     never committed. See .ai-notes/README.md for the index. ---
+.ai-notes/
