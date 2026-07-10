@@ -37,8 +37,9 @@ public final class HookBridge {
         }
         try {
             b.publish(new PacketReceivedEvent((Packet<?>) packet));
-        } catch (RuntimeException ignored) {
-            // never let observation break the game thread
+        } catch (Throwable ignored) {
+            // This runs inlined inside MC's Netty code — never let observation
+            // (even an Error) break the game thread.
         }
     }
 
@@ -50,7 +51,7 @@ public final class HookBridge {
         }
         try {
             b.publish(new PacketSentEvent((Packet<?>) packet));
-        } catch (RuntimeException ignored) {
+        } catch (Throwable ignored) {
         }
     }
 
@@ -62,7 +63,7 @@ public final class HookBridge {
         }
         try {
             b.publish(new DisconnectedEvent(reason instanceof IChatComponent ic ? ic : null));
-        } catch (RuntimeException ignored) {
+        } catch (Throwable ignored) {
         }
     }
 }

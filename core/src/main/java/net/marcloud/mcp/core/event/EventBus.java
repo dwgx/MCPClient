@@ -16,7 +16,12 @@ import java.util.function.Consumer;
  */
 public final class EventBus {
 
-    /** One subscriber list per event type, keyed by class for O(1) dispatch. */
+    /**
+     * All subscriptions. publish() scans this list and dispatches to matching
+     * types (linear in subscriber count — fine for the handful of subscribers
+     * here). Copy-on-write so publishing from the game thread never blocks on
+     * concurrent subscribe/unsubscribe.
+     */
     private final CopyOnWriteArrayList<Subscription<?>> subscriptions = new CopyOnWriteArrayList<>();
 
     private record Subscription<T extends GameEvent>(Class<T> type, Consumer<T> handler) {
@@ -43,7 +48,9 @@ public final class EventBus {
             if (s.type().isInstance(event)) {
                 try {
                     ((Consumer<GameEvent>) s.handler()).accept(event);
-                } catch (RuntimeException e) {
+                } catch (Throwable e) {
+                    // Publish often runs on the game/Netty thread; a subscriber
+                    // fault (even an Error) must not propagate into the game.
                     System.err.println("[EventBus] subscriber for "
                             + s.type().getSimpleName() + " threw: " + e);
                 }

@@ -66,13 +66,12 @@ public final class SafeToolExecutor {
         Future<CallToolResult> future = pool.submit(task);
         try {
             CallToolResult result = future.get(timeout, TimeUnit.MILLISECONDS);
-            // A handler may itself return an error result; count it as a failure
-            // for breaker purposes only if it flagged isError.
-            if (Boolean.TRUE.equals(result.isError())) {
-                stats.recordFailure(firstText(result), false);
-            } else {
-                stats.recordSuccess();
-            }
+            // A returned isError result is a DOMAIN rejection (bad args, compile
+            // error, "not connected", ...), NOT a tool fault. It must NOT trip the
+            // breaker — otherwise the AI iterating on create_tool source would
+            // quarantine create_tool after 3 compile errors, breaking the whole
+            // self-extension loop. Only thrown exceptions / timeouts are faults.
+            stats.recordSuccess();
             return result;
         } catch (TimeoutException e) {
             future.cancel(true);
@@ -83,15 +82,6 @@ public final class SafeToolExecutor {
             Throwable cause = (t.getCause() != null) ? t.getCause() : t;
             stats.recordFailure(cause.toString(), false);
             return errorResult("tool '" + stats.toolName() + "' failed: " + cause);
-        }
-    }
-
-    private static String firstText(CallToolResult r) {
-        try {
-            var content = r.content();
-            return (content == null || content.isEmpty()) ? "(error)" : content.get(0).toString();
-        } catch (RuntimeException e) {
-            return "(error)";
         }
     }
 

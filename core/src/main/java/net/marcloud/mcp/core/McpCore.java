@@ -27,7 +27,8 @@ import net.marcloud.mcp.core.thread.MainThreadExecutor;
  *   <li>{@link EventBus} + {@link HookManager} (observe MC networking at runtime),</li>
  *   <li>{@link PacketLog} fed from packet events,</li>
  *   <li>{@link HotLoadEngine} + {@link ActionManager} (control + live code),</li>
- *   <li>{@link McpServerBootstrap} (expose it all as MCP tools over stdio).</li>
+ *   <li>{@link CapabilityRegistry} + {@link SocketTransportServer} (expose it all
+ *       as supervised, runtime-extensible MCP tools over a loopback socket).</li>
  * </ol>
  *
  * <p>Call {@link #start()} once the game is initialized (see the launcher hook).
@@ -49,6 +50,11 @@ public final class McpCore {
         MainThreadExecutor exec = new MainThreadExecutor(game.mc());
         ActionManager actions = new ActionManager(game, exec);
         HotLoadEngine hotLoad = new HotLoadEngine(getClass().getClassLoader());
+
+        // Expose the game thread + façade statically so AI-authored tools and
+        // eval_java snippets (which run on worker threads) can safely marshal
+        // game access via GameBridge.onGameThread(...).
+        GameBridge.init(exec, game);
 
         // Feed the packet log from the event stream.
         bus.subscribe(PacketReceivedEvent.class, e -> packetLog.recordInbound(e.packetType()));

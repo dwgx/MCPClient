@@ -119,7 +119,10 @@ public final class MetaTools {
                         + "'public String handle(java.util.Map<String,Object> args)'. On success "
                         + "the tool is compiled, registered, and announced immediately — you can "
                         + "call it right after. Replacing an existing tool archives the old "
-                        + "version (use rollback_tool to revert).")
+                        + "version (use rollback_tool to revert). The handle() method runs on a "
+                        + "WORKER thread: to touch live world/player/entity state, marshal via "
+                        + "net.marcloud.mcp.core.GameBridge.onGameThread(() -> ...); direct "
+                        + "off-thread game access can crash the game.")
                 .inputSchema(schema(Map.of(
                         "toolName", str("the MCP tool name to register"),
                         "className", str("fully-qualified Java class name, e.g. gen.MyTool"),

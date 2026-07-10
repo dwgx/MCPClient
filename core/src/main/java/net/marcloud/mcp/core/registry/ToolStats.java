@@ -39,16 +39,24 @@ public final class ToolStats {
         return toolName;
     }
 
-    /** Whether a call may proceed now (transitions OPEN->HALF_OPEN after cool-down). */
+    /**
+     * Whether a call may proceed now. CLOSED always passes. OPEN passes exactly
+     * ONE probe once the cool-down elapses (transitioning to HALF_OPEN); further
+     * calls are blocked until that probe resolves via recordSuccess/recordFailure.
+     */
     public boolean allowCall() {
         Circuit c = circuit.get();
-        if (c == Circuit.CLOSED || c == Circuit.HALF_OPEN) {
+        if (c == Circuit.CLOSED) {
             return true;
         }
-        // OPEN: allow a probe once the cool-down elapsed.
+        if (c == Circuit.HALF_OPEN) {
+            // A probe is already in flight; block everyone else.
+            return false;
+        }
+        // OPEN: admit a single probe once the cool-down elapsed. Only the thread
+        // that wins the CAS gets through; others see HALF_OPEN and are blocked.
         if (System.currentTimeMillis() - openedAtMillis >= COOLDOWN_MS) {
-            circuit.compareAndSet(Circuit.OPEN, Circuit.HALF_OPEN);
-            return true;
+            return circuit.compareAndSet(Circuit.OPEN, Circuit.HALF_OPEN);
         }
         return false;
     }
@@ -67,10 +75,12 @@ public final class ToolStats {
         }
         lastError = error;
         int cf = consecutiveFailures.incrementAndGet();
-        if (cf >= TRIP_THRESHOLD) {
-            if (circuit.getAndSet(Circuit.OPEN) != Circuit.OPEN) {
-                openedAtMillis = System.currentTimeMillis();
-            }
+        // A failed HALF_OPEN probe must re-open immediately (else the circuit
+        // would stay HALF_OPEN and block all calls forever). A CLOSED circuit
+        // opens once the consecutive-failure threshold is reached.
+        boolean shouldOpen = circuit.get() == Circuit.HALF_OPEN || cf >= TRIP_THRESHOLD;
+        if (shouldOpen && circuit.getAndSet(Circuit.OPEN) != Circuit.OPEN) {
+            openedAtMillis = System.currentTimeMillis();
         }
     }
 

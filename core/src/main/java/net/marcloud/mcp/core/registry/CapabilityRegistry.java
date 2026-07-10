@@ -33,6 +33,9 @@ public final class CapabilityRegistry {
     private final Map<String, ToolStats> statsByName = new ConcurrentHashMap<>();
     private final SafeToolExecutor executor;
 
+    /** Cap on archived versions kept per tool (bounds long-session growth). */
+    private static final int MAX_ARCHIVE_PER_TOOL = 10;
+
     /** Set once the server is built; enables live add/notify. Null before that. */
     private volatile McpSyncServer server;
 
@@ -70,7 +73,13 @@ public final class CapabilityRegistry {
         Capability cap = new Capability(name, supervised, source, description, version, stats, builtIn);
 
         if (previous != null) {
-            archive.computeIfAbsent(name, k -> new ArrayList<>()).add(previous);
+            List<Capability> history = archive.computeIfAbsent(name, k -> new ArrayList<>());
+            history.add(previous);
+            // Bound archive depth so a long session iterating create_tool many
+            // times doesn't grow unbounded. Keep the most recent versions.
+            while (history.size() > MAX_ARCHIVE_PER_TOOL) {
+                history.remove(0);
+            }
         }
         current.put(name, cap);
 

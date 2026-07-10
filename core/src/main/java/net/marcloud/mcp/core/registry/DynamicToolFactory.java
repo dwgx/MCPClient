@@ -1,7 +1,6 @@
 package net.marcloud.mcp.core.registry;
 
 import java.lang.reflect.Method;
-import java.util.List;
 import java.util.Map;
 
 import io.modelcontextprotocol.server.McpServerFeatures.SyncToolSpecification;
@@ -85,10 +84,5 @@ public final class DynamicToolFactory {
             }
         });
         return new BuildResult(true, "built " + toolName, spec);
-    }
-
-    /** Content-type list helper (unused placeholder kept for symmetry). */
-    static List<?> noContent() {
-        return List.of();
     }
 }

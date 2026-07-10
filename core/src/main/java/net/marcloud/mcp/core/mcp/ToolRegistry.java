@@ -92,7 +92,15 @@ public final class ToolRegistry {
                 .inputSchema(objectSchema(Map.of(), List.of()))
                 .build();
         return new SyncToolSpecification(tool, (exchange, request) -> {
-            PlayerState s = PlayerState.capture(ctx.game());
+            // Capture on the game thread: reading live entity fields off-thread
+            // yields torn/stale values (fields aren't volatile, DataWatcher is a
+            // plain map the game thread mutates).
+            final PlayerState s;
+            try {
+                s = net.marcloud.mcp.core.GameBridge.onGameThread(() -> PlayerState.capture(ctx.game()));
+            } catch (Exception e) {
+                return error("could not read player state: " + e.getMessage());
+            }
             if (!s.present()) {
                 return ok("not in world");
             }
@@ -123,21 +131,16 @@ public final class ToolRegistry {
                     // keep default
                 }
             }
-            List<PacketLogLine> lines = new ArrayList<>();
-            ctx.packetLog().recent(count).forEach(e -> lines.add(
-                    new PacketLogLine(e.toString())));
-            if (lines.isEmpty()) {
+            var entries = ctx.packetLog().recent(count);
+            if (entries.isEmpty()) {
                 return ok("(no packets recorded yet)");
             }
             StringBuilder sb = new StringBuilder();
-            for (PacketLogLine l : lines) {
-                sb.append(l.text()).append('\n');
+            for (var e : entries) {
+                sb.append(e).append('\n');
             }
             return ok(sb.toString().stripTrailing());
         });
-    }
-
-    private record PacketLogLine(String text) {
     }
 
     private SyncToolSpecification sendChat() {
@@ -170,7 +173,12 @@ public final class ToolRegistry {
                         + "instantiate it and call its no-arg 'run' method; returns the "
                         + "result's toString. The source must declare a public class with "
                         + "the given name and a 'public Object run()' method. This is the "
-                        + "live-experiment REPL — code runs inside the game JVM.")
+                        + "live-experiment REPL — code runs inside the game JVM on a WORKER "
+                        + "thread. To read or mutate live world/player/entity state, you MUST "
+                        + "marshal onto the game thread, e.g.: "
+                        + "net.marcloud.mcp.core.GameBridge.onGameThread(() -> { "
+                        + "return net.marcloud.mcp.core.GameBridge.game().player().posX; }). "
+                        + "Touching game state directly off-thread can crash the game.")
                 .inputSchema(objectSchema(Map.of(
                         "className", stringProp("fully-qualified class name, e.g. gen.Probe"),
                         "source", stringProp("full Java source declaring that class with "

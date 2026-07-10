@@ -77,6 +77,26 @@ public class CapabilityRegistryTest {
     }
 
     @Test
+    public void domainErrorResultDoesNotTripBreaker() {
+        // Critical invariant: a tool returning isError=true (validation/compile
+        // rejection, e.g. create_tool on bad source) must NOT trip the breaker,
+        // else the AI's self-extension loop would quarantine create_tool after a
+        // few compile errors. Only thrown exceptions / timeouts are faults.
+        SafeToolExecutor exec = new SafeToolExecutor(2, 2000L);
+        ToolStats stats = new ToolStats("validator");
+        for (int i = 0; i < 5; i++) {
+            CallToolResult r = exec.run(stats,
+                    (ex, req) -> CallToolResult.builder().addTextContent("bad args").isError(true).build(),
+                    null, null, 0);
+            assertTrue(Boolean.TRUE.equals(r.isError()));
+        }
+        assertEquals("domain-error results must not count as failures", 0, stats.failures());
+        assertEquals("breaker stays closed", ToolStats.Circuit.CLOSED, stats.circuit());
+        assertTrue(stats.allowCall());
+        exec.shutdown();
+    }
+
+    @Test
     public void registryVersionsAndRollsBack() {
         SafeToolExecutor exec = new SafeToolExecutor(2, 2000L);
         CapabilityRegistry reg = new CapabilityRegistry(exec);

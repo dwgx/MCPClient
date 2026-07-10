@@ -38,6 +38,7 @@ public final class SocketTransportServer {
     private final int port;
     private volatile ServerSocket serverSocket;
     private volatile McpSyncServer currentServer;
+    private volatile Socket currentClient;
     private volatile boolean running;
 
     public SocketTransportServer(CapabilityRegistry registry) {
@@ -77,50 +78,69 @@ public final class SocketTransportServer {
             try {
                 Socket client = serverSocket.accept();
                 serveClient(client);
-            } catch (IOException e) {
+            } catch (Throwable t) {
+                // Catch everything: a single bad connection (or an SDK/init
+                // RuntimeException in serveClient) must not kill the accept loop
+                // and leave the server silently deaf.
                 if (running) {
-                    System.err.println("[MCP Core] accept failed: " + e);
+                    System.err.println("[MCP Core] accept/serve failed (continuing): " + t);
                 }
-                // loop; if serverSocket closed, running is false and we exit
+                // if serverSocket was closed, running is false and we exit
             }
         }
     }
 
-    private void serveClient(Socket client) {
-        try {
-            client.setTcpNoDelay(true);
-            McpJsonMapper json = new JacksonMcpJsonMapperSupplier().get();
-            // Reuse the SDK's stdio JSON-RPC codec over the socket's streams.
-            StdioServerTransportProvider transport = new StdioServerTransportProvider(
-                    json, client.getInputStream(), client.getOutputStream());
-            // tools(listChanged=true): announce runtime-added capabilities.
-            McpSyncServer server = McpServer.sync(transport)
-                    .serverInfo("mcp-core", "1.8.9")
-                    .instructions("Drive and observe a running Minecraft 1.8.9 client. "
-                            + "Use list_capabilities to see all tools, and create_tool to "
-                            + "grow new ones at runtime.")
-                    .capabilities(ServerCapabilities.builder().tools(true).build())
-                    .tools(registry.currentSpecs())
-                    .build();
-            currentServer = server;
-            // Bind so runtime create_tool / rollback push live to this client.
-            registry.bindServer(server);
-            System.err.println("[MCP Core] client connected: " + client.getRemoteSocketAddress());
-        } catch (IOException e) {
-            System.err.println("[MCP Core] failed to serve client: " + e);
+    private void serveClient(Socket client) throws IOException {
+        // Close/replace any previous session so its server + transport thread +
+        // socket don't leak on reconnect.
+        closeCurrent();
+
+        client.setTcpNoDelay(true);
+        currentClient = client;
+        McpJsonMapper json = new JacksonMcpJsonMapperSupplier().get();
+        // Reuse the SDK's stdio JSON-RPC codec over the socket's streams.
+        StdioServerTransportProvider transport = new StdioServerTransportProvider(
+                json, client.getInputStream(), client.getOutputStream());
+        // tools(listChanged=true): announce runtime-added capabilities.
+        McpSyncServer server = McpServer.sync(transport)
+                .serverInfo("mcp-core", "1.8.9")
+                .instructions("Drive and observe a running Minecraft 1.8.9 client. "
+                        + "Use list_capabilities to see all tools, and create_tool to "
+                        + "grow new ones at runtime.")
+                .capabilities(ServerCapabilities.builder().tools(true).build())
+                .tools(registry.currentSpecs())
+                .build();
+        currentServer = server;
+        // Bind so runtime create_tool / rollback push live to this client.
+        registry.bindServer(server);
+        System.err.println("[MCP Core] client connected: " + client.getRemoteSocketAddress());
+    }
+
+    /** Close the current server + client socket, if any. */
+    private void closeCurrent() {
+        McpSyncServer s = currentServer;
+        if (s != null) {
+            try {
+                s.close();
+            } catch (RuntimeException e) {
+                System.err.println("[MCP Core] closing previous server: " + e);
+            }
+            currentServer = null;
+        }
+        Socket c = currentClient;
+        if (c != null) {
+            try {
+                c.close();
+            } catch (IOException ignored) {
+            }
+            currentClient = null;
         }
     }
 
     /** Stop accepting and close the current server + socket. */
     public synchronized void close() {
         running = false;
-        McpSyncServer s = currentServer;
-        if (s != null) {
-            try {
-                s.close();
-            } catch (RuntimeException ignored) {
-            }
-        }
+        closeCurrent();
         ServerSocket ss = serverSocket;
         if (ss != null) {
             try {
