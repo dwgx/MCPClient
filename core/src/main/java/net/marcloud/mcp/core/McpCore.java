@@ -6,6 +6,7 @@ import net.marcloud.mcp.core.event.events.PacketReceivedEvent;
 import net.marcloud.mcp.core.event.events.PacketSentEvent;
 import net.marcloud.mcp.core.hook.HookManager;
 import net.marcloud.mcp.core.hotload.HotLoadEngine;
+import net.marcloud.mcp.core.http.HttpFacade;
 import net.marcloud.mcp.core.memory.MemoryStore;
 import net.marcloud.mcp.core.memory.MemoryTools;
 import net.marcloud.mcp.core.narrative.GoalStack;
@@ -48,6 +49,7 @@ public final class McpCore {
     private final GameAccess game = new GameAccess();
     private final PacketLog packetLog = new PacketLog(PACKET_LOG_CAPACITY);
     private SocketTransportServer socketServer;
+    private HttpFacade httpFacade;
 
     /**
      * Assemble and start Core. Installs runtime hooks (if Instrumentation is
@@ -134,12 +136,30 @@ public final class McpCore {
         } catch (java.io.IOException e) {
             System.err.println("[MCP Core] could not start socket transport: " + e);
         }
+
+        // REST facade (concretization): a plain-HTTP front door beside the socket
+        // so tools can be listed/called with curl/a browser. Default on; routes
+        // through the same supervised registry, so rings/breaker still apply.
+        // -Dmcp.core.http=false disables it; -Dmcp.core.httpPort / -Dmcp.core.httpBind configure it.
+        if (!"false".equalsIgnoreCase(System.getProperty("mcp.core.http", "true"))) {
+            String bind = System.getProperty("mcp.core.httpBind", "127.0.0.1");
+            int httpPort = Integer.getInteger("mcp.core.httpPort", HttpFacade.DEFAULT_PORT);
+            httpFacade = new HttpFacade(registry, bind, httpPort);
+            try {
+                httpFacade.start();
+            } catch (java.io.IOException e) {
+                System.err.println("[MCP Core] could not start REST facade: " + e);
+            }
+        }
     }
 
-    /** Stop the MCP server. */
+    /** Stop the MCP server + REST facade. */
     public void stop() {
         if (socketServer != null) {
             socketServer.close();
+        }
+        if (httpFacade != null) {
+            httpFacade.stop();
         }
     }
 

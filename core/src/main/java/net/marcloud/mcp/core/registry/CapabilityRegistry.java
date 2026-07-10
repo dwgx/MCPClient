@@ -184,4 +184,22 @@ public final class CapabilityRegistry {
         Tool t = spec.tool();
         return t.name();
     }
+
+    /**
+     * Invoke a tool by name with an argument map, going through its SUPERVISED
+     * handler — so the privilege ring gate, circuit breaker, and timeout all
+     * apply exactly as they do for an MCP client. Used by the REST facade so the
+     * HTTP front door can't bypass the security model. Returns null if no such
+     * tool.
+     */
+    public CallToolResult invoke(String name, Map<String, Object> args) {
+        Capability c = current.get(name);
+        if (c == null) {
+            return null;
+        }
+        var req = new io.modelcontextprotocol.spec.McpSchema.CallToolRequest(
+                name, args == null ? Map.of() : args);
+        // exchange is null: our tool handlers don't use it (only sampling would).
+        return c.spec().callHandler().apply(null, req);
+    }
 }
