@@ -71,4 +71,26 @@
             <scope>test</scope>
         </dependency>
     </dependencies>
+
+    <build>
+        <plugins>
+            <!-- Make the core jar double as the -javaagent jar. CoreAgent is
+                 dependency-free, so premain/agentmain resolve from this jar alone.
+                 Launch with: -javaagent:core/target/core-1.8.9.jar -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <configuration>
+                    <archive>
+                        <manifestEntries>
+                            <Premain-Class>net.marcloud.mcp.core.agent.CoreAgent</Premain-Class>
+                            <Agent-Class>net.marcloud.mcp.core.agent.CoreAgent</Agent-Class>
+                            <Can-Redefine-Classes>true</Can-Redefine-Classes>
+                            <Can-Retransform-Classes>true</Can-Retransform-Classes>
+                        </manifestEntries>
+                    </archive>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
 </project>
