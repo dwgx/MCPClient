@@ -74,9 +74,8 @@
 
     <build>
         <plugins>
-            <!-- Make the core jar double as the -javaagent jar. CoreAgent is
-                 dependency-free, so premain/agentmain resolve from this jar alone.
-                 Launch with: -javaagent:core/target/core-1.8.9.jar -->
+            <!-- Plain core jar carries the agent manifest so it can be used as
+                 -javaagent directly (when its deps are also on -cp). -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-jar-plugin</artifactId>
@@ -90,6 +89,54 @@
                         </manifestEntries>
                     </archive>
                 </configuration>
+            </plugin>
+
+            <!-- Fat agent jar: bundles Core + Byte Buddy (Apache-2.0) + MCP SDK
+                 (MIT) + Jackson/Reactor so -javaagent:core-all.jar is fully
+                 self-sufficient (no -cp ordering dependence). The game (client)
+                 is 'provided' and NOT bundled. No GPL: DCEVM is a JBR built-in
+                 (not HotSwapAgent), so nothing copyleft enters this jar. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <version>3.6.0</version>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
+                        <configuration>
+                            <createDependencyReducedPom>false</createDependencyReducedPom>
+                            <shadedArtifactAttached>true</shadedArtifactAttached>
+                            <shadedClassifierName>all</shadedClassifierName>
+                            <filters>
+                                <filter>
+                                    <artifact>*:*</artifact>
+                                    <excludes>
+                                        <exclude>module-info.class</exclude>
+                                        <exclude>META-INF/versions/*/module-info.class</exclude>
+                                        <exclude>META-INF/*.SF</exclude>
+                                        <exclude>META-INF/*.DSA</exclude>
+                                        <exclude>META-INF/*.RSA</exclude>
+                                    </excludes>
+                                </filter>
+                            </filters>
+                            <transformers>
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                                    <manifestEntries>
+                                        <Premain-Class>net.marcloud.mcp.core.agent.CoreAgent</Premain-Class>
+                                        <Agent-Class>net.marcloud.mcp.core.agent.CoreAgent</Agent-Class>
+                                        <Can-Redefine-Classes>true</Can-Redefine-Classes>
+                                        <Can-Retransform-Classes>true</Can-Retransform-Classes>
+                                        <Multi-Release>true</Multi-Release>
+                                    </manifestEntries>
+                                </transformer>
+                            </transformers>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>

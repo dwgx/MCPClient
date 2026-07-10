@@ -6,7 +6,7 @@ import net.marcloud.mcp.core.event.events.PacketReceivedEvent;
 import net.marcloud.mcp.core.event.events.PacketSentEvent;
 import net.marcloud.mcp.core.hook.HookManager;
 import net.marcloud.mcp.core.hotload.HotLoadEngine;
-import net.marcloud.mcp.core.mcp.McpServerBootstrap;
+import net.marcloud.mcp.core.mcp.SocketTransportServer;
 import net.marcloud.mcp.core.mcp.ToolContext;
 import net.marcloud.mcp.core.state.PacketLog;
 import net.marcloud.mcp.core.thread.MainThreadExecutor;
@@ -33,7 +33,7 @@ public final class McpCore {
     private final EventBus bus = new EventBus();
     private final GameAccess game = new GameAccess();
     private final PacketLog packetLog = new PacketLog(PACKET_LOG_CAPACITY);
-    private McpServerBootstrap serverBootstrap;
+    private SocketTransportServer socketServer;
 
     /**
      * Assemble and start Core. Installs runtime hooks (if Instrumentation is
@@ -60,14 +60,21 @@ public final class McpCore {
         }
 
         ToolContext ctx = new ToolContext(game, actions, hotLoad, packetLog);
-        serverBootstrap = new McpServerBootstrap(ctx);
-        serverBootstrap.startStdio();
+        // Socket transport (not stdio): the game owns the console, so a stdio
+        // MCP server would corrupt the JSON-RPC stream. An AI client connects to
+        // the loopback port.
+        socketServer = new SocketTransportServer(ctx);
+        try {
+            socketServer.start();
+        } catch (java.io.IOException e) {
+            System.err.println("[MCP Core] could not start socket transport: " + e);
+        }
     }
 
     /** Stop the MCP server. */
     public void stop() {
-        if (serverBootstrap != null) {
-            serverBootstrap.close();
+        if (socketServer != null) {
+            socketServer.close();
         }
     }
 

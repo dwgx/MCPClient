@@ -1,0 +1,36 @@
+# MC 1.8.9 + MCP Core on JetBrains Runtime 25 (with DCEVM).  Usage:
+#   <JBR>/bin/java @jvm-args-mcp.txt -javaagent:core/target/core-1.8.9-all.jar -cp <jars> Main
+# Superset of jvm-args-jdk25.txt plus the flags MCP Core / hot-load need.
+# The golden jvm-args-jdk25.txt is left untouched (frozen launch config).
+
+-Dfile.encoding=UTF-8
+
+# --- Unsafe: silences Netty/Guava warnings on JDK25/JBR25 (still 'warn'). ---
+--sun-misc-unsafe-memory-access=allow
+# --- Native access: LWJGL3 / JNA / oshi. ---
+--enable-native-access=ALL-UNNAMED
+
+# --- DCEVM: enable enhanced class redefinition (add field/method) on JBR 25. ---
+-XX:+AllowEnhancedClassRedefinition
+# --- Dynamic agent loading: warning-free explicit opt-in (JEP 451). ---
+-XX:+EnableDynamicAgentLoading
+# --- Allow self-attach (fallback path if -javaagent is not used). ---
+-Djdk.attach.allowAttachSelf=true
+
+# --- java.base: reflection paths dependencies force open (MANDATORY since JDK16) ---
+--add-opens java.base/java.lang=ALL-UNNAMED
+--add-opens java.base/java.lang.reflect=ALL-UNNAMED
+--add-opens java.base/java.lang.invoke=ALL-UNNAMED
+--add-opens java.base/java.lang.ref=ALL-UNNAMED
+--add-opens java.base/java.nio=ALL-UNNAMED
+--add-opens java.base/sun.nio.ch=ALL-UNNAMED
+--add-opens java.base/jdk.internal.misc=ALL-UNNAMED
+--add-opens java.base/jdk.internal.ref=ALL-UNNAMED
+--add-opens java.base/java.util=ALL-UNNAMED
+--add-opens java.base/java.util.zip=ALL-UNNAMED
+--add-opens java.base/java.util.jar=ALL-UNNAMED
+
+# --- java.desktop: window icon + ImageIO PNG screenshots ---
+--add-opens java.desktop/com.sun.imageio.plugins.png=ALL-UNNAMED
+--add-opens java.desktop/sun.awt.image=ALL-UNNAMED
+--add-opens java.desktop/sun.awt=ALL-UNNAMED
