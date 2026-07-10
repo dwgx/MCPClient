@@ -211,6 +211,21 @@ public final class McpCore {
      * gated resource class must be granted its SID first. Use for hardened runs.
      */
     private static PolicyEngine buildEngine(PermissionPolicy policy) {
+        // L1 VTL: if enabled, defer EVERY decision to the separate P-SECURE
+        // process over a loopback socket (fail-closed). This is the only real
+        // wall — a rogue in-JVM hook cannot reach that address space.
+        if ("true".equalsIgnoreCase(System.getProperty(
+                net.marcloud.mcp.core.secure.PSecureProtocol.ENABLE_PROPERTY, "false"))) {
+            String host = System.getProperty("mcp.core.psecureHost", "127.0.0.1");
+            int port = Integer.getInteger("mcp.core.psecurePort",
+                    net.marcloud.mcp.core.secure.PSecureProtocol.DEFAULT_PORT);
+            String token = System.getProperty(
+                    net.marcloud.mcp.core.secure.PSecureProtocol.TOKEN_PROPERTY, "");
+            System.err.println("[MCP Core] L1 VTL ENABLED: decisions deferred to P-SECURE at "
+                    + host + ":" + port + " (fail-closed).");
+            return new net.marcloud.mcp.core.security.RemotePolicyEngine(host, port, token, 2000);
+        }
+
         String caps = System.getProperty("mcp.core.caps", "wildcard");
         if ("strict".equalsIgnoreCase(caps.trim())) {
             System.err.println("[MCP Core] L5 capabilities: STRICT default-deny "
