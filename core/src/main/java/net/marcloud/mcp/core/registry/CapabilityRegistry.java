@@ -7,7 +7,10 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import io.modelcontextprotocol.server.McpServerFeatures.SyncToolSpecification;
 import io.modelcontextprotocol.server.McpSyncServer;
+import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
+import net.marcloud.mcp.core.security.PermissionPolicy;
+import net.marcloud.mcp.core.security.Ring;
 
 /**
  * The living catalog of the神器's capabilities — the neural-network-like core.
@@ -32,6 +35,7 @@ public final class CapabilityRegistry {
     private final Map<String, List<Capability>> archive = new ConcurrentHashMap<>();
     private final Map<String, ToolStats> statsByName = new ConcurrentHashMap<>();
     private final SafeToolExecutor executor;
+    private final PermissionPolicy policy;
 
     /** Cap on archived versions kept per tool (bounds long-session growth). */
     private static final int MAX_ARCHIVE_PER_TOOL = 10;
@@ -39,8 +43,14 @@ public final class CapabilityRegistry {
     /** Set once the server is built; enables live add/notify. Null before that. */
     private volatile McpSyncServer server;
 
-    public CapabilityRegistry(SafeToolExecutor executor) {
+    public CapabilityRegistry(SafeToolExecutor executor, PermissionPolicy policy) {
         this.executor = executor;
+        this.policy = policy;
+    }
+
+    /** The permission policy (clearance) governing tool invocation. */
+    public PermissionPolicy policy() {
+        return policy;
     }
 
     /** Attach the live server so subsequent registrations propagate to clients. */
@@ -53,10 +63,25 @@ public final class CapabilityRegistry {
      * spec is what actually gets registered — its handler consults the circuit
      * breaker, enforces a timeout, and catches every throwable.
      */
-    private SyncToolSpecification supervise(SyncToolSpecification raw, ToolStats stats) {
+    private SyncToolSpecification supervise(SyncToolSpecification raw, ToolStats stats, Ring ring) {
         var rawHandler = raw.callHandler();
-        return new SyncToolSpecification(raw.tool(),
-                (exchange, request) -> executor.run(stats, rawHandler, exchange, request, 0));
+        String toolName = raw.tool().name();
+        return new SyncToolSpecification(raw.tool(), (exchange, request) -> {
+            // Privilege gate FIRST: deny (fail fast, do not touch the breaker) if
+            // the current clearance is less privileged than this tool's ring.
+            if (!policy.allows(ring)) {
+                return CallToolResult.builder()
+                        .addTextContent("permission denied: tool '" + toolName + "' requires "
+                                + ring.tag() + " but current clearance is "
+                                + policy.clearance().tag()
+                                + (policy.restorable()
+                                    ? " — raise it with restore_privilege(token)."
+                                    : " — privilege was dropped and cannot be restored this session."))
+                        .isError(true)
+                        .build();
+            }
+            return executor.run(stats, rawHandler, exchange, request, 0);
+        });
     }
 
     /**
@@ -64,13 +89,13 @@ public final class CapabilityRegistry {
      * pushed live and clients are notified. Old version is archived.
      */
     public synchronized void register(String name, SyncToolSpecification rawSpec,
-                                      String source, String description, boolean builtIn) {
+                                      String source, String description, boolean builtIn, Ring ring) {
         ToolStats stats = statsByName.computeIfAbsent(name, ToolStats::new);
         Capability previous = current.get(name);
         int version = (previous == null) ? 1 : previous.version() + 1;
 
-        SyncToolSpecification supervised = supervise(rawSpec, stats);
-        Capability cap = new Capability(name, supervised, source, description, version, stats, builtIn);
+        SyncToolSpecification supervised = supervise(rawSpec, stats, ring);
+        Capability cap = new Capability(name, supervised, source, description, version, stats, builtIn, ring);
 
         // Do the FALLIBLE live-server mutation FIRST. If addTool/notify throws, we
         // must not have already committed current/archive — otherwise the manifest

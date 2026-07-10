@@ -122,12 +122,14 @@ public class CapabilityRegistryTest {
     @Test
     public void registryVersionsAndRollsBack() {
         SafeToolExecutor exec = new SafeToolExecutor(2, 2000L);
-        CapabilityRegistry reg = new CapabilityRegistry(exec);
+        CapabilityRegistry reg = new CapabilityRegistry(exec,
+                new net.marcloud.mcp.core.security.PermissionPolicy(
+                        net.marcloud.mcp.core.security.Ring.R_MINUS_1, "t"));
         reg.register("t", tool("t", (e, r) -> CallToolResult.builder().addTextContent("v1").build()),
-                "src-v1", "d1", false);
+                "src-v1", "d1", false, net.marcloud.mcp.core.security.Ring.R2);
         assertEquals(1, reg.get("t").version());
         reg.register("t", tool("t", (e, r) -> CallToolResult.builder().addTextContent("v2").build()),
-                "src-v2", "d2", false);
+                "src-v2", "d2", false, net.marcloud.mcp.core.security.Ring.R2);
         assertEquals(2, reg.get("t").version());
         assertEquals("src-v2", reg.get("t").source());
         assertTrue(reg.rollback("t"));

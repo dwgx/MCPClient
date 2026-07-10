@@ -25,7 +25,9 @@ public final class NarrativeTools {
         for (SyncToolSpecification spec : List.of(setGoal(), pushSubgoal(), completeGoal(),
                 narrate(), getStory())) {
             var t = spec.tool();
-            registry.register(t.name(), spec, null, t.description(), true);
+            registry.register(t.name(), spec, null, t.description(), true,
+                    net.marcloud.mcp.core.security.Ring.forBuiltin(t.name(),
+                            net.marcloud.mcp.core.security.Ring.R3));
         }
     }
 

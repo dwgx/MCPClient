@@ -1,0 +1,104 @@
+package net.marcloud.mcp.core.security;
+
+import java.util.Map;
+
+/**
+ * Protection rings for MCP tools, modeled on CPU privilege levels (R-1 hypervisor
+ * … R3 user). <b>Lower ring number = higher privilege = more dangerous.</b> A tool
+ * may run only when the system's current clearance is at least as privileged as
+ * the tool's ring (i.e. {@code clearance.level <= tool.level}).
+ *
+ * <ul>
+ *   <li><b>R_MINUS_1 (HYPERVISOR)</b> — run/redefine arbitrary code inside the
+ *       game JVM (eval_java, redefine_class). Ultimate power; can rewrite the
+ *       running game.</li>
+ *   <li><b>R0 (KERNEL)</b> — modify the agent's own tool set (create_tool,
+ *       rollback_tool). Self-modification.</li>
+ *   <li><b>R1 (SYSTEM)</b> — outward effects on the game/network (send_raw_packet,
+ *       send_chat). Changes shared/server-visible state.</li>
+ *   <li><b>R2 (OBSERVE)</b> — reads live game/GL state on the game thread
+ *       (scan_surroundings, capture_screen, read_player_state). Can stall the game
+ *       thread. AI-authored tools default here.</li>
+ *   <li><b>R3 (USER)</b> — local, read-only / bookkeeping (recent_packets,
+ *       disconnect_report, memory_*, narrative_*, introspection). Safest.</li>
+ * </ul>
+ *
+ * <p><b>Honest boundary:</b> rings gate <i>named tools</i> by declared privilege;
+ * they are not a code sandbox. eval_java (and any generated tool that reaches
+ * game internals) is arbitrary code — which is exactly why those live at R-1/R0
+ * and are the tools a lowered clearance actually locks out.
+ */
+public enum Ring {
+
+    R_MINUS_1(-1, "HYPERVISOR"),
+    R0(0, "KERNEL"),
+    R1(1, "SYSTEM"),
+    R2(2, "OBSERVE"),
+    R3(3, "USER");
+
+    private final int level;
+    private final String label;
+
+    Ring(int level, String label) {
+        this.level = level;
+        this.label = label;
+    }
+
+    public int level() {
+        return level;
+    }
+
+    public String label() {
+        return label;
+    }
+
+    /** Human tag like "R-1 HYPERVISOR" / "R2 OBSERVE". */
+    public String tag() {
+        return "R" + level + " " + label;
+    }
+
+    /** Default ring for AI-authored (create_tool) tools: observe-level. */
+    public static final Ring DEFAULT_GENERATED = R2;
+
+    /** Ring assigned to a built-in tool by name; falls back to {@code fallback}. */
+    public static Ring forBuiltin(String toolName, Ring fallback) {
+        Ring r = BUILTIN_RINGS.get(toolName);
+        return r != null ? r : fallback;
+    }
+
+    /**
+     * Declared rings for the built-in tools. Anything not listed is treated as
+     * R3 (safest) by callers via {@link #forBuiltin}.
+     */
+    private static final Map<String, Ring> BUILTIN_RINGS = Map.ofEntries(
+            // R-1 hypervisor: arbitrary code / rewrite the running game
+            Map.entry("eval_java", R_MINUS_1),
+            Map.entry("redefine_class", R_MINUS_1),
+            // R0 kernel: modify the agent's own tools
+            Map.entry("create_tool", R0),
+            Map.entry("rollback_tool", R0),
+            // R1 system: outward game/network effects
+            Map.entry("send_raw_packet", R1),
+            Map.entry("send_chat", R1),
+            // R2 observe: live game/GL reads on the game thread
+            Map.entry("scan_surroundings", R2),
+            Map.entry("capture_screen", R2),
+            Map.entry("read_player_state", R2),
+            // R3 user: local read-only / bookkeeping
+            Map.entry("recent_packets", R3),
+            Map.entry("disconnect_report", R3),
+            Map.entry("list_capabilities", R3),
+            Map.entry("get_tool_source", R3),
+            Map.entry("memory_write", R3),
+            Map.entry("memory_search", R3),
+            Map.entry("memory_delete", R3),
+            Map.entry("set_goal", R3),
+            Map.entry("push_subgoal", R3),
+            Map.entry("complete_goal", R3),
+            Map.entry("narrate", R3),
+            Map.entry("get_story", R3),
+            // permission tools themselves
+            Map.entry("drop_privilege", R3),
+            Map.entry("restore_privilege", R3),
+            Map.entry("list_permissions", R3));
+}

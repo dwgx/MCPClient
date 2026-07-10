@@ -28,10 +28,13 @@ public final class MetaTools {
 
     private final CapabilityRegistry registry;
     private final DynamicToolFactory factory;
+    private final net.marcloud.mcp.core.hotload.HotLoadEngine hotLoad;
 
-    public MetaTools(CapabilityRegistry registry, DynamicToolFactory factory) {
+    public MetaTools(CapabilityRegistry registry, DynamicToolFactory factory,
+                     net.marcloud.mcp.core.hotload.HotLoadEngine hotLoad) {
         this.registry = registry;
         this.factory = factory;
+        this.hotLoad = hotLoad;
     }
 
     public List<SyncToolSpecification> all() {
@@ -40,6 +43,7 @@ public final class MetaTools {
         t.add(getToolSource());
         t.add(createTool());
         t.add(rollbackTool());
+        t.add(redefineClass());
         return t;
     }
 
@@ -47,7 +51,9 @@ public final class MetaTools {
     public void registerAll(CapabilityRegistry registry) {
         for (SyncToolSpecification spec : all()) {
             var tool = spec.tool();
-            registry.register(tool.name(), spec, null, tool.description(), true);
+            registry.register(tool.name(), spec, null, tool.description(), true,
+                    net.marcloud.mcp.core.security.Ring.forBuiltin(tool.name(),
+                            net.marcloud.mcp.core.security.Ring.R3));
         }
     }
 
@@ -149,7 +155,11 @@ public final class MetaTools {
                 return err(built.message());
             }
             try {
-                registry.register(toolName, built.spec(), source, description, false);
+                // AI-authored tools default to R2 (OBSERVE): they can reach game
+                // state via GameBridge but sit below the system/kernel/hypervisor
+                // rings, so a lowered clearance still contains them.
+                registry.register(toolName, built.spec(), source, description, false,
+                        net.marcloud.mcp.core.security.Ring.DEFAULT_GENERATED);
                 return ok("created and registered tool '" + toolName + "'. It is now callable.");
             } catch (RuntimeException e) {
                 return err("registration failed: " + e);
@@ -175,11 +185,49 @@ public final class MetaTools {
         });
     }
 
+    private SyncToolSpecification redefineClass() {
+        Tool tool = Tool.builder()
+                .name("redefine_class")
+                .description("HYPERVISOR (R-1): replace the bytecode of an ALREADY-LOADED class "
+                        + "in the running game — including net.minecraft.* game classes — without "
+                        + "a restart. Provide the fully-qualified class name and the FULL new Java "
+                        + "source for that same class; it is compiled and hot-swapped in place. On "
+                        + "standard JVM only method bodies may change; on JBR+DCEVM you may also "
+                        + "add/remove fields and methods. Takes effect on the NEXT call to a changed "
+                        + "method; existing instances and static state are preserved (no re-init). "
+                        + "Cannot change a class's superclass. The class must already be loaded.")
+                .inputSchema(schema(Map.of(
+                        "className", str("fully-qualified name of the loaded class, e.g. "
+                                + "net.minecraft.client.Minecraft"),
+                        "source", str("full Java source of the SAME class (same package + name), "
+                                + "with the modified method bodies / members")),
+                        List.of("className", "source")))
+                .build();
+        return new SyncToolSpecification(tool, (exchange, request) -> {
+            String className = arg(request.arguments(), "className");
+            String source = arg(request.arguments(), "source");
+            if (className == null || source == null) {
+                return err("className and source are required");
+            }
+            final Class<?> target;
+            try {
+                // Only redefine an ALREADY-LOADED class (don't force-load arbitrary
+                // classes as a side effect). Use the game/loader-visible resolution.
+                target = Class.forName(className, false, getClass().getClassLoader());
+            } catch (ClassNotFoundException | LinkageError e) {
+                return err("class not loaded / not found: " + className + " (" + e + ")");
+            }
+            var outcome = hotLoad.redefineExisting(target, source);
+            return outcome.success() ? ok(outcome.message()) : err(outcome.message());
+        });
+    }
+
     /** Core tools that must never be overwritten by a generated tool. */
     private static boolean isReserved(String name) {
         return switch (name) {
             case "create_tool", "rollback_tool", "list_capabilities", "get_tool_source",
-                 "eval_java" -> true;
+                 "eval_java", "redefine_class",
+                 "drop_privilege", "restore_privilege", "list_permissions" -> true;
             default -> false;
         };
     }
