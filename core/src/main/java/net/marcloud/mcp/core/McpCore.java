@@ -196,6 +196,13 @@ public final class McpCore {
                     + " (debug_* tools registered, return isError until the agent is present).");
         }
 
+        // Structured GUI interaction: expose the whole clickable GUI (buttons,
+        // slots, text fields) to the LLM as addressable elements and drive the
+        // real vanilla handlers by element id. gui_snapshot is R2 (game-thread
+        // read); the action tools are R1 (server-visible effects) + SE_GUI_INTERACT.
+        new net.marcloud.mcp.core.gui.GuiTools(game, new net.marcloud.mcp.core.gui.GuiSnapshotService())
+                .registerAll(registry);
+
         // Socket transport (not stdio): the game owns the console, so a stdio
         // MCP server would corrupt the JSON-RPC stream. An AI client connects to
         // the loopback port. The registry binds the live server for runtime

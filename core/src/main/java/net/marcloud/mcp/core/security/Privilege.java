@@ -22,6 +22,7 @@ public enum Privilege {
     SE_SCREEN_CAP("capture the rendered GL framebuffer"),
     SE_CREATE_TOOL("compile, register, and roll back live tools"),
     SE_RUN_GENERATED("execute AI-authored / generated tool code (arbitrary in-proc Java)"),
+    SE_GUI_INTERACT("drive the live GUI: click elements, type into fields, press keys"),
     SE_DEBUG_CONTROL("native JVMTI thread control: pause/PopFrame/breakpoint/step/locals"),
     SE_SEAM_INJECT("install runtime bytecode seams (Netty MITM / GLFW / tick)");
 

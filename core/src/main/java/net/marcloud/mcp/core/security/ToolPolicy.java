@@ -67,6 +67,10 @@ public record ToolPolicy(Ring requiredRing,
             java.util.Map.entry("eval_java", IntegrityLevel.SYSTEM),      // arbitrary in-proc code
             java.util.Map.entry("send_raw_packet", IntegrityLevel.HIGH),  // network connection
             java.util.Map.entry("send_chat", IntegrityLevel.HIGH),
+            // GUI interaction drives real handlers (windowClick → server, button actions)
+            java.util.Map.entry("gui_click_element", IntegrityLevel.HIGH),
+            java.util.Map.entry("gui_type_text", IntegrityLevel.HIGH),
+            java.util.Map.entry("gui_press_key", IntegrityLevel.HIGH),
             java.util.Map.entry("create_tool", IntegrityLevel.MEDIUM_PLUS),
             java.util.Map.entry("rollback_tool", IntegrityLevel.MEDIUM_PLUS),
             java.util.Map.entry("memory_write", IntegrityLevel.LOW),
@@ -106,6 +110,9 @@ public record ToolPolicy(Ring requiredRing,
             java.util.Map.entry("eval_java", Privilege.SE_CREATE_TOOL),  // HIGH#4: arbitrary in-proc code needs L4
             java.util.Map.entry("send_raw_packet", Privilege.SE_NET_RAW),
             java.util.Map.entry("send_chat", Privilege.SE_NET_RAW),
+            java.util.Map.entry("gui_click_element", Privilege.SE_GUI_INTERACT),
+            java.util.Map.entry("gui_type_text", Privilege.SE_GUI_INTERACT),
+            java.util.Map.entry("gui_press_key", Privilege.SE_GUI_INTERACT),
             java.util.Map.entry("create_tool", Privilege.SE_CREATE_TOOL),
             java.util.Map.entry("rollback_tool", Privilege.SE_CREATE_TOOL),
             java.util.Map.entry("capture_screen", Privilege.SE_SCREEN_CAP),

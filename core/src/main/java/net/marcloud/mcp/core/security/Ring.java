@@ -92,6 +92,11 @@ public enum Ring {
             Map.entry("scan_surroundings", R2),
             Map.entry("capture_screen", R2),
             Map.entry("read_player_state", R2),
+            Map.entry("gui_snapshot", R2),
+            // R1 system: GUI interaction drives real handlers → server-visible effects
+            Map.entry("gui_click_element", R1),
+            Map.entry("gui_type_text", R1),
+            Map.entry("gui_press_key", R1),
             // R3 user: local read-only / bookkeeping
             Map.entry("recent_packets", R3),
             Map.entry("disconnect_report", R3),
