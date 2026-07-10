@@ -79,6 +79,32 @@ public class SupervisedGateIntegrationTest {
     }
 
     @Test
+    public void boundaryValidationRejectsMissingRequiredArgThroughGate() {
+        // Confirms L7 is LIVE end-to-end: the SDK Tool's inputSchema is recovered
+        // as a Map and a missing required arg is rejected as a domain error before
+        // the handler runs (handler would have returned "ran").
+        SafeToolExecutor exec = new SafeToolExecutor(2, 2000L);
+        CapabilityRegistry reg = new CapabilityRegistry(exec,
+                new InProcessPolicyEngine(new PermissionPolicy(Ring.R_MINUS_1, "tok")));
+        Tool t = Tool.builder().name("needs_name").description("d")
+                .inputSchema(Map.of("type", "object",
+                        "properties", Map.of("name", Map.of("type", "string")),
+                        "required", java.util.List.of("name")))
+                .build();
+        reg.register("needs_name",
+                new SyncToolSpecification(t, SupervisedGateIntegrationTest::okTool),
+                null, "d", true, Ring.R3);
+
+        CallToolResult missing = reg.invoke("needs_name", Map.of());
+        assertTrue("missing required arg rejected", Boolean.TRUE.equals(missing.isError()));
+        assertTrue(missing.content().toString().contains("name"));
+
+        CallToolResult okCall = reg.invoke("needs_name", Map.of("name", "x"));
+        assertFalse("valid args pass", Boolean.TRUE.equals(okCall.isError()));
+        exec.shutdown();
+    }
+
+    @Test
     public void isAllowedReflectsFullDecision() {
         SafeToolExecutor exec = new SafeToolExecutor(2, 2000L);
         PermissionPolicy p = new PermissionPolicy(Ring.R2, "tok");

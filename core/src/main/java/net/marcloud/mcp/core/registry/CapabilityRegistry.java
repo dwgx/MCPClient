@@ -7,6 +7,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import io.modelcontextprotocol.server.McpServerFeatures.SyncToolSpecification;
 import io.modelcontextprotocol.server.McpSyncServer;
+import io.modelcontextprotocol.spec.McpSchema.CallToolRequest;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import net.marcloud.mcp.core.security.AccessDecision;
@@ -81,6 +82,22 @@ public final class CapabilityRegistry {
         return engine.evaluate(engine.currentSubject(), req).allow();
     }
 
+    /**
+     * Best-effort extraction of a tool's input schema as a raw JSON map for L7
+     * validation. The MCP SDK models the schema as a typed object; every tool in
+     * this project builds it from a {@code Map}, so we recover that view when
+     * possible and return null otherwise (null → validation is permissive; the
+     * deep-freeze still runs).
+     */
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> schemaMapOf(Tool tool) {
+        Object schema = tool.inputSchema();
+        if (schema instanceof Map<?, ?> m) {
+            return (Map<String, Object>) m;
+        }
+        return null;
+    }
+
     /** Attach the live server so subsequent registrations propagate to clients. */
     public void bindServer(McpSyncServer server) {
         this.server = server;
@@ -110,7 +127,22 @@ public final class CapabilityRegistry {
                         .isError(true)
                         .build();
             }
-            return executor.run(stats, rawHandler, exchange, request, 0);
+            // L7 boundary (ProbeForRead analogue): validate args against the tool's
+            // declared schema, then deep-copy+freeze so the handler sees an
+            // immutable snapshot (no TOCTOU on a caller-retained map). A schema
+            // failure is a DOMAIN error (isError), not a tool fault — it does not
+            // touch the breaker, matching how bad-args are handled elsewhere.
+            BoundaryGuard.Result check = BoundaryGuard.validate(
+                    schemaMapOf(raw.tool()), request.arguments());
+            if (!check.ok()) {
+                return CallToolResult.builder()
+                        .addTextContent("invalid arguments for '" + toolName + "': " + check.message())
+                        .isError(true)
+                        .build();
+            }
+            CallToolRequest frozen = new CallToolRequest(
+                    toolName, BoundaryGuard.freezeArgs(request.arguments()));
+            return executor.run(stats, rawHandler, exchange, frozen, 0);
         });
     }
 
