@@ -4,9 +4,12 @@ import java.lang.instrument.Instrumentation;
 
 import net.bytebuddy.agent.builder.AgentBuilder;
 import net.bytebuddy.asm.Advice;
+import net.bytebuddy.description.type.TypeDescription;
+import net.bytebuddy.matcher.ElementMatcher;
 import net.bytebuddy.matcher.ElementMatchers;
-import net.marcloud.mcp.core.agent.CoreAgent;
+import net.marcloud.mcp.core.agent.AgentAccess;
 import net.marcloud.mcp.core.event.EventBus;
+import net.marcloud.mcp.core.security.ProtectedClasses;
 
 /**
  * Installs runtime hooks into the frozen MC networking code — WITHOUT editing
@@ -39,7 +42,7 @@ public final class HookManager {
 
     /** True if hooks can be installed (Instrumentation present). */
     public boolean canInstall() {
-        Instrumentation inst = CoreAgent.instrumentation();
+        Instrumentation inst = AgentAccess.instrumentation();
         return inst != null && inst.isRetransformClassesSupported();
     }
 
@@ -53,7 +56,7 @@ public final class HookManager {
         if (installed) {
             return;
         }
-        Instrumentation inst = CoreAgent.instrumentation();
+        Instrumentation inst = AgentAccess.instrumentation();
         if (inst == null || !inst.isRetransformClassesSupported()) {
             throw new IllegalStateException(
                     "Cannot install hooks: Instrumentation/retransform unavailable. "
@@ -65,7 +68,7 @@ public final class HookManager {
                 .with(AgentBuilder.RedefinitionStrategy.RETRANSFORMATION)
                 .with(AgentBuilder.TypeStrategy.Default.REDEFINE)
                 .disableClassFormatChanges()
-                .type(ElementMatchers.named(NETWORK_MANAGER))
+                .type(ElementMatchers.named(NETWORK_MANAGER).and(notProtected()))
                 .transform((builder, typeDescription, classLoader, module, protectionDomain) ->
                         builder
                             .visit(Advice.to(NetworkAdvice.ChannelRead0.class)
@@ -82,5 +85,17 @@ public final class HookManager {
 
     public boolean isInstalled() {
         return installed;
+    }
+
+    /**
+     * A Byte Buddy matcher rejecting any {@linkplain ProtectedClasses protected}
+     * Core class, so the hook installer can never weave into the guard's own
+     * machinery. Delegates to {@link ProtectedClasses#isProtected} so the
+     * protected name set lives in one place.
+     */
+    private static ElementMatcher.Junction<TypeDescription> notProtected() {
+        ElementMatcher<TypeDescription> isProtected =
+                target -> ProtectedClasses.isProtected(target.getName());
+        return ElementMatchers.not(isProtected);
     }
 }

@@ -4,7 +4,10 @@ import java.lang.instrument.Instrumentation;
 
 import net.bytebuddy.agent.builder.AgentBuilder;
 import net.bytebuddy.asm.Advice;
+import net.bytebuddy.description.type.TypeDescription;
+import net.bytebuddy.matcher.ElementMatcher;
 import net.bytebuddy.matcher.ElementMatchers;
+import net.marcloud.mcp.core.security.ProtectedClasses;
 
 /**
  * The MCP Core Java agent.
@@ -59,7 +62,10 @@ public final class CoreAgent {
                     .with(AgentBuilder.RedefinitionStrategy.RETRANSFORMATION)
                     .with(AgentBuilder.TypeStrategy.Default.REDEFINE)
                     .disableClassFormatChanges()
-                    .type(ElementMatchers.named(MINECRAFT))
+                    // Never retransform a protected Core class (defense-in-depth:
+                    // the target here is Minecraft, but the guard is uniform
+                    // across every installer so the set is enforced in one shape).
+                    .type(ElementMatchers.named(MINECRAFT).and(notProtected()))
                     .transform((builder, type, loader, module, pd) ->
                             builder.visit(Advice.to(StartupAdvice.class)
                                     .on(ElementMatchers.named("startGame"))))
@@ -71,15 +77,26 @@ public final class CoreAgent {
 
     /**
      * The captured Instrumentation, or {@code null} if the agent was never
-     * loaded. Callers that require redefinition must handle the null case and
-     * surface a clear "start with -javaagent" message.
+     * loaded. <b>Package-private on purpose</b>: trusted Core internals reach it
+     * through {@link AgentAccess#instrumentation()}, not directly, so there is no
+     * ungated {@code public static} global for arbitrary in-process code (an
+     * {@code eval_java} snippet, an AI-authored tool) to grab and bypass the
+     * privilege model with. Callers that require redefinition must handle the
+     * null case and surface a clear "start with -javaagent" message.
      */
-    public static Instrumentation instrumentation() {
+    static Instrumentation instrumentation() {
         return instrumentation;
     }
 
-    /** True once the agent has been loaded and Instrumentation is available. */
-    public static boolean isLoaded() {
-        return instrumentation != null;
+    /**
+     * A Byte Buddy matcher that rejects any {@linkplain ProtectedClasses
+     * protected} Core class, so an installer can never weave into the guard's
+     * own machinery. Delegates to {@link ProtectedClasses#isProtected} so the
+     * protected name set stays defined in exactly one place.
+     */
+    private static ElementMatcher.Junction<TypeDescription> notProtected() {
+        ElementMatcher<TypeDescription> isProtected =
+                target -> ProtectedClasses.isProtected(target.getName());
+        return ElementMatchers.not(isProtected);
     }
 }

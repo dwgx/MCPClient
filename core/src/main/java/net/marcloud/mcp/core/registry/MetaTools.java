@@ -209,6 +209,12 @@ public final class MetaTools {
             if (className == null || source == null) {
                 return err("className and source are required");
             }
+            // Refuse the guard's own machinery up front (clear message, no
+            // force-resolve). Redefiner enforces this again as the choke point.
+            if (net.marcloud.mcp.core.security.ProtectedClasses.isProtected(className)) {
+                return err("refusing to redefine protected Core class " + className
+                        + " (the privilege model cannot be modified from inside)");
+            }
             final Class<?> target;
             try {
                 // Only redefine an ALREADY-LOADED class (don't force-load arbitrary

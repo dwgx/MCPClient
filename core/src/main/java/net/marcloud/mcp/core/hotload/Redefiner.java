@@ -4,7 +4,8 @@ import java.lang.instrument.ClassDefinition;
 import java.lang.instrument.Instrumentation;
 import java.lang.instrument.UnmodifiableClassException;
 
-import net.marcloud.mcp.core.agent.CoreAgent;
+import net.marcloud.mcp.core.agent.AgentAccess;
+import net.marcloud.mcp.core.security.ProtectedClasses;
 
 /**
  * Redefines an already-loaded class with new bytecode via {@link Instrumentation}.
@@ -32,7 +33,7 @@ public final class Redefiner {
 
     /** True if Instrumentation is present and supports redefinition. */
     public boolean isAvailable() {
-        Instrumentation inst = CoreAgent.instrumentation();
+        Instrumentation inst = AgentAccess.instrumentation();
         return inst != null && inst.isRedefineClassesSupported();
     }
 
@@ -45,7 +46,15 @@ public final class Redefiner {
      * @throws UnmodifiableClassException     if the class cannot be modified at all
      */
     public void redefine(Class<?> target, byte[] newBytecode) throws UnmodifiableClassException {
-        Instrumentation inst = CoreAgent.instrumentation();
+        // Guard first: never let a redefine rewrite the guard's own machinery
+        // (PermissionPolicy/Ring/CapabilityRegistry/CoreAgent/...). This is the
+        // enforceable choke point for the redefine_class tool path.
+        if (ProtectedClasses.isProtected(target.getName())) {
+            throw new IllegalStateException(
+                    "refusing to redefine protected Core class " + target.getName()
+                    + " (privilege-model self-modification is not allowed)");
+        }
+        Instrumentation inst = AgentAccess.instrumentation();
         if (inst == null) {
             throw new IllegalStateException(
                     "Instrumentation unavailable: start the JVM with "
@@ -71,7 +80,7 @@ public final class Redefiner {
      * attempting a structural redefine; here we expose the coarse signal.
      */
     public boolean supportsStructuralChanges() {
-        Instrumentation inst = CoreAgent.instrumentation();
+        Instrumentation inst = AgentAccess.instrumentation();
         // No standard API reports DCEVM directly; the reliable signal is that a
         // structural redefine does not throw. Callers should attempt and catch.
         return inst != null && inst.isRedefineClassesSupported();
