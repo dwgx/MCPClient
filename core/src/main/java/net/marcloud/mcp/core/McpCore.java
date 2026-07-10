@@ -6,6 +6,10 @@ import net.marcloud.mcp.core.event.events.PacketReceivedEvent;
 import net.marcloud.mcp.core.event.events.PacketSentEvent;
 import net.marcloud.mcp.core.hook.HookManager;
 import net.marcloud.mcp.core.hotload.HotLoadEngine;
+import net.marcloud.mcp.core.memory.MemoryStore;
+import net.marcloud.mcp.core.memory.MemoryTools;
+import net.marcloud.mcp.core.narrative.GoalStack;
+import net.marcloud.mcp.core.narrative.NarrativeTools;
 import net.marcloud.mcp.core.mcp.SocketTransportServer;
 import net.marcloud.mcp.core.mcp.ToolContext;
 import net.marcloud.mcp.core.mcp.ToolRegistry;
@@ -90,6 +94,15 @@ public final class McpCore {
         DynamicToolFactory factory = new DynamicToolFactory(hotLoad);
         MetaTools meta = new MetaTools(registry, factory);
         meta.registerAll(registry);
+
+        // Durable memory (persists across restarts) — the knowledge counterpart
+        // to create_tool's capabilities. Stored under the game working dir.
+        MemoryStore memory = new MemoryStore(java.nio.file.Path.of("mcp_memory.json"));
+        new MemoryTools(memory).registerAll(registry);
+
+        // Narrative/intent (the "fable" layer): goal stack + story log.
+        GoalStack goalStack = new GoalStack(200);
+        new NarrativeTools(goalStack).registerAll(registry);
 
         // Socket transport (not stdio): the game owns the console, so a stdio
         // MCP server would corrupt the JSON-RPC stream. An AI client connects to
