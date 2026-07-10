@@ -14,11 +14,13 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * checks {@link #isEnabled}, which is true only when the privilege is both
  * granted and enabled.
  *
- * <p>Thread-safe: enabled flags are {@link AtomicBoolean} so a subject can toggle
- * a privilege (enable_privilege / disable_privilege tools) while MCP worker
- * threads read it. Grants are fixed at construction (a subject cannot grant
- * itself a new privilege — that would be self-escalation; only enable/disable of
- * an already-granted privilege is allowed).
+ * <p>Thread-safe: enabled flags are {@link AtomicBoolean} so a subject's enabled
+ * state can be toggled programmatically (via {@link #enable} / {@link #disable})
+ * while MCP worker threads read it. Note there is currently no MCP tool wired to
+ * flip these at runtime — the token's enabled state is fixed by how the subject
+ * is constructed at launch. Grants are fixed at construction (a subject cannot
+ * grant itself a new privilege — that would be self-escalation; only enable/disable
+ * of an already-granted privilege is allowed).
  */
 public final class PrivilegeToken {
 

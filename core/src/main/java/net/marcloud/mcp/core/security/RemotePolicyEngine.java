@@ -26,9 +26,10 @@ import net.marcloud.mcp.core.secure.PSecureProtocol;
  *
  * <p><b>Fail-closed.</b> Any transport failure (process down, slow past the
  * timeout, malformed reply, half-close) resolves to <i>deny</i> — never allow,
- * never hang. {@code dropTo} is the one exception: a drop is always safe (it only
- * reduces privilege), so it is applied to the local cache when the remote is
- * unreachable.
+ * never hang. This includes {@code dropTo}: in L1 mode the authority owns the
+ * clearance and {@link #evaluate} never consults the local cache, so a drop that
+ * cannot reach the authority has NOT actually happened. It therefore throws
+ * rather than reporting a phantom lowered ring — see {@link #dropTo}.
  *
  * <p>Opt-in via {@code -Dmcp.core.psecure=true}; disabled by default (the
  * in-process engine is the authority). Shares the {@link
@@ -98,17 +99,42 @@ public final class RemotePolicyEngine implements PolicyEngine {
                 PSecureProtocol.K_METHOD, PSecureProtocol.M_DROP_TO,
                 PSecureProtocol.K_TARGET, target.name()));
         if (r == null) {
-            // Remote down: a drop only reduces privilege, so apply locally (safe).
-            if (target.level() > cachedClearance.level()) {
-                cachedClearance = target;
-            }
-            return cachedClearance;
+            // Authority unreachable. In L1 mode evaluate() ALWAYS asks the remote
+            // authority and never consults cachedClearance, so lowering the local
+            // cache here would be a lie: it would report "clearance is now Rn" while
+            // the authority is unchanged, and when connectivity returns the
+            // higher-privilege tools are permitted again — the kill-switch would have
+            // silently done nothing. A drop that could not reach the authority did
+            // NOT happen, so fail closed: leave the cache untouched and throw so the
+            // caller renders "drop FAILED — authority unreachable, clearance
+            // unchanged" instead of a phantom success. (tryRestore already fails
+            // closed by returning false without touching the cache.)
+            throw new AuthorityUnreachableException(
+                    "drop_privilege to " + target.tag() + " FAILED: P-SECURE authority "
+                    + "unreachable — clearance is UNCHANGED. The drop was NOT applied. "
+                    + "Start the P-SECURE process (or unset -Dmcp.core.psecure) and retry.");
         }
         Ring parsed = parseRing((String) r.get(PSecureProtocol.K_CLEARANCE));
         if (parsed != null) {
             cachedClearance = parsed;
         }
         return cachedClearance;
+    }
+
+    /**
+     * Thrown by {@link #dropTo} when the P-SECURE authority is unreachable. A drop
+     * that cannot cross the wall has not taken effect on the authority (which owns
+     * the real clearance in L1 mode), so this fails closed rather than returning a
+     * phantom lowered ring. The handler boundary renders it as a tool error, so the
+     * operator sees "drop FAILED" and knows clearance is unchanged — never a false
+     * "clearance is now Rn".
+     */
+    public static final class AuthorityUnreachableException extends RuntimeException {
+        private static final long serialVersionUID = 1L;
+
+        public AuthorityUnreachableException(String message) {
+            super(message);
+        }
     }
 
     @Override

@@ -80,6 +80,14 @@ public final class DeepAccess {
         if (t == null) {
             throw new DeepAccessException("target is null");
         }
+        guardProtected(t.getClass());
+        // Hierarchy walk may resolve to a superclass; guard the DECLARING class too,
+        // symmetric with the write/invoke paths. Without this a non-protected
+        // subclass could READ a scalar/String field declared on a protected security
+        // class (MutateStateTools.isProtectedValue only inspects the returned value's
+        // runtime type and would miss it).
+        Field f = resolveField(t.getClass(), name);
+        guardProtected(f.getDeclaringClass());
         try {
             VarHandle vh = findVarHandle(t.getClass(), name, false);
             return vh.get(t);
@@ -93,6 +101,11 @@ public final class DeepAccess {
      */
     public Object getStaticField(Class<?> owner, String name) {
         gate.require(CapabilitySid.CAP_MEMORY_READ);
+        guardProtected(owner);
+        // Hierarchy walk may resolve to a superclass; guard the DECLARING class too,
+        // symmetric with the write/invoke paths.
+        Field f = resolveField(owner, name);
+        guardProtected(f.getDeclaringClass());
         try {
             VarHandle vh = findVarHandle(owner, name, true);
             return vh.get();
@@ -124,8 +137,7 @@ public final class DeepAccess {
         Object coerced = ValueCodec.coerce(f.getType(), value, roots);
 
         if (Modifier.isFinal(f.getModifiers())) {
-            // final: use Unsafe (independent declaring-class check at the choke point)
-            guardProtected(f.getDeclaringClass());
+            // final: use Unsafe (declaring class already guarded above)
             unsafe.putInstance(t, f, coerced);
         } else {
             // non-final: VarHandle
@@ -140,8 +152,8 @@ public final class DeepAccess {
 
     /**
      * Write static field {@code name} on class {@code owner} to {@code value}.
-     * Static final always via Unsafe (VarHandle refuses static final unconditionally);
-     * non-final static via VarHandle.
+     * All static writes go via Unsafe: VarHandle refuses static final, and routing
+     * non-final statics through Unsafe too keeps one uniform choke point.
      */
     public void setStaticField(Class<?> owner, String name, Object value, RootResolver roots) {
         gate.require(CapabilitySid.CAP_MEMORY_WRITE, Privilege.SE_DEBUG_CLASS);
@@ -152,20 +164,10 @@ public final class DeepAccess {
         guardProtected(f.getDeclaringClass());
         Object coerced = ValueCodec.coerce(f.getType(), value, roots);
 
-        int mods = f.getModifiers();
-        if (Modifier.isFinal(mods) || Modifier.isStatic(mods)) {
-            // static final OR any static final -> Unsafe (VarHandle refuses static final)
-            guardProtected(f.getDeclaringClass());
-            unsafe.putStatic(f, coerced);
-        } else {
-            // non-final static: VarHandle
-            try {
-                VarHandle vh = findVarHandle(owner, name, true);
-                vh.set(coerced);
-            } catch (Exception e) {
-                throw new DeepAccessException("setStaticField VarHandle failed: " + e.getMessage(), e);
-            }
-        }
+        // Static field write always uses Unsafe. (A prior VarHandle branch here was
+        // dead: for any static field Modifier.isStatic(mods) is true, so the guard
+        // condition was always satisfied and the VarHandle else-branch unreachable.)
+        unsafe.putStatic(f, coerced);
     }
 
     // ===== METHOD INVOKE =====

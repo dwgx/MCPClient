@@ -283,6 +283,17 @@ public final class ToolRegistry {
             if (ctx.disconnects() == null) {
                 return error("disconnect tracking unavailable");
             }
+            // GAP-4: distinguish "sensor never installed" from "genuinely no
+            // disconnect". The disconnect sensor is fed by -javaagent network
+            // advice (see HookBridge/McpCore); without it, a clean "no disconnect
+            // observed" would conflate a dead sensor with a real negative — the
+            // same fix already applied to recent_packets. Only report a negative
+            // when the sensor is actually live (or a disconnect was observed).
+            if (!ctx.disconnects().sensorInstalled() && !ctx.disconnects().observedAny()) {
+                return error("disconnect sensor unavailable: the disconnect/kick hooks require "
+                        + "-javaagent Instrumentation, which is not loaded, so disconnects are "
+                        + "NOT being observed. This is NOT an authoritative 'no disconnect'.");
+            }
             return ok(ctx.disconnects().report(n));
         });
     }

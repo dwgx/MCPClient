@@ -85,7 +85,8 @@ public final class InProcessPolicyEngine implements PolicyEngine {
                     "tool '" + request.toolName() + "' requires privilege "
                     + tp.requiredPrivilege().name() + " to be enabled"
                     + (subject.privileges().isGranted(tp.requiredPrivilege())
-                        ? " (granted but disabled — enable_privilege first)."
+                        ? " (granted but disabled — no in-session tool can re-enable it;"
+                          + " relaunch with the subject configured to enable this privilege)."
                         : " (not granted to this subject)."));
         }
 

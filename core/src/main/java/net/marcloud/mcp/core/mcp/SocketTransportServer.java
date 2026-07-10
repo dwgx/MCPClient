@@ -120,6 +120,12 @@ public final class SocketTransportServer {
     private void closeCurrent() {
         McpSyncServer s = currentServer;
         if (s != null) {
+            // Unbind FIRST so the registry never keeps pointing at a server we're
+            // about to close. Otherwise a create_tool/rollback via the still-live
+            // HTTP door (between disconnect and the next connect) would call
+            // addTool on a CLOSED McpSyncServer, throw, and commit nothing. With
+            // the ref cleared, register() takes its in-memory-only commit path.
+            registry.bindServer(null);
             try {
                 s.close();
             } catch (RuntimeException e) {

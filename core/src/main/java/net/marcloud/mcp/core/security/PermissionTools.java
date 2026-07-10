@@ -113,7 +113,16 @@ public final class PermissionTools {
             if (target == null) {
                 return err("unknown ring; use R-1, R0, R1, R2, or R3");
             }
-            Ring now = engine.dropTo(target);
+            // GAP-1: in P-SECURE (L1) mode a drop that can't reach the authority
+            // did NOT take effect (evaluate() always asks the authority, never the
+            // local cache). RemotePolicyEngine fails closed by throwing; render that
+            // as an honest tool error, never a phantom "clearance is now Rn".
+            final Ring now;
+            try {
+                now = engine.dropTo(target);
+            } catch (net.marcloud.mcp.core.security.RemotePolicyEngine.AuthorityUnreachableException e) {
+                return err(e.getMessage());
+            }
             return ok("clearance is now " + now.tag()
                     + (now == target ? "" : " (already at or below " + target.tag() + ")"));
         });
