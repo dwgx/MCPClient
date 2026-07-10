@@ -3,6 +3,7 @@ package net.marcloud.mcp.core.seam;
 import java.lang.instrument.Instrumentation;
 
 import net.bytebuddy.agent.builder.AgentBuilder;
+import net.bytebuddy.agent.builder.ResettableClassFileTransformer;
 import net.bytebuddy.asm.Advice;
 import net.bytebuddy.description.type.TypeDescription;
 import net.bytebuddy.matcher.ElementMatcher;
@@ -26,6 +27,11 @@ public final class TickInjector {
 
     private final EventBus bus;
     private volatile boolean installed;
+    /** Kept so uninstall() can reset the retransform and truly revert runTick
+     *  (the C3 DynamicHookManager pattern) — NOT discarded, so seam_tick_disable
+     *  is a real operation, not a placeholder. */
+    private volatile ResettableClassFileTransformer transformer;
+    private volatile Instrumentation inst;
 
     public TickInjector(EventBus bus) {
         this.bus = bus;
@@ -49,7 +55,8 @@ public final class TickInjector {
         }
         TickBridge.setBus(bus);
 
-        new AgentBuilder.Default()
+        // Keep the transformer handle so uninstall() can reset it.
+        this.transformer = new AgentBuilder.Default()
                 .with(AgentBuilder.RedefinitionStrategy.RETRANSFORMATION)
                 .with(AgentBuilder.TypeStrategy.Default.REDEFINE)
                 .disableClassFormatChanges()
@@ -58,8 +65,25 @@ public final class TickInjector {
                         builder.visit(Advice.to(TickAdvice.class)
                                 .on(ElementMatchers.named("runTick"))))
                 .installOn(inst);
-
+        this.inst = inst;
         installed = true;
+    }
+
+    /**
+     * Uninstall the tick hook: reset the transformer, which retransforms
+     * Minecraft back and stops TickEvent from firing. Returns true if it was
+     * installed and reverted. Genuinely reversible (no restart needed) — the
+     * seam_tick_disable tool wraps this.
+     */
+    public synchronized boolean uninstall() {
+        if (!installed || transformer == null || inst == null) {
+            return false;
+        }
+        boolean reverted = transformer.reset(inst,
+                AgentBuilder.RedefinitionStrategy.RETRANSFORMATION);
+        transformer = null;
+        installed = false;
+        return reverted;
     }
 
     public boolean isInstalled() {

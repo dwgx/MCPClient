@@ -191,20 +191,16 @@ public final class SeamTools {
     private SyncToolSpecification seamTickDisable() {
         Tool tool = Tool.builder()
                 .name("seam_tick_disable")
-                .description("Disable the tick event injector. NOTE: ByteBuddy retransform is "
-                        + "one-way without explicit reset; this tool is a placeholder. The tick "
-                        + "injector remains installed once enabled. To truly disable, restart "
-                        + "the game.")
+                .description("Disable the tick event injector: resets the ByteBuddy retransform "
+                        + "so TickEvent stops firing and Minecraft.runTick reverts to its original "
+                        + "bytecode. Genuinely reversible — no restart needed.")
                 .inputSchema(schema(Map.of(), List.of()))
                 .build();
         return new SyncToolSpecification(tool, (exchange, request) -> {
-            // ByteBuddy retransform is one-way. To uninstall, we would need to
-            // retransform Minecraft.runTick back to original bytecode. This
-            // requires keeping the original class bytes and re-applying them.
-            // For now, this is a no-op (the tick injector cannot be cleanly
-            // uninstalled).
-            return ok("Tick injector cannot be cleanly uninstalled without retransform reset. "
-                    + "It remains active. To disable, restart the game.");
+            boolean reverted = controller.uninstallTickInjector();
+            return reverted
+                    ? ok("tick injector uninstalled (runTick reverted; TickEvent no longer fires)")
+                    : err("tick injector was not installed (nothing to disable)");
         });
     }
 }

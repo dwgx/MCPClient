@@ -173,15 +173,23 @@ public final class SeamController {
     }
 
     /**
-     * Uninstall all seams. This is a cleanup method for shutdown or tests.
-     * Does not attempt to retransform Minecraft.runTick back (ByteBuddy
-     * retransform is one-way without explicit reset).
+     * Uninstall the tick injector: resets the retransform so TickEvent stops
+     * firing and Minecraft.runTick reverts. Genuinely reversible (no restart).
+     *
+     * @return true if it was installed and reverted, false otherwise
+     */
+    public boolean uninstallTickInjector() {
+        return tickInjector.uninstall();
+    }
+
+    /**
+     * Uninstall all seams. Cleanup for shutdown or tests — reverts every seam,
+     * including the tick injector (transformer reset).
      */
     public void uninstallAll() {
         nettyTap.removeAll();   // drains handlers across every channel tracked (reconnect-safe)
         uninstallKeyHook();
         uninstallMouseHook();
-        // Tick injector cannot be cleanly uninstalled (would require
-        // retransform back to original bytecode). It remains installed.
+        tickInjector.uninstall();
     }
 }

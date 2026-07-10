@@ -240,7 +240,11 @@ public final class MetaTools {
                  "read_field", "write_field", "invoke_method", "open_module",
                  "eval_ephemeral",
                  "seam_netty_install", "seam_netty_uninstall", "seam_glfw_key_hook",
-                 "seam_glfw_mouse_hook", "seam_tick_enable", "seam_tick_disable" -> true;
+                 "seam_glfw_mouse_hook", "seam_tick_enable", "seam_tick_disable",
+                 // C6 native debugger tools
+                 "debug_suspend_thread", "debug_pop_frame", "debug_force_return",
+                 "debug_set_breakpoint", "debug_clear_breakpoint", "debug_single_step",
+                 "debug_read_local", "debug_write_local", "debug_watch_field" -> true;
             default -> false;
         };
     }

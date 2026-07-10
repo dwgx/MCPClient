@@ -181,6 +181,17 @@ public final class McpCore {
         seams = new SeamController(bus, game);
         new SeamTools(seams).registerAll(registry);
 
+        // C6 CONTROL-EXEC: native JVMTI debugger. Graceful no-op without
+        // -agentpath:core-jvmti.dll — the debug_* tools still register and report
+        // honestly (no dead tools). Debug events also flow onto the EventBus.
+        net.marcloud.mcp.core.debug.DebugEventQueue.INSTANCE.addListener(bus::publish);
+        new net.marcloud.mcp.core.debug.DebugTools(gate).registerAll(registry);
+        if (!net.marcloud.mcp.core.debug.DebuggerBridge.isAvailable()) {
+            System.err.println("[MCP Core] JVMTI debugger absent — "
+                    + net.marcloud.mcp.core.debug.DebuggerBridge.unavailableReason()
+                    + " (debug_* tools registered, return isError until the agent is present).");
+        }
+
         // Socket transport (not stdio): the game owns the console, so a stdio
         // MCP server would corrupt the JSON-RPC stream. An AI client connects to
         // the loopback port. The registry binds the live server for runtime

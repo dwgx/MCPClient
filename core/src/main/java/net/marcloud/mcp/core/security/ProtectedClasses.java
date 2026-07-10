@@ -67,7 +67,9 @@ public final class ProtectedClasses {
             "net.marcloud.mcp.core.deepaccess.DeepAccess",
             "net.marcloud.mcp.core.seam.SeamController",
             "net.marcloud.mcp.core.seam.NettyTap",
-            "net.marcloud.mcp.core.seam.TickInjector");
+            "net.marcloud.mcp.core.seam.TickInjector",
+            // C6 native debugger bridge (holds the JVMTI native binding)
+            "net.marcloud.mcp.core.debug.DebuggerBridge");
 
     /**
      * True if {@code className} must never be redefined/retransformed. Null or

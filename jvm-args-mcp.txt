@@ -34,3 +34,14 @@
 --add-opens java.desktop/com.sun.imageio.plugins.png=ALL-UNNAMED
 --add-opens java.desktop/sun.awt.image=ALL-UNNAMED
 --add-opens java.desktop/sun.awt=ALL-UNNAMED
+
+# --- C6 JVMTI native debugger (core-jvmti.dll) ---
+# The onload-only debugger capabilities REQUIRE -agentpath at startup (dynamic
+# attach cannot gain them). The DLL is built by core/src/main/native/core-jvmti/
+# build.bat once MSVC Build Tools are installed. UNTIL THEN these are commented:
+# a bad -agentpath path aborts JVM boot. After building, uncomment BOTH lines and
+# point them at the SAME absolute DLL path (same file, so DebuggerBridge.System.load
+# binds the JNI natives onto the module -agentpath already loaded).
+# Coexists with -javaagent (ByteBuddy) + DCEVM flags. No JDWP.
+#-agentpath:core/src/main/native/core-jvmti/build/core-jvmti.dll
+#-Dmcp.core.jvmtiLib=core/src/main/native/core-jvmti/build/core-jvmti.dll

@@ -72,7 +72,17 @@ public record ToolPolicy(Ring requiredRing,
             java.util.Map.entry("seam_glfw_key_hook", IntegrityLevel.HIGH),
             java.util.Map.entry("seam_glfw_mouse_hook", IntegrityLevel.HIGH),
             java.util.Map.entry("seam_tick_enable", IntegrityLevel.HIGH),
-            java.util.Map.entry("seam_tick_disable", IntegrityLevel.HIGH));
+            java.util.Map.entry("seam_tick_disable", IntegrityLevel.HIGH),
+            // C6 native debugger — thread control is the most invasive write class
+            java.util.Map.entry("debug_suspend_thread", IntegrityLevel.SYSTEM),
+            java.util.Map.entry("debug_pop_frame", IntegrityLevel.SYSTEM),
+            java.util.Map.entry("debug_force_return", IntegrityLevel.SYSTEM),
+            java.util.Map.entry("debug_set_breakpoint", IntegrityLevel.SYSTEM),
+            java.util.Map.entry("debug_clear_breakpoint", IntegrityLevel.SYSTEM),
+            java.util.Map.entry("debug_single_step", IntegrityLevel.SYSTEM),
+            java.util.Map.entry("debug_read_local", IntegrityLevel.SYSTEM),
+            java.util.Map.entry("debug_write_local", IntegrityLevel.SYSTEM),
+            java.util.Map.entry("debug_watch_field", IntegrityLevel.SYSTEM));
 
     // ---- L4: the privilege each dangerous verb requires enabled ----
     private static final java.util.Map<String, Privilege> L4_PRIVILEGE = java.util.Map.ofEntries(
@@ -94,5 +104,15 @@ public record ToolPolicy(Ring requiredRing,
             java.util.Map.entry("seam_glfw_key_hook", Privilege.SE_SEAM_INJECT),
             java.util.Map.entry("seam_glfw_mouse_hook", Privilege.SE_SEAM_INJECT),
             java.util.Map.entry("seam_tick_enable", Privilege.SE_SEAM_INJECT),
-            java.util.Map.entry("seam_tick_disable", Privilege.SE_SEAM_INJECT));
+            java.util.Map.entry("seam_tick_disable", Privilege.SE_SEAM_INJECT),
+            // C6 native debugger — all require SE_DEBUG_CONTROL enabled
+            java.util.Map.entry("debug_suspend_thread", Privilege.SE_DEBUG_CONTROL),
+            java.util.Map.entry("debug_pop_frame", Privilege.SE_DEBUG_CONTROL),
+            java.util.Map.entry("debug_force_return", Privilege.SE_DEBUG_CONTROL),
+            java.util.Map.entry("debug_set_breakpoint", Privilege.SE_DEBUG_CONTROL),
+            java.util.Map.entry("debug_clear_breakpoint", Privilege.SE_DEBUG_CONTROL),
+            java.util.Map.entry("debug_single_step", Privilege.SE_DEBUG_CONTROL),
+            java.util.Map.entry("debug_read_local", Privilege.SE_DEBUG_CONTROL),
+            java.util.Map.entry("debug_write_local", Privilege.SE_DEBUG_CONTROL),
+            java.util.Map.entry("debug_watch_field", Privilege.SE_DEBUG_CONTROL));
 }

@@ -66,7 +66,17 @@ public final class CapabilityCatalog {
             Map.entry("seam_glfw_key_hook", Set.of(CapabilitySid.CAP_SEAM_INJECT)),
             Map.entry("seam_glfw_mouse_hook", Set.of(CapabilitySid.CAP_SEAM_INJECT)),
             Map.entry("seam_tick_enable", Set.of(CapabilitySid.CAP_SEAM_INJECT)),
-            Map.entry("seam_tick_disable", Set.of(CapabilitySid.CAP_SEAM_INJECT)));
+            Map.entry("seam_tick_disable", Set.of(CapabilitySid.CAP_SEAM_INJECT)),
+            // C6 debugger — all require CAP_DEBUG_CONTROL
+            Map.entry("debug_suspend_thread", Set.of(CapabilitySid.CAP_DEBUG_CONTROL)),
+            Map.entry("debug_pop_frame", Set.of(CapabilitySid.CAP_DEBUG_CONTROL)),
+            Map.entry("debug_force_return", Set.of(CapabilitySid.CAP_DEBUG_CONTROL)),
+            Map.entry("debug_set_breakpoint", Set.of(CapabilitySid.CAP_DEBUG_CONTROL)),
+            Map.entry("debug_clear_breakpoint", Set.of(CapabilitySid.CAP_DEBUG_CONTROL)),
+            Map.entry("debug_single_step", Set.of(CapabilitySid.CAP_DEBUG_CONTROL)),
+            Map.entry("debug_read_local", Set.of(CapabilitySid.CAP_DEBUG_CONTROL)),
+            Map.entry("debug_write_local", Set.of(CapabilitySid.CAP_DEBUG_CONTROL)),
+            Map.entry("debug_watch_field", Set.of(CapabilitySid.CAP_DEBUG_CONTROL)));
 
     /** AI-authored tools default to observe-tier (they reach state via GameBridge at R2). */
     public static final Set<CapabilitySid> DEFAULT_GENERATED = Set.of(CAP_WORLD_READ, CAP_MEMORY_READ);

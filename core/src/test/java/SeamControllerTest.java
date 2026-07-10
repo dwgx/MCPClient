@@ -154,6 +154,17 @@ public class SeamControllerTest {
     }
 
     @Test
+    public void tickInjectorUninstallIsHonestNotAPlaceholder() {
+        // seam_tick_disable used to be a placeholder that returned fake success.
+        // It now delegates to a real reset; when nothing is installed, the honest
+        // answer is false (not a pretend "done"). Proves the tool does real work.
+        assertFalse("tick injector not installed in headless test",
+                controller.isTickInjectorInstalled());
+        assertFalse("uninstall of a not-installed injector reports false, not fake success",
+                controller.uninstallTickInjector());
+    }
+
+    @Test
     public void seamControllerKeyHookGuardsGLFW() {
         // InputHook.installKeyCallback() checks isAvailable(), which tries to
         // acquireWindow(). In a headless test, this returns false. We verify

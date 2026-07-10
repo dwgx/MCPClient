@@ -123,5 +123,16 @@ public enum Ring {
             Map.entry("seam_glfw_key_hook", R_MINUS_1),
             Map.entry("seam_glfw_mouse_hook", R_MINUS_1),
             Map.entry("seam_tick_enable", R_MINUS_1),
-            Map.entry("seam_tick_disable", R0));
+            Map.entry("seam_tick_disable", R0),
+            // C6 CONTROL-EXEC: native JVMTI debugger — pause/rewrite live thread
+            // state, strictly hypervisor.
+            Map.entry("debug_suspend_thread", R_MINUS_1),
+            Map.entry("debug_pop_frame", R_MINUS_1),
+            Map.entry("debug_force_return", R_MINUS_1),
+            Map.entry("debug_set_breakpoint", R_MINUS_1),
+            Map.entry("debug_clear_breakpoint", R_MINUS_1),
+            Map.entry("debug_single_step", R_MINUS_1),
+            Map.entry("debug_read_local", R_MINUS_1),
+            Map.entry("debug_write_local", R_MINUS_1),
+            Map.entry("debug_watch_field", R_MINUS_1));
 }
