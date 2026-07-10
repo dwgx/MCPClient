@@ -9,6 +9,8 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import net.marcloud.mcp.core.registry.CapabilityRegistry;
 import net.marcloud.mcp.core.state.PlayerState;
+import net.marcloud.mcp.core.state.Surroundings;
+import net.marcloud.mcp.core.state.WorldScanner;
 import net.minecraft.network.Packet;
 
 /**
@@ -43,6 +45,8 @@ public final class ToolRegistry {
         tools.add(evalJava());
         tools.add(sendRawPacket());
         tools.add(disconnectReport());
+        tools.add(scanSurroundings());
+        tools.add(captureScreen());
         return tools;
     }
 
@@ -270,6 +274,74 @@ public final class ToolRegistry {
                 return error("disconnect tracking unavailable");
             }
             return ok(ctx.disconnects().report(n));
+        });
+    }
+
+    private SyncToolSpecification scanSurroundings() {
+        Tool tool = Tool.builder()
+                .name("scan_surroundings")
+                .description("The primary observation: a symbolic snapshot of the player's "
+                        + "situation — position, health/hunger, biome/dimension/time, inventory, "
+                        + "the block column (below/legs/head), dedup'd nearby block types with "
+                        + "counts, and nearby entities sorted by distance. Cheap and precise; "
+                        + "use this as your main sense of the world (use capture_screen only when "
+                        + "you specifically need to SEE the scene).")
+                .inputSchema(objectSchema(Map.of(
+                        "radius", Map.of("type", "integer",
+                                "description", "scan cube half-size in blocks, 1-32 (default 16)")),
+                        List.of()))
+                .build();
+        return new SyncToolSpecification(tool, (exchange, request) -> {
+            int radius = 16;
+            Object v = request.arguments() == null ? null : request.arguments().get("radius");
+            if (v instanceof Number num) {
+                radius = num.intValue();
+            }
+            final int r = radius;
+            try {
+                Surroundings s = net.marcloud.mcp.core.GameBridge.onGameThread(
+                        () -> WorldScanner.capture(ctx.game(), r));
+                return ok(s.toText());
+            } catch (Exception e) {
+                return error("scan failed: " + e.getMessage());
+            }
+        });
+    }
+
+    private SyncToolSpecification captureScreen() {
+        Tool tool = Tool.builder()
+                .name("capture_screen")
+                .description("SEE the game: capture the current rendered frame as a PNG image "
+                        + "and return it for you to look at. Use this when you need visual "
+                        + "understanding the symbolic scan can't give (scenery, builds, GUI, "
+                        + "terrain, rendering issues). Costs image tokens — prefer "
+                        + "scan_surroundings for routine sensing. Downscaled to ~1024px long edge.")
+                .inputSchema(objectSchema(Map.of(
+                        "maxEdge", Map.of("type", "integer",
+                                "description", "max long-edge pixels, 64-1600 (default 1024)")),
+                        List.of()))
+                .build();
+        return new SyncToolSpecification(tool, (exchange, request) -> {
+            int maxEdge = net.marcloud.mcp.core.vision.ScreenCapture.DEFAULT_MAX_EDGE;
+            Object v = request.arguments() == null ? null : request.arguments().get("maxEdge");
+            if (v instanceof Number num) {
+                maxEdge = Math.max(64, Math.min(1600, num.intValue()));
+            }
+            final int edge = maxEdge;
+            try {
+                // glReadPixels must run on the game/GL thread; block for the bytes.
+                byte[] png = net.marcloud.mcp.core.GameBridge.onGameThread(
+                        () -> net.marcloud.mcp.core.vision.ScreenCapture.capturePng(ctx.game(), edge));
+                String b64 = java.util.Base64.getEncoder().encodeToString(png);
+                var img = io.modelcontextprotocol.spec.McpSchema.ImageContent.builder(b64, "image/png").build();
+                return io.modelcontextprotocol.spec.McpSchema.CallToolResult.builder()
+                        .addContent(img)
+                        .addTextContent("game view (" + png.length + " bytes PNG)")
+                        .isError(false)
+                        .build();
+            } catch (Exception e) {
+                return error("capture_screen failed: " + e.getMessage());
+            }
         });
     }
 }
