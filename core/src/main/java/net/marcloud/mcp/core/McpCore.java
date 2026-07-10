@@ -4,8 +4,20 @@ import net.marcloud.mcp.core.action.ActionManager;
 import net.marcloud.mcp.core.event.EventBus;
 import net.marcloud.mcp.core.event.events.PacketReceivedEvent;
 import net.marcloud.mcp.core.event.events.PacketSentEvent;
+import net.marcloud.mcp.core.deepaccess.DeepAccess;
+import net.marcloud.mcp.core.deepaccess.MutateStateTools;
+import net.marcloud.mcp.core.hook.DynamicHookManager;
 import net.marcloud.mcp.core.hook.HookManager;
+import net.marcloud.mcp.core.hook.HookTools;
 import net.marcloud.mcp.core.hotload.HotLoadEngine;
+import net.marcloud.mcp.core.introspect.IntrospectionService;
+import net.marcloud.mcp.core.introspect.IntrospectionTools;
+import net.marcloud.mcp.core.seam.SeamController;
+import net.marcloud.mcp.core.seam.SeamTools;
+import net.marcloud.mcp.core.security.AccessGate;
+import net.marcloud.mcp.core.security.AllowAllGate;
+import net.marcloud.mcp.core.synth.EphemeralSynthesizer;
+import net.marcloud.mcp.core.synth.SynthTools;
 import net.marcloud.mcp.core.http.HttpFacade;
 import net.marcloud.mcp.core.memory.MemoryStore;
 import net.marcloud.mcp.core.memory.MemoryTools;
@@ -54,6 +66,7 @@ public final class McpCore {
     private final PacketLog packetLog = new PacketLog(PACKET_LOG_CAPACITY);
     private SocketTransportServer socketServer;
     private HttpFacade httpFacade;
+    private net.marcloud.mcp.core.seam.SeamController seams;
 
     /**
      * Assemble and start Core. Installs runtime hooks (if Instrumentation is
@@ -96,6 +109,11 @@ public final class McpCore {
                     + "disabled, server continues: " + t);
         }
 
+        // C3 INTERCEPT: dynamic (install/uninstall/reset) hooks, sharing the
+        // captured Instrumentation. Coexists with the fixed HookManager above.
+        DynamicHookManager dynHooks = new DynamicHookManager(
+                net.marcloud.mcp.core.agent.AgentAccess.instrumentation(), bus);
+
         ToolContext ctx = new ToolContext(game, actions, hotLoad, packetLog, disconnects);
 
         // Build the capability registry: every tool is supervised (timeout +
@@ -132,6 +150,34 @@ public final class McpCore {
         GoalStack goalStack = new GoalStack(200);
         new NarrativeTools(goalStack).registerAll(registry);
 
+        // ---- Phase 2 capability layers (C1/C3/C5/C7/C8) ----
+        // Each tool is registered through the same supervised registry, so the
+        // 7-layer reference monitor gates it exactly like every other tool.
+        AccessGate gate = new AllowAllGate();
+
+        // C1 INTROSPECT: read-only self-model. list_hooks aggregates both the
+        // fixed network hooks and the dynamic ones via the HookSource SPI.
+        IntrospectionService introspect = new IntrospectionService(
+                getClass().getClassLoader(), java.util.List.of(hooks, dynHooks));
+        new IntrospectionTools(introspect).registerAll(registry);
+
+        // C3 INTERCEPT: runtime install/uninstall/reset of ByteBuddy hooks.
+        new HookTools(dynHooks, gate).registerAll(registry);
+
+        // C5 MUTATE-STATE: read/write any field, invoke private methods, open
+        // modules. Instrumentation reached through the gated AgentAccess seam.
+        DeepAccess deep = new DeepAccess(game, gate,
+                net.marcloud.mcp.core.agent.AgentAccess::instrumentation);
+        new MutateStateTools(deep, game).registerAll(registry);
+
+        // C7 SYNTHESIZE: one-shot GC-able hidden-class tools.
+        new SynthTools(new EphemeralSynthesizer()).registerAll(registry);
+
+        // C8 SEAM: Netty pipeline MITM / GLFW input / tick injection. Kept as a
+        // field so stop() can tear the seams down.
+        seams = new SeamController(bus, game);
+        new SeamTools(seams).registerAll(registry);
+
         // Socket transport (not stdio): the game owns the console, so a stdio
         // MCP server would corrupt the JSON-RPC stream. An AI client connects to
         // the loopback port. The registry binds the live server for runtime
@@ -159,13 +205,16 @@ public final class McpCore {
         }
     }
 
-    /** Stop the MCP server + REST facade. */
+    /** Stop the MCP server + REST facade, and tear down any installed seams. */
     public void stop() {
         if (socketServer != null) {
             socketServer.close();
         }
         if (httpFacade != null) {
             httpFacade.stop();
+        }
+        if (seams != null) {
+            seams.uninstallAll();
         }
     }
 

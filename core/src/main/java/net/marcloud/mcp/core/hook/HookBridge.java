@@ -1,7 +1,10 @@
 package net.marcloud.mcp.core.hook;
 
+import java.util.concurrent.ConcurrentHashMap;
+
 import net.marcloud.mcp.core.event.EventBus;
 import net.marcloud.mcp.core.event.events.DisconnectedEvent;
+import net.marcloud.mcp.core.event.events.HookFiredEvent;
 import net.marcloud.mcp.core.event.events.PacketReceivedEvent;
 import net.marcloud.mcp.core.event.events.PacketSentEvent;
 import net.minecraft.network.Packet;
@@ -63,6 +66,44 @@ public final class HookBridge {
         }
         try {
             b.publish(new DisconnectedEvent(reason instanceof IChatComponent ic ? ic : null));
+        } catch (Throwable ignored) {
+        }
+    }
+
+    // ---- generic dynamic-hook routing (C3 DynamicHookManager) --------------
+    // Each dynamically-installed hook carries its own routeKey (bound constant in
+    // GenericEntryAdvice). The route table maps routeKey -> the target metadata so
+    // one shared advice body can serve arbitrarily many hooks. Kept here (not a
+    // separate class) so all inlined-advice statics live on one system-loader
+    // surface reachable from MC bytecode.
+
+    private record Route(EventBus bus, String targetClass, String method) {
+    }
+
+    private static final ConcurrentHashMap<Integer, Route> ROUTES = new ConcurrentHashMap<>();
+
+    /** Register a hook route BEFORE installOn, so advice can fire immediately. */
+    public static void registerRoute(int key, EventBus eventBus, String targetClass, String method) {
+        ROUTES.put(key, new Route(eventBus, targetClass, method));
+    }
+
+    /** Unregister a hook route after transformer.reset() succeeds. */
+    public static void unregisterRoute(int key) {
+        ROUTES.remove(key);
+    }
+
+    /**
+     * Dispatch a dynamic-hook fire to the EventBus. Called from inlined
+     * {@link GenericEntryAdvice} on whatever thread the hooked method runs on.
+     * Defensive: never throws into the game.
+     */
+    public static void dispatch(int key, String method, Object[] args) {
+        Route r = ROUTES.get(key);
+        if (r == null) {
+            return;
+        }
+        try {
+            r.bus().publish(new HookFiredEvent(key, r.targetClass(), r.method(), args));
         } catch (Throwable ignored) {
         }
     }

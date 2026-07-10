@@ -233,7 +233,14 @@ public final class MetaTools {
         return switch (name) {
             case "create_tool", "rollback_tool", "list_capabilities", "get_tool_source",
                  "eval_java", "redefine_class",
-                 "drop_privilege", "restore_privilege", "list_permissions" -> true;
+                 "drop_privilege", "restore_privilege", "list_permissions",
+                 // Phase 2 capability tools — core surface, not AI-overwritable
+                 "list_classes", "describe_class", "find_method", "list_hooks",
+                 "install_hook", "uninstall_hook",
+                 "read_field", "write_field", "invoke_method", "open_module",
+                 "eval_ephemeral",
+                 "seam_netty_install", "seam_netty_uninstall", "seam_glfw_key_hook",
+                 "seam_glfw_mouse_hook", "seam_tick_enable", "seam_tick_disable" -> true;
             default -> false;
         };
     }

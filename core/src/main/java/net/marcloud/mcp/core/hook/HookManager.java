@@ -29,7 +29,7 @@ import net.marcloud.mcp.core.security.ProtectedClasses;
  * only touches {@link HookBridge}'s public statics. Failures are surfaced, never
  * silently ignored, but installation is idempotent-safe.
  */
-public final class HookManager {
+public final class HookManager implements HookSource {
 
     private static final String NETWORK_MANAGER = "net.minecraft.network.NetworkManager";
 
@@ -38,6 +38,26 @@ public final class HookManager {
 
     public HookManager(EventBus bus) {
         this.bus = bus;
+    }
+
+    /** The three fixed NetworkManager hooks, for the aggregate list_hooks tool. */
+    @Override
+    public java.util.List<HookInfo> hooks() {
+        return java.util.List.of(
+                new HookInfo(NETWORK_MANAGER, "channelRead0",
+                        NetworkAdvice.ChannelRead0.class.getName(),
+                        "bytebuddy-advice-retransform", installed),
+                new HookInfo(NETWORK_MANAGER, "sendPacket",
+                        NetworkAdvice.SendPacket.class.getName(),
+                        "bytebuddy-advice-retransform", installed),
+                new HookInfo(NETWORK_MANAGER, "closeChannel",
+                        NetworkAdvice.CloseChannel.class.getName(),
+                        "bytebuddy-advice-retransform", installed));
+    }
+
+    @Override
+    public String sourceName() {
+        return "HookManager";
     }
 
     /** True if hooks can be installed (Instrumentation present). */

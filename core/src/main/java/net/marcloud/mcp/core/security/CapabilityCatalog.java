@@ -43,7 +43,30 @@ public final class CapabilityCatalog {
             Map.entry("redefine_class", Set.of(CAP_CLASS_REDEFINE)),
             // durable store
             Map.entry("memory_write", Set.of(CAP_STORE_WRITE)),
-            Map.entry("memory_delete", Set.of(CAP_STORE_WRITE)));
+            Map.entry("memory_delete", Set.of(CAP_STORE_WRITE)),
+            // ---- Phase 2 capability tools ----
+            // C1 introspect (read-only)
+            Map.entry("list_classes", Set.of(CapabilitySid.CAP_CLASS_INTROSPECT)),
+            Map.entry("describe_class", Set.of(CapabilitySid.CAP_CLASS_INTROSPECT)),
+            Map.entry("find_method", Set.of(CapabilitySid.CAP_CLASS_INTROSPECT)),
+            Map.entry("list_hooks", Set.of(CapabilitySid.CAP_CLASS_INTROSPECT)),
+            // C3 intercept
+            Map.entry("install_hook", Set.of(CapabilitySid.CAP_CLASS_RETRANSFORM)),
+            Map.entry("uninstall_hook", Set.of(CapabilitySid.CAP_CLASS_RETRANSFORM)),
+            // C5 mutate-state
+            Map.entry("read_field", Set.of(CapabilitySid.CAP_MEMORY_READ)),
+            Map.entry("write_field", Set.of(CapabilitySid.CAP_MEMORY_WRITE)),
+            Map.entry("invoke_method", Set.of(CapabilitySid.CAP_MEMORY_WRITE)),
+            Map.entry("open_module", Set.of(CapabilitySid.CAP_MEMORY_WRITE)),
+            // C7 synthesize
+            Map.entry("eval_ephemeral", Set.of(CAP_TOOL_CREATE)),
+            // C8 seam
+            Map.entry("seam_netty_install", Set.of(CapabilitySid.CAP_SEAM_INJECT)),
+            Map.entry("seam_netty_uninstall", Set.of(CapabilitySid.CAP_SEAM_INJECT)),
+            Map.entry("seam_glfw_key_hook", Set.of(CapabilitySid.CAP_SEAM_INJECT)),
+            Map.entry("seam_glfw_mouse_hook", Set.of(CapabilitySid.CAP_SEAM_INJECT)),
+            Map.entry("seam_tick_enable", Set.of(CapabilitySid.CAP_SEAM_INJECT)),
+            Map.entry("seam_tick_disable", Set.of(CapabilitySid.CAP_SEAM_INJECT)));
 
     /** AI-authored tools default to observe-tier (they reach state via GameBridge at R2). */
     public static final Set<CapabilitySid> DEFAULT_GENERATED = Set.of(CAP_WORLD_READ, CAP_MEMORY_READ);

@@ -59,12 +59,34 @@ public record ToolPolicy(Ring requiredRing,
             java.util.Map.entry("create_tool", IntegrityLevel.MEDIUM_PLUS),
             java.util.Map.entry("rollback_tool", IntegrityLevel.MEDIUM_PLUS),
             java.util.Map.entry("memory_write", IntegrityLevel.LOW),
-            java.util.Map.entry("memory_delete", IntegrityLevel.LOW));
+            java.util.Map.entry("memory_delete", IntegrityLevel.LOW),
+            // ---- Phase 2 mutating tools ----
+            java.util.Map.entry("install_hook", IntegrityLevel.HIGH),     // rewrites game class bytecode
+            java.util.Map.entry("uninstall_hook", IntegrityLevel.HIGH),
+            java.util.Map.entry("write_field", IntegrityLevel.HIGH),      // mutates live game state
+            java.util.Map.entry("invoke_method", IntegrityLevel.HIGH),
+            java.util.Map.entry("open_module", IntegrityLevel.SYSTEM),    // cracks module boundaries
+            java.util.Map.entry("eval_ephemeral", IntegrityLevel.SYSTEM), // arbitrary in-proc code
+            java.util.Map.entry("seam_netty_install", IntegrityLevel.HIGH),
+            java.util.Map.entry("seam_glfw_key_hook", IntegrityLevel.HIGH),
+            java.util.Map.entry("seam_glfw_mouse_hook", IntegrityLevel.HIGH),
+            java.util.Map.entry("seam_tick_enable", IntegrityLevel.HIGH));
 
     // ---- L4: the privilege each dangerous verb requires enabled ----
     private static final java.util.Map<String, Privilege> L4_PRIVILEGE = java.util.Map.ofEntries(
             java.util.Map.entry("redefine_class", Privilege.SE_DEBUG_CLASS),
             java.util.Map.entry("send_raw_packet", Privilege.SE_NET_RAW),
             java.util.Map.entry("create_tool", Privilege.SE_CREATE_TOOL),
-            java.util.Map.entry("capture_screen", Privilege.SE_SCREEN_CAP));
+            java.util.Map.entry("capture_screen", Privilege.SE_SCREEN_CAP),
+            // ---- Phase 2 dangerous verbs ----
+            java.util.Map.entry("install_hook", Privilege.SE_SEAM_INJECT),
+            java.util.Map.entry("uninstall_hook", Privilege.SE_SEAM_INJECT),
+            java.util.Map.entry("write_field", Privilege.SE_DEBUG_CLASS),
+            java.util.Map.entry("invoke_method", Privilege.SE_DEBUG_CLASS),
+            java.util.Map.entry("open_module", Privilege.SE_DEBUG_CLASS),
+            java.util.Map.entry("eval_ephemeral", Privilege.SE_CREATE_TOOL),
+            java.util.Map.entry("seam_netty_install", Privilege.SE_SEAM_INJECT),
+            java.util.Map.entry("seam_glfw_key_hook", Privilege.SE_SEAM_INJECT),
+            java.util.Map.entry("seam_glfw_mouse_hook", Privilege.SE_SEAM_INJECT),
+            java.util.Map.entry("seam_tick_enable", Privilege.SE_SEAM_INJECT));
 }

@@ -100,5 +100,28 @@ public enum Ring {
             // permission tools themselves
             Map.entry("drop_privilege", R3),
             Map.entry("restore_privilege", R3),
-            Map.entry("list_permissions", R3));
+            Map.entry("list_permissions", R3),
+            // ---- Phase 2 capability tools ----
+            // C1 INTROSPECT: read-only self-model
+            Map.entry("list_classes", R3),
+            Map.entry("describe_class", R3),
+            Map.entry("find_method", R3),
+            Map.entry("list_hooks", R3),
+            // C3 INTERCEPT: install=hypervisor (hook any method), uninstall=kernel
+            Map.entry("install_hook", R_MINUS_1),
+            Map.entry("uninstall_hook", R0),
+            // C5 MUTATE-STATE: read=kernel, write/invoke/module=hypervisor
+            Map.entry("read_field", R0),
+            Map.entry("write_field", R_MINUS_1),
+            Map.entry("invoke_method", R_MINUS_1),
+            Map.entry("open_module", R_MINUS_1),
+            // C7 SYNTHESIZE: arbitrary code (hidden class) = hypervisor
+            Map.entry("eval_ephemeral", R_MINUS_1),
+            // C8 SEAM: runtime MITM injection = hypervisor
+            Map.entry("seam_netty_install", R_MINUS_1),
+            Map.entry("seam_netty_uninstall", R0),
+            Map.entry("seam_glfw_key_hook", R_MINUS_1),
+            Map.entry("seam_glfw_mouse_hook", R_MINUS_1),
+            Map.entry("seam_tick_enable", R_MINUS_1),
+            Map.entry("seam_tick_disable", R0));
 }

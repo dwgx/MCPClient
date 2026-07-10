@@ -1,0 +1,79 @@
+package net.marcloud.mcp.core.deepaccess;
+
+import net.marcloud.mcp.core.GameAccess;
+
+/**
+ * Resolves string paths like "player.capabilities" or "mc.currentScreen" into
+ * live receiver objects for DeepAccess field/method operations. Starts from a
+ * known ROOT (mc, player, world, netHandler, networkManager) and walks dotted
+ * field names via {@link DeepAccess#getField}.
+ *
+ * <p>Grammar: {@code rootName[.field]*} where rootName is one of the GameAccess
+ * accessors. E.g. "player" -> game.player(); "player.capabilities" ->
+ * game.player().capabilities (via getField). Static targets use "className"
+ * directly (no root walk).
+ */
+final class RootResolver {
+
+    private final GameAccess game;
+    // Set after DeepAccess is built to avoid circular dependency
+    private DeepAccess deepAccess;
+
+    RootResolver(GameAccess game) {
+        this.game = game;
+    }
+
+    void setDeepAccess(DeepAccess da) {
+        this.deepAccess = da;
+    }
+
+    /**
+     * Resolve {@code path} to a live object. E.g. "player" -> EntityPlayerSP,
+     * "player.capabilities" -> PlayerCapabilities, "mc.currentScreen" ->
+     * GuiScreen or null.
+     *
+     * @throws DeepAccessException if root unknown or field not found
+     */
+    Object resolveReceiver(String path) {
+        if (path == null || path.isBlank()) {
+            throw new DeepAccessException("path is blank");
+        }
+
+        String[] parts = path.split("\\.");
+        String root = parts[0];
+
+        Object current = switch (root) {
+            case "mc" -> game.mc();
+            case "player" -> game.player();
+            case "world" -> game.world();
+            case "netHandler" -> game.netHandler();
+            case "networkManager" -> game.networkManager();
+            default -> throw new DeepAccessException("unknown root: " + root
+                    + " (expected mc, player, world, netHandler, networkManager)");
+        };
+
+        if (current == null) {
+            throw new DeepAccessException("root " + root + " is null (not in world / not connected)");
+        }
+
+        // Walk the remaining path via getField
+        for (int i = 1; i < parts.length; i++) {
+            if (deepAccess == null) {
+                throw new IllegalStateException("DeepAccess not wired into RootResolver");
+            }
+            current = deepAccess.getField(current, parts[i]);
+            if (current == null) {
+                throw new DeepAccessException("field " + parts[i] + " is null in path " + path);
+            }
+        }
+
+        return current;
+    }
+
+    boolean isKnownRoot(String head) {
+        return switch (head) {
+            case "mc", "player", "world", "netHandler", "networkManager" -> true;
+            default -> false;
+        };
+    }
+}
