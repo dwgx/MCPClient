@@ -42,7 +42,18 @@ public record ToolPolicy(Ring requiredRing,
      * the pre-Phase-2 behavior identical for every existing tool.
      */
     public static ToolPolicy forTool(String toolName, boolean builtIn) {
-        Ring ring = Ring.forBuiltin(toolName, builtIn ? Ring.R3 : Ring.DEFAULT_GENERATED);
+        // Generated (AI-authored, !builtIn) tools are arbitrary in-process Java: the
+        // handler runs via reflection in this JVM and can reach any R-1 capability
+        // (Instrumentation, Unsafe, reflection into core.agent). It is therefore
+        // exactly as dangerous as eval_java and MUST carry the maximal gate,
+        // UNCONDITIONALLY — never derived from the by-name side tables, which only
+        // list known built-ins and would leave an unlisted generated name ungated
+        // (the ring-model-collapse the audit found). This closes CRITICAL#1.
+        if (!builtIn) {
+            return new ToolPolicy(Ring.R_MINUS_1, IntegrityLevel.SYSTEM,
+                    Privilege.SE_RUN_GENERATED, Set.of(CapabilitySid.CAP_TOOL_CREATE));
+        }
+        Ring ring = Ring.forBuiltin(toolName, Ring.R3);
         IntegrityLevel writes = L3_WRITES.get(toolName);
         Privilege priv = L4_PRIVILEGE.get(toolName);
         Set<CapabilitySid> caps = CapabilityCatalog.requiredFor(toolName, builtIn);
@@ -60,6 +71,11 @@ public record ToolPolicy(Ring requiredRing,
             java.util.Map.entry("rollback_tool", IntegrityLevel.MEDIUM_PLUS),
             java.util.Map.entry("memory_write", IntegrityLevel.LOW),
             java.util.Map.entry("memory_delete", IntegrityLevel.LOW),
+            // LOW#16: narrative mutators write LOW-integrity story/goal state
+            java.util.Map.entry("set_goal", IntegrityLevel.LOW),
+            java.util.Map.entry("push_subgoal", IntegrityLevel.LOW),
+            java.util.Map.entry("complete_goal", IntegrityLevel.LOW),
+            java.util.Map.entry("narrate", IntegrityLevel.LOW),
             // ---- Phase 2 mutating tools ----
             java.util.Map.entry("install_hook", IntegrityLevel.HIGH),     // rewrites game class bytecode
             java.util.Map.entry("uninstall_hook", IntegrityLevel.HIGH),
@@ -87,6 +103,7 @@ public record ToolPolicy(Ring requiredRing,
     // ---- L4: the privilege each dangerous verb requires enabled ----
     private static final java.util.Map<String, Privilege> L4_PRIVILEGE = java.util.Map.ofEntries(
             java.util.Map.entry("redefine_class", Privilege.SE_DEBUG_CLASS),
+            java.util.Map.entry("eval_java", Privilege.SE_CREATE_TOOL),  // HIGH#4: arbitrary in-proc code needs L4
             java.util.Map.entry("send_raw_packet", Privilege.SE_NET_RAW),
             java.util.Map.entry("send_chat", Privilege.SE_NET_RAW),
             java.util.Map.entry("create_tool", Privilege.SE_CREATE_TOOL),

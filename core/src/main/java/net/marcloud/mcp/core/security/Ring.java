@@ -57,8 +57,16 @@ public enum Ring {
         return "R" + level + " " + label;
     }
 
-    /** Default ring for AI-authored (create_tool) tools: observe-level. */
-    public static final Ring DEFAULT_GENERATED = R2;
+    /**
+     * Default ring for AI-authored (create_tool / eval) tools: <b>hypervisor</b>.
+     * Generated Java runs in-process and can reach any R-1 capability (reflection,
+     * Instrumentation, Unsafe), so it is exactly as dangerous as {@code eval_java}
+     * and must sit at the same ring. A lowered clearance then genuinely locks it
+     * out. (Was R2 — that let generated code execute at observe-level with no
+     * privilege gate, collapsing the ring model. See ToolPolicy's generated-tool
+     * hard gate.)
+     */
+    public static final Ring DEFAULT_GENERATED = R_MINUS_1;
 
     /** Ring assigned to a built-in tool by name; falls back to {@code fallback}. */
     public static Ring forBuiltin(String toolName, Ring fallback) {

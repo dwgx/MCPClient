@@ -146,7 +146,11 @@ public final class MetaTools {
                 return err("toolName, className and source are required");
             }
             // Reserved-name guard: don't let the AI overwrite the meta-tools it
-            // needs to keep operating (self-lobotomy invariant, à la DGM).
+            // needs to keep operating (self-lobotomy invariant, à la DGM). Derived
+            // from the live registry — ANY built-in is reserved — so it can never
+            // drift out of sync with the actual built-in set (CRITICAL#2). The
+            // registry.register() call below enforces the same invariant as a
+            // hard backstop even if this check were bypassed.
             if (isReserved(toolName)) {
                 return err("'" + toolName + "' is a reserved core tool and cannot be replaced");
             }
@@ -228,24 +232,14 @@ public final class MetaTools {
         });
     }
 
-    /** Core tools that must never be overwritten by a generated tool. */
-    private static boolean isReserved(String name) {
-        return switch (name) {
-            case "create_tool", "rollback_tool", "list_capabilities", "get_tool_source",
-                 "eval_java", "redefine_class",
-                 "drop_privilege", "restore_privilege", "list_permissions",
-                 // Phase 2 capability tools — core surface, not AI-overwritable
-                 "list_classes", "describe_class", "find_method", "list_hooks",
-                 "install_hook", "uninstall_hook",
-                 "read_field", "write_field", "invoke_method", "open_module",
-                 "eval_ephemeral",
-                 "seam_netty_install", "seam_netty_uninstall", "seam_glfw_key_hook",
-                 "seam_glfw_mouse_hook", "seam_tick_enable", "seam_tick_disable",
-                 // C6 native debugger tools
-                 "debug_suspend_thread", "debug_pop_frame", "debug_force_return",
-                 "debug_set_breakpoint", "debug_clear_breakpoint", "debug_single_step",
-                 "debug_read_local", "debug_write_local", "debug_watch_field" -> true;
-            default -> false;
-        };
+    /**
+     * A tool is reserved (not AI-overwritable) iff it is currently registered as a
+     * built-in. Derived from the live registry rather than a hand-maintained
+     * switch, so the reserved set is exactly the built-in set by construction —
+     * no drift, no omission (the drift the audit flagged as CRITICAL#2). The
+     * registry's register() enforces the same rule as a hard backstop.
+     */
+    private boolean isReserved(String name) {
+        return registry.isBuiltin(name);
     }
 }

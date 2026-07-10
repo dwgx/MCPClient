@@ -152,8 +152,17 @@ public final class CapabilityRegistry {
      */
     public synchronized void register(String name, SyncToolSpecification rawSpec,
                                       String source, String description, boolean builtIn, Ring ring) {
-        ToolStats stats = statsByName.computeIfAbsent(name, ToolStats::new);
         Capability previous = current.get(name);
+        // CRITICAL#2: a generated (non-builtIn) tool may never replace a built-in.
+        // Policy is resolved by NAME, so letting a generated handler squat a
+        // built-in name would run attacker code under that name's (or the safe
+        // default's) gate. Reservation is derived from the live registry here, not
+        // a hand-maintained switch list, so it can never drift out of sync.
+        if (!builtIn && previous != null && previous.builtIn()) {
+            throw new IllegalArgumentException(
+                    "'" + name + "' is a built-in tool and cannot be replaced by a generated tool");
+        }
+        ToolStats stats = statsByName.computeIfAbsent(name, ToolStats::new);
         int version = (previous == null) ? 1 : previous.version() + 1;
 
         SyncToolSpecification supervised = supervise(rawSpec, stats, builtIn);
@@ -205,6 +214,16 @@ public final class CapabilityRegistry {
 
     public Capability get(String name) {
         return current.get(name);
+    }
+
+    /**
+     * True if {@code name} is currently registered as a built-in tool. The
+     * reserved-name guard derives from this (registry-sourced, so it can never
+     * drift from the actual built-in set the way a hand-maintained list would).
+     */
+    public boolean isBuiltin(String name) {
+        Capability c = current.get(name);
+        return c != null && c.builtIn();
     }
 
     /** Roll a tool back to its previous archived version (DGM stepping-stone). */

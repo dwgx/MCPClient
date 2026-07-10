@@ -31,7 +31,12 @@ public final class SeamTools {
     public void registerAll(CapabilityRegistry registry) {
         for (SyncToolSpecification spec : all()) {
             var tool = spec.tool();
-            registry.register(tool.name(), spec, null, tool.description(), true, Ring.R_MINUS_1);
+            // LOW#18: use the per-tool ring from the Ring table — uninstall/disable
+            // seams are R0, not R-1. Runtime enforcement already recomputes by name,
+            // but registering the true ring keeps list_permissions from displaying a
+            // seam's ring as R-1 when it is actually R0.
+            registry.register(tool.name(), spec, null, tool.description(), true,
+                    Ring.forBuiltin(tool.name(), Ring.R_MINUS_1));
         }
     }
 
