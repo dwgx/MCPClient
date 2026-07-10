@@ -28,3 +28,6 @@ Thumbs.db
 logs/
 */logs/
 */run/
+
+# Compiled C6 JVMTI agent (rebuild via core/src/main/native/core-jvmti/build-clang.sh)
+core-jvmti.dll

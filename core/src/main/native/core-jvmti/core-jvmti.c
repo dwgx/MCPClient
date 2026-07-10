@@ -200,14 +200,19 @@ static jint JNICALL nClearFieldModificationWatch(JNIEnv* e, jclass c, jclass k, 
     return check((*g_jvmti)->ClearFieldModificationWatch(g_jvmti, k, f));
 }
 
-/* ---- VMInit: bind natives + cache the event dispatcher ---- */
-
-static void JNICALL vmInit(jvmtiEnv* j, JNIEnv* e, jthread t) {
+/* ---- native binding: shared by VMInit and JNI_OnLoad ----
+ *
+ * Binds the DebuggerBridge natives + caches onDebugEvent onto the class as
+ * resolved by the given JNIEnv. Idempotent: RegisterNatives may run more than
+ * once (VMInit's bootstrap-context resolution AND DebuggerBridge's own
+ * System.load in the APP classloader context); the app-context binding is the
+ * one that matters, so calling twice is harmless and the second (correct) call
+ * wins. Returns 1 on success, 0 if the class could not be found/bound. */
+static int bindNatives(JNIEnv* e) {
     jclass bridge = (*e)->FindClass(e, "net/marcloud/mcp/core/debug/DebuggerBridge");
     if (bridge == NULL) {
         (*e)->ExceptionClear(e);
-        fprintf(stderr, "[core-jvmti] DebuggerBridge not found — natives unbound\n");
-        return;
+        return 0;
     }
     static const JNINativeMethod M[] = {
         {"nAgentReady",                "()Z",                                          (void*)&nAgentReady},
@@ -229,7 +234,12 @@ static void JNICALL vmInit(jvmtiEnv* j, JNIEnv* e, jthread t) {
     if ((*e)->RegisterNatives(e, bridge, M, (jint)(sizeof(M) / sizeof(M[0]))) != 0) {
         (*e)->ExceptionClear(e);
         fprintf(stderr, "[core-jvmti] RegisterNatives failed\n");
-        return;
+        return 0;
+    }
+    /* Refresh the global ref + dispatcher to the class the natives are now bound
+     * on (the app-classloader instance when called from JNI_OnLoad). */
+    if (g_bridge != NULL) {
+        (*e)->DeleteGlobalRef(e, g_bridge);
     }
     g_bridge = (*e)->NewGlobalRef(e, bridge);
     g_onEvent = (*e)->GetStaticMethodID(e, bridge, "onDebugEvent",
@@ -238,6 +248,14 @@ static void JNICALL vmInit(jvmtiEnv* j, JNIEnv* e, jthread t) {
         (*e)->ExceptionClear(e);
         fprintf(stderr, "[core-jvmti] onDebugEvent not found\n");
     }
+    return 1;
+}
+
+/* ---- VMInit: attempt an early bind (bootstrap context) + it is the event seam.
+ * The authoritative bind happens in JNI_OnLoad (app-classloader context); this
+ * early attempt is best-effort and silent if the app class isn't visible yet. */
+static void JNICALL vmInit(jvmtiEnv* j, JNIEnv* e, jthread t) {
+    bindNatives(e); /* best-effort; JNI_OnLoad does the authoritative bind */
 }
 
 /* ---- Agent_OnLoad: grab the onload-only capabilities ---- */
@@ -285,10 +303,23 @@ JNIEXPORT jint JNICALL Agent_OnLoad(JavaVM* vm, char* options, void* reserved) {
     return JNI_OK;
 }
 
-/* Also bind if the SAME module is System.load-ed by DebuggerBridge (refcounted
- * on Windows) before VMInit — harmless if vmInit already ran. */
+/* Authoritative native binding point. When DebuggerBridge calls System.load on
+ * the (already -agentpath-loaded) module, the JVM invokes JNI_OnLoad on the
+ * calling thread, whose JNIEnv resolves FindClass in the APP classloader context
+ * — the same class whose `native` methods must be bound. VMInit's earlier bind
+ * used the bootstrap context and may have bound a different Class instance (or
+ * none), which is exactly why the app-side nAgentReady() previously threw
+ * UnsatisfiedLinkError. Binding here fixes that. */
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
     g_vm = vm;
+    JNIEnv* e = NULL;
+    if ((*vm)->GetEnv(vm, (void**)&e, JNI_VERSION_10) == JNI_OK && e != NULL) {
+        if (!bindNatives(e)) {
+            fprintf(stderr, "[core-jvmti] JNI_OnLoad: DebuggerBridge natives not bound\n");
+        } else {
+            fprintf(stderr, "[core-jvmti] JNI_OnLoad: natives bound to DebuggerBridge.\n");
+        }
+    }
     return JNI_VERSION_10;
 }
 
