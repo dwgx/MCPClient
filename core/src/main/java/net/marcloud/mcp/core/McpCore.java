@@ -8,6 +8,7 @@ import net.marcloud.mcp.core.hook.HookManager;
 import net.marcloud.mcp.core.hotload.HotLoadEngine;
 import net.marcloud.mcp.core.mcp.SocketTransportServer;
 import net.marcloud.mcp.core.mcp.ToolContext;
+import net.marcloud.mcp.core.state.DisconnectTracker;
 import net.marcloud.mcp.core.state.PacketLog;
 import net.marcloud.mcp.core.thread.MainThreadExecutor;
 
@@ -48,6 +49,9 @@ public final class McpCore {
         bus.subscribe(PacketReceivedEvent.class, e -> packetLog.recordInbound(e.packetType()));
         bus.subscribe(PacketSentEvent.class, e -> packetLog.recordOutbound(e.packetType()));
 
+        // Track disconnects for the "why was I kicked" report.
+        DisconnectTracker disconnects = new DisconnectTracker(bus, packetLog);
+
         // Install runtime network hooks (needs -javaagent). Non-fatal if absent:
         // the MCP server still serves state/chat/eval; only live packet
         // observation requires the agent.
@@ -59,7 +63,7 @@ public final class McpCore {
                     + "Start with -javaagent:core-<ver>.jar to enable them.");
         }
 
-        ToolContext ctx = new ToolContext(game, actions, hotLoad, packetLog);
+        ToolContext ctx = new ToolContext(game, actions, hotLoad, packetLog, disconnects);
         // Socket transport (not stdio): the game owns the console, so a stdio
         // MCP server would corrupt the JSON-RPC stream. An AI client connects to
         // the loopback port.

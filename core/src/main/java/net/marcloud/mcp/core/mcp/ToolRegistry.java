@@ -8,6 +8,7 @@ import io.modelcontextprotocol.server.McpServerFeatures.SyncToolSpecification;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import net.marcloud.mcp.core.state.PlayerState;
+import net.minecraft.network.Packet;
 
 /**
  * Builds the set of MCP tools that expose the game to an AI. Each tool is a
@@ -39,6 +40,8 @@ public final class ToolRegistry {
         tools.add(recentPackets());
         tools.add(sendChat());
         tools.add(evalJava());
+        tools.add(sendRawPacket());
+        tools.add(disconnectReport());
         return tools;
     }
 
@@ -185,6 +188,71 @@ public final class ToolRegistry {
             } catch (Exception e) {
                 return error("run failed: " + e);
             }
+        });
+    }
+
+    private SyncToolSpecification sendRawPacket() {
+        Tool tool = Tool.builder()
+                .name("send_raw_packet")
+                .description("Send an ARBITRARY protocol packet down the current connection. "
+                        + "Provide Java source for a class with a 'public Object run()' method "
+                        + "that constructs and RETURNS a net.minecraft.network.Packet (e.g. "
+                        + "'return new net.minecraft.network.play.client.C03PacketPlayer(true);'). "
+                        + "The packet is compiled, then dispatched on the game thread. Raw "
+                        + "protocol experiment primitive — no filtering. Requires being connected.")
+                .inputSchema(objectSchema(Map.of(
+                        "className", stringProp("fully-qualified class name, e.g. gen.MakePacket"),
+                        "source", stringProp("Java source with 'public Object run()' returning a Packet")),
+                        List.of("className", "source")))
+                .build();
+        return new SyncToolSpecification(tool, (exchange, request) -> {
+            String className = argString(request.arguments(), "className");
+            String source = argString(request.arguments(), "source");
+            if (className == null || source == null) {
+                return error("className and source are required");
+            }
+            var outcome = ctx.hotLoad().loadNew(className, source);
+            if (!outcome.success()) {
+                return error(outcome.message());
+            }
+            try {
+                Class<?> c = outcome.loadedClass();
+                Object inst = c.getDeclaredConstructor().newInstance();
+                Object result = c.getMethod("run").invoke(inst);
+                if (!(result instanceof Packet<?> packet)) {
+                    return error("run() must return a net.minecraft.network.Packet, got "
+                            + (result == null ? "null" : result.getClass().getName()));
+                }
+                boolean sent = ctx.actions().sendRawPacket(packet);
+                return sent
+                        ? ok("sent packet: " + packet.getClass().getSimpleName())
+                        : error("not connected — no open channel to send on");
+            } catch (Exception e) {
+                return error("send_raw_packet failed: " + e);
+            }
+        });
+    }
+
+    private SyncToolSpecification disconnectReport() {
+        Tool tool = Tool.builder()
+                .name("disconnect_report")
+                .description("Explain the last disconnect/kick: the reason text plus the "
+                        + "packets observed right before it. Answers 'why was I kicked?'.")
+                .inputSchema(objectSchema(Map.of(
+                        "recentPackets", Map.of("type", "integer",
+                                "description", "how many recent packets to include (default 20)")),
+                        List.of()))
+                .build();
+        return new SyncToolSpecification(tool, (exchange, request) -> {
+            int n = 20;
+            Object v = request.arguments() == null ? null : request.arguments().get("recentPackets");
+            if (v instanceof Number num) {
+                n = num.intValue();
+            }
+            if (ctx.disconnects() == null) {
+                return error("disconnect tracking unavailable");
+            }
+            return ok(ctx.disconnects().report(n));
         });
     }
 }

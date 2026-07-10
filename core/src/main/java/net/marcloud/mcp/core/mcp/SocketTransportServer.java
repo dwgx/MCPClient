@@ -2,8 +2,10 @@ package net.marcloud.mcp.core.mcp;
 
 import java.io.IOException;
 import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.UnknownHostException;
 
 import io.modelcontextprotocol.json.McpJsonMapper;
 import io.modelcontextprotocol.json.jackson3.JacksonMcpJsonMapperSupplier;
@@ -51,7 +53,17 @@ public final class SocketTransportServer {
         if (running) {
             return;
         }
-        serverSocket = new ServerSocket(port, 1, InetAddress.getLoopbackAddress());
+        // Bind IPv4 loopback explicitly (127.0.0.1). getLoopbackAddress() can
+        // resolve to IPv6 ::1 on some hosts, surprising clients that dial 127.0.0.1.
+        InetAddress loopback;
+        try {
+            loopback = InetAddress.getByName("127.0.0.1");
+        } catch (UnknownHostException e) {
+            loopback = InetAddress.getLoopbackAddress();
+        }
+        serverSocket = new ServerSocket();
+        serverSocket.setReuseAddress(true);
+        serverSocket.bind(new InetSocketAddress(loopback, port), 1);
         running = true;
         Thread t = new Thread(this::acceptLoop, "mcp-core-socket");
         t.setDaemon(true);
