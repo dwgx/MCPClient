@@ -60,10 +60,11 @@ public final class PacketLog {
         }
     }
 
-    /** Most recent {@code n} entries, oldest first. */
+    /** Most recent {@code n} entries, oldest first. Negative {@code n} yields none. */
     public List<Entry> recent(int n) {
+        int k = Math.max(0, n);
         List<Entry> all = recent();
-        int from = Math.max(0, all.size() - n);
+        int from = Math.max(0, all.size() - k);
         return all.subList(from, all.size());
     }
 

@@ -75,14 +75,12 @@ public final class ScreenCapture {
         pixelBuffer.get(pixelValues);
 
         // Assemble the visible region, flipping bottom-left → top-left. The FBO
-        // texture may be larger (POT) than the visible area; skip the padding.
+        // texture may be larger (POT) than the visible area; the visible frame
+        // occupies the bottom visH rows, so output row y reads texture row
+        // (visH-1-y). (texH-1-(y+(texH-visH)) reduces to this.)
         BufferedImage img = new BufferedImage(visW, visH, BufferedImage.TYPE_INT_RGB);
-        int rowOffset = texH - visH;
         for (int y = 0; y < visH; y++) {
-            int srcRow = (texH - 1 - (y + rowOffset)); // flip within texture space
-            if (srcRow < 0) {
-                srcRow = 0;
-            }
+            int srcRow = visH - 1 - y;
             for (int x = 0; x < visW; x++) {
                 img.setRGB(x, y, pixelValues[srcRow * texW + x]);
             }

@@ -4,7 +4,7 @@ import net.marcloud.mcp.core.event.GameEvent;
 import net.minecraft.util.IChatComponent;
 
 /**
- * Fired when the connection drops, at the {@code NetworkManager.onDisconnect}
+ * Fired when the connection drops, at the {@code NetworkManager.closeChannel(IChatComponent)}
  * seam. Carries the termination reason ({@link IChatComponent}) — the raw
  * material for the user's "why was I kicked?" use case. The MCP disconnect
  * reporter combines this with the recent packet log into a report for the AI.

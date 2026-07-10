@@ -86,21 +86,29 @@ public final class InMemoryCompiler {
         }
 
         DiagnosticCollector<JavaFileObject> diags = new DiagnosticCollector<>();
-        StandardJavaFileManager std = compiler.getStandardFileManager(diags, null, null);
-
         Map<String, ClassObject> outputs = new HashMap<>();
-        JavaFileManager fm = new ForwardingJavaFileManager<StandardJavaFileManager>(std) {
-            @Override
-            public JavaFileObject getJavaFileForOutput(Location location, String name,
-                                                       JavaFileObject.Kind kind, FileObject sibling) {
-                ClassObject obj = new ClassObject(name);
-                outputs.put(name, obj);
-                return obj;
-            }
-        };
-
-        List<JavaFileObject> units = List.of(new SourceObject(className, source));
-        boolean ok = compiler.getTask(null, fm, diags, options, null, units).call();
+        boolean ok;
+        // try-with-resources: the file manager opens classpath jars as cached
+        // archive containers holding FDs; close it every call or a compile-heavy
+        // session (eval_java / create_tool) leaks handles until GC. Bytecode is
+        // captured in-memory (ClassObject) before we leave the block, so closing
+        // after call() is safe.
+        try (StandardJavaFileManager std = compiler.getStandardFileManager(diags, null, null)) {
+            JavaFileManager fm = new ForwardingJavaFileManager<StandardJavaFileManager>(std) {
+                @Override
+                public JavaFileObject getJavaFileForOutput(Location location, String name,
+                                                           JavaFileObject.Kind kind, FileObject sibling) {
+                    ClassObject obj = new ClassObject(name);
+                    outputs.put(name, obj);
+                    return obj;
+                }
+            };
+            List<JavaFileObject> units = List.of(new SourceObject(className, source));
+            ok = compiler.getTask(null, fm, diags, options, null, units).call();
+        } catch (java.io.IOException e) {
+            return new CompileResult(false, Map.of(),
+                    List.of("compiler file manager error: " + e));
+        }
 
         List<String> messages = new ArrayList<>();
         for (Diagnostic<? extends JavaFileObject> d : diags.getDiagnostics()) {

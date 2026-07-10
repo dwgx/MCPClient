@@ -127,13 +127,9 @@ public final class ToolRegistry {
                 .build();
         return new SyncToolSpecification(tool, (exchange, request) -> {
             int count = 50;
-            String c = argString(request.arguments(), "count");
-            if (c != null) {
-                try {
-                    count = Integer.parseInt(c);
-                } catch (NumberFormatException ignored) {
-                    // keep default
-                }
+            Object c = request.arguments() == null ? null : request.arguments().get("count");
+            if (c instanceof Number num) {
+                count = num.intValue();
             }
             var entries = ctx.packetLog().recent(count);
             if (entries.isEmpty()) {
@@ -162,8 +158,9 @@ public final class ToolRegistry {
                 return error("message is required");
             }
             try {
-                ctx.actions().sendChat(message);
-                return ok("sent: " + message);
+                boolean sent = ctx.actions().sendChat(message);
+                return sent ? ok("sent: " + message)
+                            : error("not in world — cannot send chat");
             } catch (Exception e) {
                 return error("send failed: " + e.getMessage());
             }

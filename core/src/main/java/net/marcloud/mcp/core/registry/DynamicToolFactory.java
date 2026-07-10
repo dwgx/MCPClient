@@ -76,11 +76,18 @@ public final class DynamicToolFactory {
                         .isError(false)
                         .build();
             } catch (Throwable t) {
+                // Let a genuine tool fault propagate so SafeToolExecutor's boundary
+                // records it as a FAILURE (a swallowed isError result counts as
+                // success and would never trip the breaker — the self-heal for
+                // AI-authored tools depends on this throwing).
                 Throwable cause = t.getCause() != null ? t.getCause() : t;
-                return CallToolResult.builder()
-                        .addTextContent("tool threw: " + cause)
-                        .isError(true)
-                        .build();
+                if (cause instanceof RuntimeException re) {
+                    throw re;
+                }
+                if (cause instanceof Error err) {
+                    throw err;
+                }
+                throw new RuntimeException(cause);
             }
         });
         return new BuildResult(true, "built " + toolName, spec);

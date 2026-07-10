@@ -37,13 +37,14 @@ public final class ActionManager {
      * Send a chat message (or run a command if it starts with '/'), exactly as
      * pressing enter in chat would. Runs on the game thread.
      */
-    public void sendChat(String message)
+    public boolean sendChat(String message)
             throws InterruptedException, ExecutionException, TimeoutException {
-        exec.invokeAndWait(() -> {
-            if (game.player() != null) {
-                game.player().sendChatMessage(message);
+        return exec.invokeAndWait(() -> {
+            if (game.player() == null) {
+                return false; // not in world — nothing sent
             }
-            return null;
+            game.player().sendChatMessage(message);
+            return true;
         }, defaultTimeoutMillis);
     }
 

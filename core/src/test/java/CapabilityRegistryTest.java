@@ -52,6 +52,29 @@ public class CapabilityRegistryTest {
     }
 
     @Test
+    public void thrownToolFaultTripsBreaker_butRunawayRejectionIsFailFast() {
+        // A tool that THROWS (not returns isError) must count as a fault so the
+        // breaker can eventually quarantine it — the self-heal for AI tools.
+        SafeToolExecutor exec = new SafeToolExecutor(4, 1000L);
+        ToolStats stats = new ToolStats("throws");
+        for (int i = 0; i < 3; i++) {
+            exec.run(stats, (ex, req) -> { throw new IllegalStateException("boom"); }, null, null, 0);
+        }
+        assertEquals("3 thrown faults trip the breaker", ToolStats.Circuit.OPEN, stats.circuit());
+        exec.shutdown();
+    }
+
+    @Test
+    public void negativeCountDoesNotThrow() {
+        // Finding #6: negative n must not throw (would be mis-counted as a fault).
+        net.marcloud.mcp.core.state.PacketLog log = new net.marcloud.mcp.core.state.PacketLog(8);
+        log.recordInbound("A");
+        log.recordOutbound("B");
+        assertTrue("negative n yields empty, not an exception", log.recent(-5).isEmpty());
+        assertEquals(2, log.recent(50).size());
+    }
+
+    @Test
     public void executorContainsAThrowingTool() {
         SafeToolExecutor exec = new SafeToolExecutor(2, 2000L);
         ToolStats stats = new ToolStats("thrower");

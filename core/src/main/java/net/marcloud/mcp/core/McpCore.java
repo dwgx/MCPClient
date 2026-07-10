@@ -48,7 +48,8 @@ public final class McpCore {
 
     /**
      * Assemble and start Core. Installs runtime hooks (if Instrumentation is
-     * present), begins recording packets, and starts the stdio MCP server.
+     * present), begins recording packets, and starts the loopback-socket MCP
+     * server on 127.0.0.1:25599 (not stdio — the game owns the console).
      */
     public void start() {
         MainThreadExecutor exec = new MainThreadExecutor(game.mc());
@@ -71,11 +72,19 @@ public final class McpCore {
         // the MCP server still serves state/chat/eval; only live packet
         // observation requires the agent.
         HookManager hooks = new HookManager(bus);
-        if (hooks.canInstall()) {
-            hooks.install();
-        } else {
-            System.err.println("[MCP Core] Instrumentation absent — packet hooks disabled. "
-                    + "Start with -javaagent:core-<ver>.jar to enable them.");
+        try {
+            if (hooks.canInstall()) {
+                hooks.install();
+            } else {
+                System.err.println("[MCP Core] Instrumentation absent — packet hooks disabled. "
+                        + "Start with -javaagent:core-<ver>.jar to enable them.");
+            }
+        } catch (Throwable t) {
+            // A ByteBuddy retransform failure must only disable packet
+            // observation, NOT take down the whole MCP endpoint (the rest of
+            // start() — registry, tools, socket — must still come up).
+            System.err.println("[MCP Core] hook install failed; packet observation "
+                    + "disabled, server continues: " + t);
         }
 
         ToolContext ctx = new ToolContext(game, actions, hotLoad, packetLog, disconnects);

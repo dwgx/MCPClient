@@ -77,10 +77,11 @@ public final class GoalStack {
         }
     }
 
-    /** Recent narration lines, oldest first. */
+    /** Recent narration lines, oldest first. Negative {@code n} yields none. */
     public List<String> recentNarration(int n) {
         synchronized (lock) {
-            int from = Math.max(0, narration.size() - n);
+            int k = Math.max(0, n);
+            int from = Math.max(0, narration.size() - k);
             return new ArrayList<>(narration.subList(from, narration.size()));
         }
     }

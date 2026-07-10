@@ -78,6 +78,15 @@ public final class MainThreadExecutor {
             }
         }
         ListenableFuture<V> future = mc.addScheduledTask(task);
-        return future.get(timeoutMillis, TimeUnit.MILLISECONDS);
+        try {
+            return future.get(timeoutMillis, TimeUnit.MILLISECONDS);
+        } catch (TimeoutException te) {
+            // Drop the queued task so it doesn't run on a later frame after the
+            // caller was already told it timed out (a not-yet-started
+            // ListenableFutureTask no-ops once cancelled; one already draining
+            // cannot be stopped — game-thread work should be kept bounded).
+            future.cancel(false);
+            throw te;
+        }
     }
 }

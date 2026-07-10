@@ -72,30 +72,34 @@ public final class CapabilityRegistry {
         SyncToolSpecification supervised = supervise(rawSpec, stats);
         Capability cap = new Capability(name, supervised, source, description, version, stats, builtIn);
 
-        if (previous != null) {
-            List<Capability> history = archive.computeIfAbsent(name, k -> new ArrayList<>());
-            history.add(previous);
-            // Bound archive depth so a long session iterating create_tool many
-            // times doesn't grow unbounded. Keep the most recent versions.
-            while (history.size() > MAX_ARCHIVE_PER_TOOL) {
-                history.remove(0);
-            }
-        }
-        current.put(name, cap);
-
+        // Do the FALLIBLE live-server mutation FIRST. If addTool/notify throws, we
+        // must not have already committed current/archive — otherwise the manifest
+        // would advertise a tool the server can't call. On success, commit.
         McpSyncServer s = server;
         if (s != null) {
             if (previous != null) {
                 try {
                     s.removeTool(name);
                 } catch (RuntimeException ignored) {
-                    // not registered yet on server; fine
+                    // not registered on the server yet; fine
                 }
-                stats.reset(); // a redefined tool gets a clean breaker
             }
-            s.addTool(supervised);
+            s.addTool(supervised);       // may throw — nothing committed yet
             s.notifyToolsListChanged();
         }
+
+        // Server mutation succeeded (or no server bound): commit in-memory state.
+        if (previous != null) {
+            List<Capability> history = archive.computeIfAbsent(name, k -> new ArrayList<>());
+            history.add(previous);
+            // Bound archive depth so a long create_tool session doesn't grow
+            // unbounded. Keep the most recent versions.
+            while (history.size() > MAX_ARCHIVE_PER_TOOL) {
+                history.remove(0);
+            }
+            stats.reset(); // a redefined tool gets a clean breaker
+        }
+        current.put(name, cap);
     }
 
     /** All current capabilities' supervised specs, for initial server build. */
@@ -122,17 +126,20 @@ public final class CapabilityRegistry {
         if (history == null || history.isEmpty()) {
             return false;
         }
-        Capability prev = history.remove(history.size() - 1);
-        current.put(name, prev);
+        // Peek (don't remove yet): only drop the archived backup once the live
+        // server has actually accepted the rollback, so a throw can't lose it.
+        Capability prev = history.get(history.size() - 1);
         McpSyncServer s = server;
         if (s != null) {
             try {
                 s.removeTool(name);
             } catch (RuntimeException ignored) {
             }
-            s.addTool(prev.spec());
+            s.addTool(prev.spec());      // may throw — backup still in archive
             s.notifyToolsListChanged();
         }
+        history.remove(history.size() - 1);
+        current.put(name, prev);
         prev.stats().reset();
         return true;
     }
