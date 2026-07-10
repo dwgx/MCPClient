@@ -21,11 +21,22 @@ public final class HotLoadEngine {
     private final InMemoryCompiler compiler;
     private final Redefiner redefiner;
     private final ClassLoader gameLoader;
+    /** Notified with the target class after every SUCCESSFUL redefine, so caches
+     *  keyed by class layout (e.g. DeepAccess VarHandles) can invalidate. A
+     *  DCEVM structural redefine can move field offsets; a stale VarHandle would
+     *  then write the wrong address. Null until wired. */
+    private volatile java.util.function.Consumer<Class<?>> onRedefined;
 
     public HotLoadEngine(ClassLoader gameLoader) {
         this.compiler = new InMemoryCompiler();
         this.redefiner = new Redefiner();
         this.gameLoader = gameLoader;
+    }
+
+    /** Register a listener invoked with the target class after each successful
+     *  redefine (see {@link #onRedefined}). Replaces any previous listener. */
+    public void setOnRedefined(java.util.function.Consumer<Class<?>> listener) {
+        this.onRedefined = listener;
     }
 
     /** Result of a load/redefine attempt: the outcome plus compiler diagnostics. */
@@ -72,6 +83,16 @@ public final class HotLoadEngine {
         }
         try {
             redefiner.redefine(target, bytes);
+            // Invalidate layout-dependent caches (DeepAccess VarHandles): a
+            // structural redefine may have moved field offsets.
+            java.util.function.Consumer<Class<?>> cb = onRedefined;
+            if (cb != null) {
+                try {
+                    cb.accept(target);
+                } catch (Throwable ignored) {
+                    // a cache-invalidation fault must not fail the redefine
+                }
+            }
             return new LoadOutcome(true, "redefined " + target.getName(), target);
         } catch (UnsupportedOperationException e) {
             return new LoadOutcome(false,

@@ -59,7 +59,15 @@ public final class ProtectedClasses {
             "net.marcloud.mcp.core.hotload.HotLoadEngine",
             // the hook installers (retransform machinery)
             "net.marcloud.mcp.core.hook.HookManager",
-            "net.marcloud.mcp.core.hook.HookBridge");
+            "net.marcloud.mcp.core.hook.HookBridge",
+            "net.marcloud.mcp.core.hook.DynamicHookManager",
+            "net.marcloud.mcp.core.hook.HookTools",
+            "net.marcloud.mcp.core.hook.GenericEntryAdvice",
+            // deep-access + seam machinery (hold Instrumentation / live channel)
+            "net.marcloud.mcp.core.deepaccess.DeepAccess",
+            "net.marcloud.mcp.core.seam.SeamController",
+            "net.marcloud.mcp.core.seam.NettyTap",
+            "net.marcloud.mcp.core.seam.TickInjector");
 
     /**
      * True if {@code className} must never be redefined/retransformed. Null or
@@ -69,7 +77,35 @@ public final class ProtectedClasses {
         if (className == null || className.isBlank()) {
             return false;
         }
-        return className.startsWith(SECURITY_PACKAGE) || PROTECTED.contains(className);
+        String n = normalize(className);
+        return n.startsWith(SECURITY_PACKAGE) || PROTECTED.contains(n);
+    }
+
+    /**
+     * Reduce a raw class name to the bare component FQCN the guard compares
+     * against. Strips JVM array descriptor wrappers (e.g.
+     * {@code [Lnet.marcloud...Ring;} → {@code net.marcloud...Ring}) so a caller
+     * cannot slip a protected class past the guard by naming its array type, and
+     * strips any inner-class suffix ({@code Foo$Bar} → {@code Foo}) so an inner
+     * class of a protected type is covered too.
+     */
+    private static String normalize(String className) {
+        String n = className.trim();
+        // Array descriptor: any number of leading '[' then 'L' ... ';'.
+        int firstL = n.indexOf('L');
+        if (n.startsWith("[") && firstL >= 0 && n.endsWith(";")) {
+            n = n.substring(firstL + 1, n.length() - 1);
+        }
+        // Binary array form using the component name is already handled above;
+        // also treat a trailing "[]" source form defensively.
+        while (n.endsWith("[]")) {
+            n = n.substring(0, n.length() - 2);
+        }
+        int dollar = n.indexOf('$');
+        if (dollar >= 0) {
+            n = n.substring(0, dollar);
+        }
+        return n;
     }
 
     /** The exact-name protected set (for introspection/describe_class flags). */

@@ -28,7 +28,8 @@ import net.marcloud.mcp.core.event.EventBus;
  *
  * <p><b>Security hardenings:</b>
  * <ul>
- *   <li>DENYLIST: refuses to hook any class in {@link #PROTECTED_TARGETS} (the
+ *   <li>DENYLIST: refuses to hook any class flagged by
+ *       {@link net.marcloud.mcp.core.security.ProtectedClasses} (the
  *       security/agent/hook kernel itself), closing the C3 analog of the known
  *       redefine-class self-lobotomy hole.</li>
  *   <li>INJECTED INSTRUMENTATION: receives the {@link Instrumentation} handle
@@ -223,10 +224,13 @@ public final class DynamicHookManager implements HookSource {
             return false;
         }
         boolean reverted = r.transformer().reset(inst, AgentBuilder.RedefinitionStrategy.RETRANSFORMATION);
-        if (reverted) {
-            hooks.remove(hookId);
-            HookBridge.unregisterRoute(r.routeKey());
-        }
+        // Deregister the route and drop the record UNCONDITIONALLY: even if the
+        // reset failed (class no longer modifiable), keeping the route +
+        // transformer handle around forever is a worse leak than a stale advice
+        // whose dispatch now no-ops (HookBridge.dispatch returns on a missing
+        // route). The return value still reports whether the bytecode reverted.
+        hooks.remove(hookId);
+        HookBridge.unregisterRoute(r.routeKey());
         return reverted;
     }
 

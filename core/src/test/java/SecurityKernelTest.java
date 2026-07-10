@@ -167,6 +167,26 @@ public class SecurityKernelTest {
     }
 
     @Test
+    public void mutatingSeamToolsAreFullyGated() {
+        // Regression for the audit finding: seam_netty_uninstall / seam_tick_disable
+        // were missing from ToolPolicy L3/L4, so removing a pipeline handler or a
+        // tick hook (which mutate a HIGH-integrity resource) skipped the integrity
+        // and privilege gates. Every mutating seam tool must declare BOTH.
+        for (String tool : new String[]{
+                "seam_netty_install", "seam_netty_uninstall",
+                "seam_glfw_key_hook", "seam_glfw_mouse_hook",
+                "seam_tick_enable", "seam_tick_disable",
+                "install_hook", "uninstall_hook",
+                "write_field", "invoke_method", "open_module"}) {
+            ToolPolicy tp = ToolPolicy.forTool(tool, true);
+            assertTrue(tool + " must declare an L3 write integrity",
+                    tp.writesResourceAt() != null);
+            assertTrue(tool + " must declare an L4 privilege",
+                    tp.requiredPrivilege() != null);
+        }
+    }
+
+    @Test
     public void layersAreAndComposedShortCircuitInOrder() {
         // At R2 clearance, redefine_class fails L2 first (ring), not L3/L4 —
         // confirms ordering + short-circuit.

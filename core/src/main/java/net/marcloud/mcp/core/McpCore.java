@@ -168,6 +168,9 @@ public final class McpCore {
         // modules. Instrumentation reached through the gated AgentAccess seam.
         DeepAccess deep = new DeepAccess(game, gate,
                 net.marcloud.mcp.core.agent.AgentAccess::instrumentation);
+        // Invalidate DeepAccess's layout-dependent caches after any redefine
+        // (a DCEVM structural redefine can move field offsets → stale VarHandle).
+        hotLoad.setOnRedefined(deep::invalidate);
         new MutateStateTools(deep, game).registerAll(registry);
 
         // C7 SYNTHESIZE: one-shot GC-able hidden-class tools.

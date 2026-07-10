@@ -132,13 +132,12 @@ public class SeamControllerTest {
 
     @Test
     public void seamControllerCanInstallChecksInstrumentation() {
-        // In a real test with -javaagent, canInstall() would return true.
-        // In this headless test, it returns false (no agent).
-        // We just verify the method is callable.
-        boolean can = controller.canInstall();
-        // No assertion on the result — it depends on whether the agent is
-        // loaded. We're testing that canInstall() does not throw.
-        assertNotNull("canInstall returns a boolean", Boolean.valueOf(can));
+        // No -javaagent in the headless suite, so canInstall() must be FALSE
+        // (real behavioral assertion — the old assertNotNull(Boolean) was a
+        // tautology that passed regardless of the result).
+        assertFalse("no agent in test JVM → tick injection cannot install",
+                net.marcloud.mcp.core.agent.AgentAccess.isLoaded());
+        assertFalse("canInstall() reflects the absent agent", controller.canInstall());
     }
 
     @Test

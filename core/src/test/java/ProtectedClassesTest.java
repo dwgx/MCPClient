@@ -43,4 +43,31 @@ public class ProtectedClassesTest {
         assertFalse(ProtectedClasses.isProtected(""));
         assertFalse(ProtectedClasses.isProtected("   "));
     }
+
+    @Test
+    public void retransformMachineryIsProtected() {
+        // The dynamic-hook + seam + deep-access machinery holds Instrumentation /
+        // live channels; redefining it could disable the guard from inside.
+        assertTrue(ProtectedClasses.isProtected("net.marcloud.mcp.core.hook.DynamicHookManager"));
+        assertTrue(ProtectedClasses.isProtected("net.marcloud.mcp.core.hook.HookTools"));
+        assertTrue(ProtectedClasses.isProtected("net.marcloud.mcp.core.deepaccess.DeepAccess"));
+        assertTrue(ProtectedClasses.isProtected("net.marcloud.mcp.core.seam.NettyTap"));
+        assertTrue(ProtectedClasses.isProtected("net.marcloud.mcp.core.seam.TickInjector"));
+    }
+
+    @Test
+    public void arrayAndInnerClassNamesCannotBypassTheGuard() {
+        // A caller must not slip a protected class past the guard by naming its
+        // array type or an inner class.
+        assertTrue("array descriptor of a protected class",
+                ProtectedClasses.isProtected("[Lnet.marcloud.mcp.core.security.Ring;"));
+        assertTrue("multi-dim array descriptor",
+                ProtectedClasses.isProtected("[[Lnet.marcloud.mcp.core.security.PermissionPolicy;"));
+        assertTrue("source-form array",
+                ProtectedClasses.isProtected("net.marcloud.mcp.core.security.Ring[]"));
+        assertTrue("inner class of a protected class",
+                ProtectedClasses.isProtected("net.marcloud.mcp.core.registry.CapabilityRegistry$Inner"));
+        // A game array is still not protected (legitimate use unaffected).
+        assertFalse(ProtectedClasses.isProtected("[Lnet.minecraft.network.Packet;"));
+    }
 }

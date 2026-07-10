@@ -178,7 +178,7 @@ public final class SeamController {
      * retransform is one-way without explicit reset).
      */
     public void uninstallAll() {
-        uninstallNettyTap();
+        nettyTap.removeAll();   // drains handlers across every channel tracked (reconnect-safe)
         uninstallKeyHook();
         uninstallMouseHook();
         // Tick injector cannot be cleanly uninstalled (would require

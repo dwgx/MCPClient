@@ -32,9 +32,14 @@ public class IntrospectionServiceTest {
 
         assertTrue("total should include at least Object, String", listing.total() >= 2);
         assertEquals("no filter means matched == total", listing.total(), listing.matched());
-        assertEquals("source should be instrumentation or reflection-fallback",
-                true, listing.source().equals("instrumentation")
-                        || listing.source().equals("reflection-fallback"));
+        // In this headless suite no -javaagent is loaded, so the source is
+        // DETERMINISTICALLY the reflection fallback — assert that exactly (the
+        // old "instrumentation OR reflection-fallback" was a tautology). This
+        // proves the fallback path actually produces a non-empty listing.
+        assertFalse("no agent in test JVM",
+                net.marcloud.mcp.core.agent.AgentAccess.isLoaded());
+        assertEquals("reflection-fallback", listing.source());
+        assertTrue("fallback still enumerates classes", listing.classes().size() > 0);
     }
 
     @Test

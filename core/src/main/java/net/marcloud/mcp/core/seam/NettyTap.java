@@ -2,6 +2,8 @@ package net.marcloud.mcp.core.seam;
 
 import java.lang.reflect.Field;
 
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelDuplexHandler;
 import io.netty.channel.ChannelHandler;
@@ -28,6 +30,9 @@ public final class NettyTap {
     private final GameAccess game;
     private final EventBus bus;
     private volatile Channel trackedChannel;
+    /** Handler name -> the exact channel it was installed on, so a handler on a
+     *  now-stale channel (after reconnect) can still be removed rather than leaked. */
+    private final java.util.Map<String, Channel> installedOn = new java.util.concurrent.ConcurrentHashMap<>();
 
     public NettyTap(GameAccess game, EventBus bus) {
         this.game = game;
@@ -81,6 +86,7 @@ public final class NettyTap {
                 return false;
             }
             p.addLast(name, handler);
+            installedOn.put(name, ch);
             return true;
         } catch (Exception e) {
             System.err.println("[NettyTap] failed to install handler '" + name + "': " + e);
@@ -95,20 +101,31 @@ public final class NettyTap {
      * @return true if removed, false if not found or on failure
      */
     public boolean removeHandler(String name) {
-        Channel ch = trackedChannel;
+        // Prefer the exact channel the handler was installed on (survives a
+        // reconnect that moved trackedChannel), else fall back to the current one.
+        Channel ch = installedOn.getOrDefault(name, trackedChannel);
         if (ch == null) {
             return false;
         }
         try {
             ChannelPipeline p = ch.pipeline();
             if (p.get(name) == null) {
+                installedOn.remove(name);
                 return false;
             }
             p.remove(name);
+            installedOn.remove(name);
             return true;
         } catch (Exception e) {
             System.err.println("[NettyTap] failed to remove handler '" + name + "': " + e);
             return false;
+        }
+    }
+
+    /** Remove every handler this tap installed, across all channels it tracked. */
+    public void removeAll() {
+        for (String name : new java.util.ArrayList<>(installedOn.keySet())) {
+            removeHandler(name);
         }
     }
 
@@ -147,7 +164,7 @@ public final class NettyTap {
         @Override
         public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
             try {
-                bus.publish(new SeamPacketInboundEvent(msg));
+                bus.publish(new SeamPacketInboundEvent(frozen(msg)));
             } catch (Throwable ignored) {
                 // Observation fault must not break the Netty pipeline.
             }
@@ -158,10 +175,26 @@ public final class NettyTap {
         public void write(ChannelHandlerContext ctx, Object msg, ChannelPromise promise)
                 throws Exception {
             try {
-                bus.publish(new SeamPacketOutboundEvent(msg));
+                bus.publish(new SeamPacketOutboundEvent(frozen(msg)));
             } catch (Throwable ignored) {
             }
             super.write(ctx, msg, promise);
+        }
+
+        /**
+         * Enforce the wire-bytes-frozen contract at the observation boundary: a
+         * subscriber must not be able to mutate the live buffer that continues
+         * down the pipeline. For a {@link ByteBuf} we hand out a read-only view
+         * over a duplicate (independent reader index, shared-but-unwritable
+         * content); other message types (decoded Packets) are passed as-is —
+         * observers may read them but the frozen-bytes rule is specifically about
+         * the on-wire buffer.
+         */
+        private static Object frozen(Object msg) {
+            if (msg instanceof ByteBuf b) {
+                return Unpooled.unmodifiableBuffer(b.duplicate());
+            }
+            return msg;
         }
     }
 }
