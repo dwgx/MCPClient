@@ -13,6 +13,7 @@ import io.modelcontextprotocol.server.McpServer;
 import io.modelcontextprotocol.server.McpSyncServer;
 import io.modelcontextprotocol.server.transport.StdioServerTransportProvider;
 import io.modelcontextprotocol.spec.McpSchema.ServerCapabilities;
+import net.marcloud.mcp.core.registry.CapabilityRegistry;
 
 /**
  * Hosts the MCP server over a loopback TCP socket instead of process stdio.
@@ -33,18 +34,18 @@ public final class SocketTransportServer {
     /** Default MCP port (avoids common MC ports). */
     public static final int DEFAULT_PORT = 25599;
 
-    private final ToolContext ctx;
+    private final CapabilityRegistry registry;
     private final int port;
     private volatile ServerSocket serverSocket;
     private volatile McpSyncServer currentServer;
     private volatile boolean running;
 
-    public SocketTransportServer(ToolContext ctx) {
-        this(ctx, DEFAULT_PORT);
+    public SocketTransportServer(CapabilityRegistry registry) {
+        this(registry, DEFAULT_PORT);
     }
 
-    public SocketTransportServer(ToolContext ctx, int port) {
-        this.ctx = ctx;
+    public SocketTransportServer(CapabilityRegistry registry, int port) {
+        this.registry = registry;
         this.port = port;
     }
 
@@ -92,12 +93,18 @@ public final class SocketTransportServer {
             // Reuse the SDK's stdio JSON-RPC codec over the socket's streams.
             StdioServerTransportProvider transport = new StdioServerTransportProvider(
                     json, client.getInputStream(), client.getOutputStream());
-            currentServer = McpServer.sync(transport)
+            // tools(listChanged=true): announce runtime-added capabilities.
+            McpSyncServer server = McpServer.sync(transport)
                     .serverInfo("mcp-core", "1.8.9")
-                    .instructions("Drive and observe a running Minecraft 1.8.9 client.")
+                    .instructions("Drive and observe a running Minecraft 1.8.9 client. "
+                            + "Use list_capabilities to see all tools, and create_tool to "
+                            + "grow new ones at runtime.")
                     .capabilities(ServerCapabilities.builder().tools(true).build())
-                    .tools(new ToolRegistry(ctx).all())
+                    .tools(registry.currentSpecs())
                     .build();
+            currentServer = server;
+            // Bind so runtime create_tool / rollback push live to this client.
+            registry.bindServer(server);
             System.err.println("[MCP Core] client connected: " + client.getRemoteSocketAddress());
         } catch (IOException e) {
             System.err.println("[MCP Core] failed to serve client: " + e);

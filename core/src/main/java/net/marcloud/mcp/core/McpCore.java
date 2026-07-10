@@ -8,6 +8,11 @@ import net.marcloud.mcp.core.hook.HookManager;
 import net.marcloud.mcp.core.hotload.HotLoadEngine;
 import net.marcloud.mcp.core.mcp.SocketTransportServer;
 import net.marcloud.mcp.core.mcp.ToolContext;
+import net.marcloud.mcp.core.mcp.ToolRegistry;
+import net.marcloud.mcp.core.registry.CapabilityRegistry;
+import net.marcloud.mcp.core.registry.DynamicToolFactory;
+import net.marcloud.mcp.core.registry.MetaTools;
+import net.marcloud.mcp.core.registry.SafeToolExecutor;
 import net.marcloud.mcp.core.state.DisconnectTracker;
 import net.marcloud.mcp.core.state.PacketLog;
 import net.marcloud.mcp.core.thread.MainThreadExecutor;
@@ -64,10 +69,27 @@ public final class McpCore {
         }
 
         ToolContext ctx = new ToolContext(game, actions, hotLoad, packetLog, disconnects);
+
+        // Build the capability registry: every tool is supervised (timeout +
+        // circuit breaker + exception boundary) so one bad tool can't crash the
+        // system, and new tools can be grown at runtime via create_tool.
+        SafeToolExecutor executor = new SafeToolExecutor(8, 5000L);
+        CapabilityRegistry registry = new CapabilityRegistry(executor);
+
+        // Register the built-in game tools through the registry (supervised).
+        ToolRegistry builtins = new ToolRegistry(ctx);
+        builtins.registerAll(registry);
+
+        // Register the self-referential meta-tools (introspect + self-extend).
+        DynamicToolFactory factory = new DynamicToolFactory(hotLoad);
+        MetaTools meta = new MetaTools(registry, factory);
+        meta.registerAll(registry);
+
         // Socket transport (not stdio): the game owns the console, so a stdio
         // MCP server would corrupt the JSON-RPC stream. An AI client connects to
-        // the loopback port.
-        socketServer = new SocketTransportServer(ctx);
+        // the loopback port. The registry binds the live server for runtime
+        // create_tool / rollback propagation.
+        socketServer = new SocketTransportServer(registry);
         try {
             socketServer.start();
         } catch (java.io.IOException e) {

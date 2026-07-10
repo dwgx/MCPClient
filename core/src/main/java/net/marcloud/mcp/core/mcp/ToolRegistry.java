@@ -7,6 +7,7 @@ import java.util.Map;
 import io.modelcontextprotocol.server.McpServerFeatures.SyncToolSpecification;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
+import net.marcloud.mcp.core.registry.CapabilityRegistry;
 import net.marcloud.mcp.core.state.PlayerState;
 import net.minecraft.network.Packet;
 
@@ -43,6 +44,14 @@ public final class ToolRegistry {
         tools.add(sendRawPacket());
         tools.add(disconnectReport());
         return tools;
+    }
+
+    /** Register all built-in game tools into the supervised capability registry. */
+    public void registerAll(CapabilityRegistry registry) {
+        for (SyncToolSpecification spec : all()) {
+            Tool t = spec.tool();
+            registry.register(t.name(), spec, null, t.description(), true);
+        }
     }
 
     // ---- helpers -----------------------------------------------------------
