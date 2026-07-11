@@ -1,0 +1,15 @@
+# P-SECURE authority JVM args (L1 VTL decision process).  Usage:
+#   <JBR>/bin/java @jvm-args-psecure.txt -cp core-1.8.9-all.jar \
+#       -Dmcp.core.psecureToken=<secret> [-Dmcp.core.hardened=true] \
+#       net.marcloud.mcp.core.alpc.AlpcMain
+# This process renders NOTHING and touches no game assets: it only answers
+# allow/deny over a 127.0.0.1 socket. So it needs NO LWJGL / DCEVM / native /
+# game flags — only UTF-8 + the java.base opens the dep-free JSON codec and the
+# reference monitor rely on. Deliberately a minimal, headless argfile.
+
+-Dfile.encoding=UTF-8
+
+# --- java.base: reflection paths the codec / monitor use (MANDATORY since JDK16) ---
+--add-opens java.base/java.lang=ALL-UNNAMED
+--add-opens java.base/java.lang.reflect=ALL-UNNAMED
+--add-opens java.base/java.util=ALL-UNNAMED
