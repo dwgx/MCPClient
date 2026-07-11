@@ -57,6 +57,28 @@ public class PermissionPolicyTest {
         assertEquals("permanent drop", Ring.R3, p.clearance());
     }
 
+    /**
+     * Guards the constant-time token comparison ({@code MessageDigest.isEqual} over
+     * UTF-8 bytes) against the classic pitfalls a naive length-aware or prefix
+     * comparison would get wrong: a token that is a proper prefix of the secret, a
+     * token that has the secret as a prefix, and empty/whitespace tokens must all be
+     * rejected; only the exact byte-for-byte token (incl. multi-byte UTF-8) restores.
+     * A comparator that special-cased length or short-circuited could pass the plain
+     * cases above yet fail these — this pins the exact-match contract.
+     */
+    @Test
+    public void restoreTokenMatchIsExactByteForByte() {
+        SeClearancePolicy p = new SeClearancePolicy(Ring.R_MINUS_1, "s3cr3t-Ключ");
+        p.dropTo(Ring.R3);
+        assertFalse("prefix of secret rejected", p.tryRestore(Ring.R_MINUS_1, "s3cr3t"));
+        assertFalse("secret-plus-suffix rejected", p.tryRestore(Ring.R_MINUS_1, "s3cr3t-Ключ!"));
+        assertFalse("empty token rejected", p.tryRestore(Ring.R_MINUS_1, ""));
+        assertFalse("case variant rejected", p.tryRestore(Ring.R_MINUS_1, "S3CR3T-Ключ"));
+        assertEquals("still dropped after all wrong tokens", Ring.R3, p.clearance());
+        assertTrue("exact multi-byte token restores", p.tryRestore(Ring.R_MINUS_1, "s3cr3t-Ключ"));
+        assertEquals(Ring.R_MINUS_1, p.clearance());
+    }
+
     @Test
     public void builtinRingTableMapsDangerousToolsLow() {
         assertEquals(Ring.R_MINUS_1, Ring.forBuiltin("eval_java", Ring.R3));

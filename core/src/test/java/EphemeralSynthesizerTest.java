@@ -7,6 +7,7 @@ import static org.junit.Assert.assertTrue;
 import java.util.Map;
 
 import net.marcloud.mcp.core.ps.PsSynthesizer;
+import net.marcloud.mcp.core.ps.SynthTools;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -134,6 +135,42 @@ public class EphemeralSynthesizerTest {
         }
         assertNull("hidden class must be GC-able once all strong refs are dropped",
                 ref.get());
+    }
+
+    /**
+     * Regression for the C7 package-name mismatch (audit ② P2): the SynthTools tool
+     * description used to instruct callers to declare
+     * {@code package net.marcloud.mcp.core.synth;}, but the runtime constraint
+     * ({@code REQUIRED_PACKAGE}) is {@code ...core.ps}, so an LLM following the
+     * description verbatim was rejected 100% of the time.
+     *
+     * <p>This test has teeth by NOT hardcoding the package: it PARSES the package the
+     * tool description actually advertises out of {@code eval_ephemeral}'s description
+     * text, then feeds source in exactly that package to {@code eval}. On the old code
+     * the description advertised {@code ...synth} → eval rejects → this fails. Only
+     * when advertised == required does it pass.
+     */
+    @Test
+    public void packageAdvertisedByToolDescriptionActuallyCompilesAndRuns() {
+        SynthTools tools = new SynthTools(synth);
+        String description = tools.all().get(0).tool().description();
+
+        // Extract the package the description tells an AI to declare.
+        java.util.regex.Matcher m =
+                java.util.regex.Pattern.compile("package ([\\w.]+);").matcher(description);
+        assertTrue("tool description must advertise a package to declare", m.find());
+        String advertised = m.group(1);
+
+        String src = "package " + advertised + ";\n"
+                + "import java.util.Map;\n"
+                + "public class FromDoc {\n"
+                + "    public String handle(Map<String,Object> args) { return \"ok\"; }\n"
+                + "}\n";
+        var result = synth.eval(advertised + ".FromDoc", src, Map.of());
+        assertTrue("source using the package the tool advertises (" + advertised
+                + ") must be accepted, else the description misleads LLMs: " + result.message(),
+                result.success());
+        assertEquals("ok", result.output());
     }
 
     @Test

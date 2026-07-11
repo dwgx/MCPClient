@@ -18,7 +18,7 @@ import net.marcloud.mcp.core.ldr.InMemoryCompiler;
  *
  * <p>The Lookup must be in THIS package because {@code defineHiddenClass} mandates
  * the defined class share the lookup class's package (verified). AI callers must
- * declare {@code package net.marcloud.mcp.core.synth;} in their source.
+ * declare {@code package net.marcloud.mcp.core.ps;} in their source.
  *
  * <p><b>Containment ≠ sandbox:</b> hidden+GC-able only removes persistence,
  * name-visibility, and redefinability. The code inside handle() has the exact
@@ -42,12 +42,12 @@ public final class PsSynthesizer {
     }
 
     /**
-     * Compile {@code source} (must be in package net.marcloud.mcp.core.synth and
+     * Compile {@code source} (must be in package net.marcloud.mcp.core.ps and
      * have a public String handle(Map<String,Object>)), define it as a hidden class,
      * invoke handle(args), and return the result. The class becomes GC-able once
      * this method returns.
      *
-     * @param className fully-qualified name (must start with net.marcloud.mcp.core.synth.)
+     * @param className fully-qualified name (must start with net.marcloud.mcp.core.ps.)
      * @param source    full Java source
      * @param args      arguments passed to handle()
      * @return success/error result + weak ref to the hidden class (for tests)

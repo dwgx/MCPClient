@@ -68,7 +68,7 @@ public final class SynthTools {
                 .description("HYPERVISOR (R-1): compile AI Java and execute it as a throwaway "
                         + "HIDDEN class (GC-able, not registered, invisible to list_capabilities, "
                         + "cannot be redefined). The source must declare "
-                        + "'package net.marcloud.mcp.core.synth;' and have "
+                        + "'package net.marcloud.mcp.core.ps;' and have "
                         + "'public String handle(java.util.Map<String,Object> args)'. On success "
                         + "the class is compiled, defined as hidden (initialize=true), handle() "
                         + "is invoked with 'args', and the result is returned. After this call "
@@ -77,9 +77,9 @@ public final class SynthTools {
                         + "CONTAINMENT ≠ SANDBOX: handle() runs with full JVM power (can call "
                         + "Unsafe, crash the game, redefine classes). R-1 gating is the only control.")
                 .inputSchema(schema(Map.of(
-                        "className", str("fully-qualified class name (must be net.marcloud.mcp.core.synth.* "
-                                + "— e.g. net.marcloud.mcp.core.synth.Compute)"),
-                        "source", str("full Java source with 'package net.marcloud.mcp.core.synth;' "
+                        "className", str("fully-qualified class name (must be net.marcloud.mcp.core.ps.* "
+                                + "— e.g. net.marcloud.mcp.core.ps.Compute)"),
+                        "source", str("full Java source with 'package net.marcloud.mcp.core.ps;' "
                                 + "and 'public String handle(Map<String,Object> args)'"),
                         "args", obj("arguments passed to handle() (optional, defaults to empty map)")),
                         List.of("className", "source")))
