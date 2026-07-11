@@ -5,6 +5,9 @@ build/
 .mvn/maven-dist/
 .mvn/wrapper/maven-wrapper.jar
 
+# Release asset bundles (uploaded to GitHub releases, not committed)
+mc-assets-*.zip
+
 # --- Runtime working dir (game assets ~2.7GB, saves, logs, natives) ---
 test_run/
 test_natives/
