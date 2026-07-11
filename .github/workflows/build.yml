@@ -3,9 +3,9 @@ name: build
 # CI for the MC 1.8.9 → JDK25/LWJGL3 port. Works on private repos
 # (GitHub-hosted runners include free minutes for private repositories).
 on:
-  push:
-    branches: [ main, master ]
-  pull_request:
+  # Auto-triggers disabled: the reactor layout differs per branch (main = client+shim
+  # only; mcp-core adds core/board), so a single push/PR workflow can't fit both.
+  # Run manually from the Actions tab when a build check is wanted.
   workflow_dispatch:
 
 jobs:
