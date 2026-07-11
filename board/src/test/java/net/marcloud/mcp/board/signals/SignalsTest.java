@@ -2,6 +2,7 @@ package net.marcloud.mcp.board.signals;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
@@ -129,5 +130,53 @@ public class SignalsTest {
         // Signal.Cancellable is expected (so the Trace veto path applies).
         Signal.Cancellable c = new ChatSendSignal("x");
         assertSame(Signal.Cancellable.State.PRE, c.state());
+    }
+
+    @Test
+    public void chatSendCancelWithReasonSetsCancelledAndReason() {
+        ChatSendSignal chat = new ChatSendSignal(".fly on");
+        chat.cancel("blocked by anti-cheat guard");
+        assertTrue(chat.isCancelled());
+        assertEquals("blocked by anti-cheat guard", chat.reason());
+    }
+
+    @Test
+    public void chatSendNoArgCancelLeavesReasonNull() {
+        // Backward compatibility: the frozen no-arg cancel() must not populate
+        // a reason — reason() stays null so old callers see no behaviour change.
+        ChatSendSignal chat = new ChatSendSignal(".fly on");
+        chat.cancel();
+        assertTrue(chat.isCancelled());
+        assertNull(chat.reason());
+    }
+
+    @Test
+    public void chatSendUncancelledHasNullReason() {
+        ChatSendSignal chat = new ChatSendSignal("hello");
+        assertFalse(chat.isCancelled());
+        assertNull(chat.reason());
+    }
+
+    @Test
+    public void chatSendReasonVetoesThroughTraceLikePlainCancel() {
+        // The reason overload must produce the same veto as cancel() when a
+        // chip decides on the Trace path — reason is additive, not a new
+        // cancellation mechanism.
+        Trace trace = new Trace();
+        trace.subscribe(ChatSendSignal.class, new Trace.Listener<ChatSendSignal>() {
+            @Override
+            public void on(ChatSendSignal s) {
+                if (s.message().startsWith(".")) {
+                    s.cancel("custom command prefix intercepted");
+                }
+            }
+        });
+        ChatSendSignal command = trace.publish(new ChatSendSignal(".fly on"));
+        assertTrue(command.isCancelled());
+        assertEquals("custom command prefix intercepted", command.reason());
+
+        ChatSendSignal normal = trace.publish(new ChatSendSignal("hi"));
+        assertFalse(normal.isCancelled());
+        assertNull(normal.reason());
     }
 }

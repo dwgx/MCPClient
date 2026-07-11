@@ -1,5 +1,7 @@
 package net.marcloud.mcp.board;
 
+import java.util.concurrent.CopyOnWriteArrayList;
+
 /**
  * A feature unit — a chip soldered onto the {@link Board}. A Chip is the neutral,
  * general-purpose home for ANY in-game feature: a startup-screen replacement, a
@@ -23,6 +25,16 @@ public abstract class Chip {
 
     private boolean enabled;
     private int pin = NO_PIN;
+
+    /**
+     * The auto-subscription bag. Every {@link Trace.Subscription} handed to
+     * {@link #track(Trace.Subscription)} lands here and is cancelled automatically
+     * when the chip is disabled, so {@code enabled == subscribed} holds even if a
+     * subclass forgets to cancel in {@link #onDisable()}. Copy-on-write so the
+     * game thread can publish while a chip enables/disables concurrently.
+     */
+    private final CopyOnWriteArrayList<Trace.Subscription> subscriptions =
+            new CopyOnWriteArrayList<Trace.Subscription>();
 
     /**
      * Stable unique identifier for this chip (used by {@link Matrix#byId}).
@@ -64,6 +76,32 @@ public abstract class Chip {
     protected void onUnload() {
     }
 
+    // ---- auto-subscription bag ---------------------------------------------
+
+    /**
+     * Register a {@link Trace.Subscription} to be auto-cancelled when this chip is
+     * disabled, and return it for chaining. Typical use in {@link #onEnable()}:
+     *
+     * <pre>{@code
+     * track(trace.subscribe(TickSignal.class, this::onTick));
+     * }</pre>
+     *
+     * <p>This makes {@code enabled == subscribed} a framework invariant: a
+     * subclass that tracks its subscriptions on enable never leaks them, even if
+     * it forgets to cancel in {@link #onDisable()}. A {@code null} handle is
+     * ignored (returned as-is). The bag is emptied on every disable, so tracking
+     * again on the next enable is the intended re-subscription path.
+     *
+     * @param s the subscription to track (may be {@code null})
+     * @return {@code s}, unchanged, for chaining
+     */
+    protected final Trace.Subscription track(Trace.Subscription s) {
+        if (s != null) {
+            subscriptions.add(s);
+        }
+        return s;
+    }
+
     // ---- toggle state ------------------------------------------------------
 
     /** {@code true} while this chip is enabled. */
@@ -86,11 +124,34 @@ public abstract class Chip {
                 onEnable();
             } else {
                 onDisable();
+                // Auto-cancel every tracked subscription so enabled == subscribed
+                // holds even when onDisable forgot to cancel. Still inside the
+                // fault-isolation guard: a throwing cancel cannot corrupt state.
+                cancelTracked();
             }
         } catch (Throwable e) {
             System.err.println("[Chip] " + id() + (enabled ? " onEnable" : " onDisable")
                     + " threw: " + e);
         }
+    }
+
+    /**
+     * Cancel and drop every tracked subscription. Each cancel is individually
+     * fault-isolated so one bad handle cannot leave the rest live, and the bag is
+     * always emptied so the next enable starts from a clean slate.
+     */
+    private void cancelTracked() {
+        if (subscriptions.isEmpty()) {
+            return;
+        }
+        for (Trace.Subscription s : subscriptions) {
+            try {
+                s.cancel();
+            } catch (Throwable e) {
+                System.err.println("[Chip] " + id() + " subscription cancel threw: " + e);
+            }
+        }
+        subscriptions.clear();
     }
 
     /** Flip the enabled state and return the new value. */

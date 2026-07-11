@@ -3,6 +3,7 @@ package net.marcloud.mcp.board;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -53,6 +54,23 @@ public final class Trace {
 
     /** Monotonic sequence to keep same-priority subscribers in insertion order. */
     private final AtomicLong seq = new AtomicLong();
+
+    /**
+     * Hot-path cache: for each concrete runtime {@link Signal} class ever
+     * published, the pre-sorted list of subscriptions that match it (by
+     * {@code type.isInstance}), in {@link #BY_PRIORITY} order. Built lazily on the
+     * first publish of a given runtime class so the steady-state publish loop
+     * avoids the per-call allocate-collect-sort. Invalidated wholesale on any
+     * cold-path mutation ({@code subscribe}/{@code unsubscribe}/{@code clear}) —
+     * simple and correct over clever incremental patching.
+     *
+     * <p>Cached lists may contain entries whose {@link Subscription0#active} flag
+     * flipped to {@code false} via {@link Subscription#cancel()} after the list was
+     * built; the publish loop skips those, so a cancel need not invalidate the
+     * cache to be correct (though {@code unsubscribe}/{@code clear} do).
+     */
+    private final ConcurrentHashMap<Class<? extends Signal>, List<Subscription0<?>>> dispatchCache =
+            new ConcurrentHashMap<Class<? extends Signal>, List<Subscription0<?>>>();
 
     private final class Subscription0<E extends Signal> implements Subscription {
         final Class<E> type;
@@ -113,6 +131,9 @@ public final class Trace {
         Clock tier = clock == null ? Clock.DEFAULT : clock;
         Subscription0<E> sub = new Subscription0<E>(type, listener, tier, seq.getAndIncrement());
         subscriptions.add(sub);
+        // Cold path: a new subscriber may match already-cached runtime classes —
+        // rebuild everything lazily on next publish.
+        dispatchCache.clear();
         return sub;
     }
 
@@ -124,11 +145,19 @@ public final class Trace {
      * {@link Subscription#cancel()}.
      */
     public void unsubscribe(Listener<?> listener) {
+        boolean removed = false;
         for (Subscription0<?> s : subscriptions) {
             if (s.listener == listener) {
                 s.active = false;
                 subscriptions.remove(s);
+                removed = true;
             }
+        }
+        if (removed) {
+            // Cold path: drop cached lists so they no longer reference the removed
+            // subscription (active=false would skip it anyway, but keep the cache
+            // honest about live membership).
+            dispatchCache.clear();
         }
     }
 
@@ -143,14 +172,13 @@ public final class Trace {
         if (signal == null) {
             return null;
         }
-        List<Subscription0<?>> matching = new ArrayList<Subscription0<?>>();
-        for (Subscription0<?> s : subscriptions) {
-            if (s.type.isInstance(signal)) {
-                matching.add(s);
-            }
-        }
-        matching.sort(BY_PRIORITY);
+        List<Subscription0<?>> matching = matchersFor(signal.getClass());
         for (Subscription0<?> s : matching) {
+            // A subscription cached before its cancel() flipped active=false must
+            // not receive the signal — the cache is not invalidated on cancel.
+            if (!s.active) {
+                continue;
+            }
             try {
                 dispatch(s, signal);
             } catch (Throwable e) {
@@ -163,9 +191,57 @@ public final class Trace {
         return signal;
     }
 
+    /**
+     * The pre-sorted matcher list for a concrete runtime signal class, built once
+     * per class and reused. {@code computeIfAbsent} walks {@link #subscriptions}
+     * (collecting every {@code type.isInstance}-matching subscription — the
+     * subtype fan-out semantic) and sorts by {@link #BY_PRIORITY} exactly once;
+     * subsequent publishes of the same runtime class iterate the cached list with
+     * no allocation or sort. The returned list is treated as immutable by callers.
+     */
+    private List<Subscription0<?>> matchersFor(Class<? extends Signal> runtimeType) {
+        return dispatchCache.computeIfAbsent(runtimeType, new java.util.function.Function<Class<? extends Signal>, List<Subscription0<?>>>() {
+            @Override
+            public List<Subscription0<?>> apply(Class<? extends Signal> rt) {
+                List<Subscription0<?>> matching = new ArrayList<Subscription0<?>>();
+                for (Subscription0<?> s : subscriptions) {
+                    // Class-level equivalent of the old s.type.isInstance(signal):
+                    // a subscription for type T matches runtime class rt iff T is a
+                    // supertype of rt. Preserves the subtype fan-out semantic.
+                    if (s.type.isAssignableFrom(rt)) {
+                        matching.add(s);
+                    }
+                }
+                matching.sort(BY_PRIORITY);
+                return matching;
+            }
+        });
+    }
+
     @SuppressWarnings("unchecked")
     private static void dispatch(Subscription0<?> s, Signal signal) {
         ((Listener<Signal>) s.listener).on(signal);
+    }
+
+    /**
+     * Whether any live subscriber would receive a signal of {@code type} (or a
+     * supertype it is registered under). Lets an emission site skip constructing a
+     * {@link Signal} when nobody is listening — the "is anyone listening?" guard
+     * mirrored from established event buses. Pure addition to the frozen contract.
+     *
+     * @param type the concrete signal class an emitter is about to publish
+     * @return {@code true} iff at least one active subscription matches it
+     */
+    public boolean hasSubscribers(Class<? extends Signal> type) {
+        if (type == null) {
+            return false;
+        }
+        for (Subscription0<?> s : subscriptions) {
+            if (s.active && s.type.isAssignableFrom(type)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Current subscription count (for diagnostics/tests). */
@@ -179,5 +255,7 @@ public final class Trace {
             s.active = false;
         }
         subscriptions.clear();
+        // Cold path: nothing matches anything now — drop the whole cache.
+        dispatchCache.clear();
     }
 }
