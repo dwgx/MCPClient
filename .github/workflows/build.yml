@@ -21,6 +21,14 @@ jobs:
           java-version: '25'
           cache: maven
 
+      # Core unit tests: the whole security kernel / capability / GUI / hook /
+      # seam suite (headless). This is the primary regression guard for the
+      # Java logic. C6 native happy-path is NOT covered here (the DLL is
+      # windows-x64 and can't be built on ubuntu — see scripts/build-c6-local.bat);
+      # live-only ITs self-skip unless -Dmcp.it.live=true.
+      - name: Core tests
+        run: ./mvnw -B -ntp -pl core test
+
       # Reactor build: compiles the lwjgl2-shim library, then the client,
       # then produces the shaded fat jar. This is the regression guard —
       # any compile break in either module fails the build.
