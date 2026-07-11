@@ -14,6 +14,7 @@
         <module>lwjgl2-shim</module>
         <module>client</module>
         <module>core</module>
+        <module>board</module>
     </modules>
 
     <properties>

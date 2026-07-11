@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>net.marcloud.mcp.189</groupId>
+        <artifactId>mcpclient-parent</artifactId>
+        <version>1.8.9</version>
+    </parent>
+
+    <artifactId>board</artifactId>
+    <packaging>jar</packaging>
+    <description>
+        Board — the client-feature framework. A detachable subsystem that is a
+        PEER to mcp-core (net-new code, zero hard dependency either way): delete
+        board and core still compiles; delete core and board still compiles.
+        Board is the home of in-game features (Chip), the event bus (Trace), the
+        feature manager (Matrix), HUD (Panel) and keybinds (Pin), all under the
+        PCB naming motif. Compiled to Java 8 bytecode (inherited release=8) so it
+        runs in the same JVM as the Java-8 game. It references Minecraft classes
+        via the 'client' module (provided) and finds mcp-core, when present, by
+        reflection only — it imports no core class.
+    </description>
+
+    <dependencies>
+        <!-- The game itself: lets Board reference Minecraft, GameBridge seams,
+             etc. 'provided' so Board does not re-bundle the game — it is loaded
+             by the same classloader at runtime. Mirrors core/pom.xml. -->
+        <dependency>
+            <groupId>net.marcloud.mcp.189</groupId>
+            <artifactId>client</artifactId>
+            <version>${project.version}</version>
+            <scope>provided</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <version>4.13.2</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>
