@@ -1,0 +1,33 @@
+# === GitHub linguist: scope the language bar to Java ===
+# All files below stay on disk and keep working; they are only excluded
+# from GitHub's language statistics so the repo reads as pure Java.
+
+# Normalize line endings for text
+* text=auto
+
+# Maven wrapper (vendored tooling)
+mvnw            linguist-vendored
+mvnw.cmd        linguist-vendored eol=crlf
+.mvn/**         linguist-vendored
+
+# Build / launch scripts
+*.bat           linguist-vendored eol=crlf
+*.cmd           linguist-vendored eol=crlf
+*.sh            linguist-vendored eol=lf
+
+# GLSL shader assets (vanilla Minecraft resources)
+*.fsh           linguist-vendored
+*.vsh           linguist-vendored
+
+# C6 native debugger sources — excluded from language stats only
+*.c             linguist-detectable=false
+*.h             linguist-detectable=false
+
+# Build / config markup
+*.xml           linguist-vendored
+*.yml           linguist-vendored
+*.yaml          linguist-vendored
+*.properties    linguist-vendored
+
+# Documentation
+*.md            linguist-documentation
