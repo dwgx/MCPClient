@@ -220,6 +220,12 @@ public final class McpCore {
         new net.marcloud.mcp.core.drivers.gui.GuiTools(game, new net.marcloud.mcp.core.drivers.gui.GuiSnapshotService())
                 .registerAll(registry);
 
+        // dev_probe (R2 read-only): one-call live-game diagnostic — connection/world
+        // presence + GL context (version/vendor/profile) — marshalled onto the game
+        // thread. The development-time "what is the running game actually doing" probe
+        // and the carrier for KI-1's GL-context evidence. Degrades to absent headless.
+        new net.marcloud.mcp.core.drivers.video.DevTools(game).registerAll(registry);
+
         // Socket transport (not stdio): the game owns the console, so a stdio
         // MCP server would corrupt the JSON-RPC stream. An AI client connects to
         // the loopback port. The registry binds the live server for runtime
