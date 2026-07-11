@@ -12,11 +12,12 @@ REM --- Point JAVA_HOME at your JDK 25 if not already on PATH ---
 if "%JAVA_HOME%"=="" set "JAVA_HOME=C:\Program Files\Eclipse Adoptium\jdk-25.0.3.9-hotspot"
 set "JAVA=%JAVA_HOME%\bin\java.exe"
 
-set "JAR=%~dp0client\target\MCP-1.8.9.jar"
+REM --- This script now lives in scripts/; %~dp0.. is the project root. ---
+set "JAR=%~dp0..\client\target\MCP-1.8.9.jar"
 set "ARGS=%~dp0jvm-args-jdk25.txt"
 
 REM --- Working dir must be the game dir (holds assets, saves) ---
-cd /d "%~dp0test_run"
+cd /d "%~dp0..\test_run"
 
 "%JAVA%" "@%ARGS%" -cp "%JAR%" net.minecraft.client.main.Main ^
   --version MavenMCP --accessToken 0 --assetsDir assets --assetIndex 1.8 --userProperties "{}"

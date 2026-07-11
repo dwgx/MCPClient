@@ -24,7 +24,7 @@ MCPClient(代号"神器"):把一个**活着的 Minecraft 1.8.9 客户端**(移�
 ```bash
 ./mvnw -pl core test              # 跑 core 测试(当前 178 绿)
 ./mvnw -q -pl core -am package -DskipTests   # 打 fat agent jar
-run-mcp.bat                       # 启动游戏 + MCP Core(Windows)
+scripts\run-mcp.bat               # 启动游戏 + MCP Core(Windows;脚本+jvm-args 都在 scripts/)
 ```
 
 启动后:socket transport `127.0.0.1:25599`,REST facade `http://127.0.0.1:1337/`(`GET /v1/models`、`POST /v1/tools/{name}`)。
