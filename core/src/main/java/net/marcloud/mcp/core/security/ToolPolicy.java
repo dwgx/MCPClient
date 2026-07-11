@@ -116,6 +116,7 @@ public record ToolPolicy(Ring requiredRing,
             java.util.Map.entry("create_tool", Privilege.SE_CREATE_TOOL),
             java.util.Map.entry("rollback_tool", Privilege.SE_CREATE_TOOL),
             java.util.Map.entry("capture_screen", Privilege.SE_SCREEN_CAP),
+            java.util.Map.entry("gui_snapshot_image", Privilege.SE_SCREEN_CAP),
             // ---- Phase 2 dangerous verbs ----
             java.util.Map.entry("install_hook", Privilege.SE_SEAM_INJECT),
             java.util.Map.entry("uninstall_hook", Privilege.SE_SEAM_INJECT),

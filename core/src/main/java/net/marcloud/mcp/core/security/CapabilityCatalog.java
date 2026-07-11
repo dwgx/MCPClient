@@ -31,6 +31,7 @@ public final class CapabilityCatalog {
             Map.entry("read_player_state", Set.of(CAP_WORLD_READ)),
             Map.entry("scan_surroundings", Set.of(CAP_WORLD_READ)),
             Map.entry("capture_screen", Set.of(CAP_SCREEN_CAP)),
+            Map.entry("gui_snapshot_image", Set.of(CAP_SCREEN_CAP)),
             Map.entry("recent_packets", Set.of(CAP_NETWORK_RECV_TAP)),
             Map.entry("disconnect_report", Set.of(CAP_NETWORK_RECV_TAP)),
             // outward network effects

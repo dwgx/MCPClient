@@ -41,15 +41,30 @@ public final class ScreenCapture {
      * Returns the PNG bytes. Throws on any GL/encode failure.
      */
     public static byte[] capturePng(GameAccess game, int maxEdge) throws IOException {
-        BufferedImage full = captureFrame(game);
-        BufferedImage scaled = downscale(full, Math.max(64, maxEdge));
+        return encodePng(captureFrame(game), maxEdge);
+    }
+
+    /**
+     * Downscale {@code img} to fit {@code maxEdge} on the long side and PNG-encode
+     * it. Split out from {@link #capturePng} so callers that first annotate the
+     * captured frame (e.g. the Set-of-Marks GUI overlay) can reuse the exact same
+     * downscale-then-encode path — annotating at full resolution and letting the
+     * marks scale down with the image. Headless-safe (ImageIO, no GL).
+     */
+    public static byte[] encodePng(BufferedImage img, int maxEdge) throws IOException {
+        BufferedImage scaled = downscale(img, Math.max(64, maxEdge));
         ByteArrayOutputStream bos = new ByteArrayOutputStream();
         ImageIO.write(scaled, "png", bos); // headless-safe
         return bos.toByteArray();
     }
 
-    /** Read the framebuffer into a BufferedImage (top-left origin, correct colors). */
-    private static BufferedImage captureFrame(GameAccess game) {
+    /**
+     * Read the framebuffer into a BufferedImage (top-left origin, correct colors).
+     * Public so the GUI Set-of-Marks path can grab the raw, full-resolution frame,
+     * draw numbered element boxes on it, and only then downscale/encode. MUST run
+     * on the game/GL thread (callers marshal via {@code GameBridge}).
+     */
+    public static BufferedImage captureFrame(GameAccess game) {
         Minecraft mc = game.mc();
         Framebuffer fb = mc.getFramebuffer();
 

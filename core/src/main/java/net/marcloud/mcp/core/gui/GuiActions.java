@@ -30,10 +30,12 @@ public final class GuiActions {
 
     private final GameAccess game;
     private final GuiSnapshotService svc;
+    private final GuiTrajectory trajectory;
 
-    public GuiActions(GameAccess game, GuiSnapshotService svc) {
+    public GuiActions(GameAccess game, GuiSnapshotService svc, GuiTrajectory trajectory) {
         this.game = game;
         this.svc = svc;
+        this.trajectory = trajectory;
     }
 
     /** Outcome of an action: ok=false carries a human message explaining why. */
@@ -53,25 +55,36 @@ public final class GuiActions {
      * element's live click-point and invokes the real {@code mouseClicked}.
      */
     public Result click(int epoch, String fingerprint, String elementId, int button) throws Exception {
-        return GameBridge.onGameThread(() -> {
-            GuiScreen screen = liveScreen();
-            Result guard = guardStale(screen, epoch, fingerprint);
-            if (guard != null) {
-                return guard;
-            }
-            GuiElement el = resolve(screen, elementId);
-            if (el == null) {
-                return Result.fail("no element '" + elementId + "' on the current screen; "
-                        + "call gui_snapshot again");
-            }
-            Point cp = el.clickPoint();
-            if (cp == null) {
-                return Result.fail("element '" + elementId + "' has no click-point");
-            }
-            invokeMouseClicked(screen, cp.x(), cp.y(), button);
-            return Result.ok("clicked " + elementId + " ('" + el.name() + "') with button " + button
-                    + " at (" + cp.x() + "," + cp.y() + ")");
-        }, TIMEOUT_MS);
+        return GameBridge.onGameThread(() -> clickOnScreen(liveScreen(), epoch, fingerprint, elementId, button),
+                TIMEOUT_MS);
+    }
+
+    /**
+     * Pure click body against an (already-resolved) screen — the seam tests drive
+     * headless. Records the action into the trajectory with the screen fingerprint
+     * captured immediately before and after driving the handler.
+     */
+    Result clickOnScreen(GuiScreen screen, int epoch, String fingerprint, String elementId, int button) {
+        String before = svc.fingerprint(screen);
+        Result guard = guardStale(screen, epoch, fingerprint);
+        if (guard != null) {
+            return record(GuiTrajectory.KIND_CLICK, elementId, guard, before, before);
+        }
+        GuiElement el = resolve(screen, elementId);
+        if (el == null) {
+            Result r = Result.fail("no element '" + elementId + "' on the current screen; "
+                    + "call gui_snapshot again");
+            return record(GuiTrajectory.KIND_CLICK, elementId, r, before, svc.fingerprint(screen));
+        }
+        Point cp = el.clickPoint();
+        if (cp == null) {
+            Result r = Result.fail("element '" + elementId + "' has no click-point");
+            return record(GuiTrajectory.KIND_CLICK, elementId, r, before, svc.fingerprint(screen));
+        }
+        invokeMouseClicked(screen, cp.x(), cp.y(), button);
+        Result r = Result.ok("clicked " + elementId + " ('" + el.name() + "') with button " + button
+                + " at (" + cp.x() + "," + cp.y() + ")");
+        return record(GuiTrajectory.KIND_CLICK, elementId, r, before, svc.fingerprint(screen));
     }
 
     /**
@@ -81,36 +94,45 @@ public final class GuiActions {
      */
     public Result typeText(int epoch, String fingerprint, String elementId, String text,
                            boolean clearFirst) throws Exception {
-        return GameBridge.onGameThread(() -> {
-            GuiScreen screen = liveScreen();
-            Result guard = guardStale(screen, epoch, fingerprint);
-            if (guard != null) {
-                return guard;
-            }
-            GuiElement el = resolve(screen, elementId);
-            if (el == null || !GuiElement.KIND_TEXTFIELD.equals(el.kind())) {
-                return Result.fail("no text field '" + elementId + "' on the current screen; "
-                        + "call gui_snapshot again");
-            }
-            Object field = resolveTextField(screen, elementId);
-            if (field == null) {
-                return Result.fail("could not resolve the live text field for '" + elementId + "'");
-            }
-            // Focus it by clicking its center, then drive the field's own handlers.
-            Point cp = el.clickPoint();
-            if (cp != null) {
-                invokeMouseClicked(screen, cp.x(), cp.y(), 0);
-            }
-            if (clearFirst) {
-                invoke(field, "setText", new Class<?>[] {String.class}, "");
-            }
-            for (int i = 0; i < text.length(); i++) {
-                char c = text.charAt(i);
-                invoke(field, "textboxKeyTyped", new Class<?>[] {char.class, int.class}, c, 0);
-            }
-            String now = (String) invoke(field, "getText", new Class<?>[] {});
-            return Result.ok("typed into " + elementId + "; field text is now '" + now + "'");
-        }, TIMEOUT_MS);
+        return GameBridge.onGameThread(
+                () -> typeTextOnScreen(liveScreen(), epoch, fingerprint, elementId, text, clearFirst),
+                TIMEOUT_MS);
+    }
+
+    /** Pure type body against a supplied screen; records into the trajectory. */
+    Result typeTextOnScreen(GuiScreen screen, int epoch, String fingerprint, String elementId,
+                            String text, boolean clearFirst) {
+        String before = svc.fingerprint(screen);
+        Result guard = guardStale(screen, epoch, fingerprint);
+        if (guard != null) {
+            return record(GuiTrajectory.KIND_TYPE, elementId, guard, before, before);
+        }
+        GuiElement el = resolve(screen, elementId);
+        if (el == null || !GuiElement.KIND_TEXTFIELD.equals(el.kind())) {
+            Result r = Result.fail("no text field '" + elementId + "' on the current screen; "
+                    + "call gui_snapshot again");
+            return record(GuiTrajectory.KIND_TYPE, elementId, r, before, svc.fingerprint(screen));
+        }
+        Object field = resolveTextField(screen, elementId);
+        if (field == null) {
+            Result r = Result.fail("could not resolve the live text field for '" + elementId + "'");
+            return record(GuiTrajectory.KIND_TYPE, elementId, r, before, svc.fingerprint(screen));
+        }
+        // Focus it by clicking its center, then drive the field's own handlers.
+        Point cp = el.clickPoint();
+        if (cp != null) {
+            invokeMouseClicked(screen, cp.x(), cp.y(), 0);
+        }
+        if (clearFirst) {
+            invoke(field, "setText", new Class<?>[] {String.class}, "");
+        }
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            invoke(field, "textboxKeyTyped", new Class<?>[] {char.class, int.class}, c, 0);
+        }
+        String now = (String) invoke(field, "getText", new Class<?>[] {});
+        Result r = Result.ok("typed into " + elementId + "; field text is now '" + now + "'");
+        return record(GuiTrajectory.KIND_TYPE, elementId, r, before, svc.fingerprint(screen));
     }
 
     /**
@@ -118,19 +140,33 @@ public final class GuiActions {
      * by invoking {@code GuiScreen.keyTyped(char, keyCode)}.
      */
     public Result pressKey(int epoch, String fingerprint, char ch, int keyCode) throws Exception {
-        return GameBridge.onGameThread(() -> {
-            GuiScreen screen = liveScreen();
-            Result guard = guardStale(screen, epoch, fingerprint);
-            if (guard != null) {
-                return guard;
-            }
-            invokeKeyTyped(screen, ch, keyCode);
-            return Result.ok("pressed key code " + keyCode
-                    + (ch != 0 ? " ('" + ch + "')" : "") + " on " + screen.getClass().getSimpleName());
-        }, TIMEOUT_MS);
+        return GameBridge.onGameThread(() -> pressKeyOnScreen(liveScreen(), epoch, fingerprint, ch, keyCode),
+                TIMEOUT_MS);
+    }
+
+    /** Pure press body against a supplied screen; records into the trajectory. */
+    Result pressKeyOnScreen(GuiScreen screen, int epoch, String fingerprint, char ch, int keyCode) {
+        String before = svc.fingerprint(screen);
+        String keyId = "key:" + keyCode + (ch != 0 ? "('" + ch + "')" : "");
+        Result guard = guardStale(screen, epoch, fingerprint);
+        if (guard != null) {
+            return record(GuiTrajectory.KIND_PRESS, keyId, guard, before, before);
+        }
+        invokeKeyTyped(screen, ch, keyCode);
+        Result r = Result.ok("pressed key code " + keyCode
+                + (ch != 0 ? " ('" + ch + "')" : "") + " on " + screen.getClass().getSimpleName());
+        return record(GuiTrajectory.KIND_PRESS, keyId, r, before, svc.fingerprint(screen));
     }
 
     // ===== internals =====
+
+    /** Log the action into the trajectory (if present) and return the Result unchanged. */
+    private Result record(String kind, String elementId, Result r, String before, String after) {
+        if (trajectory != null) {
+            trajectory.record(kind, elementId, r.ok(), r.message(), before, after);
+        }
+        return r;
+    }
 
     private GuiScreen liveScreen() {
         Minecraft mc = game.mc();

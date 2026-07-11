@@ -52,6 +52,16 @@ public record SecurityContext(String tokenId,
         return new SecurityContext(tokenId, newClearance, integrity, privileges, capabilities);
     }
 
+    /**
+     * A copy holding a different granted capability set ({@code null} = wildcard),
+     * preserving the same identity, clearance, integrity and — crucially — the same
+     * mutable {@link PrivilegeToken} instance, so a live L4 enable/disable made on
+     * this subject is not lost when the L5 set is swapped by grant/revoke.
+     */
+    public SecurityContext withCapabilities(Set<CapabilitySid> newCapabilities) {
+        return new SecurityContext(tokenId, clearance, integrity, privileges, newCapabilities);
+    }
+
     /** True if this subject holds {@code sid} (wildcard capabilities hold all). */
     public boolean holdsCapability(CapabilitySid sid) {
         return capabilities == null || capabilities.contains(sid);

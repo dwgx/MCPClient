@@ -4,12 +4,18 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+import java.awt.image.BufferedImage;
+import java.util.Base64;
+
 import io.modelcontextprotocol.server.McpServerFeatures.SyncToolSpecification;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
+import io.modelcontextprotocol.spec.McpSchema.ImageContent;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import net.marcloud.mcp.core.GameAccess;
+import net.marcloud.mcp.core.GameBridge;
 import net.marcloud.mcp.core.registry.CapabilityRegistry;
 import net.marcloud.mcp.core.security.Ring;
+import net.marcloud.mcp.core.vision.ScreenCapture;
 
 /**
  * The structured-GUI MCP tool surface: exposes the WHOLE clickable GUI to the LLM
@@ -28,14 +34,19 @@ import net.marcloud.mcp.core.security.Ring;
  */
 public final class GuiTools {
 
+    /** Default trajectory ring capacity (recent GUI actions kept for review). */
+    private static final int TRAJECTORY_CAPACITY = 128;
+
     private final GameAccess game;
     private final GuiSnapshotService snapshots;
+    private final GuiTrajectory trajectory;
     private final GuiActions actions;
 
     public GuiTools(GameAccess game, GuiSnapshotService snapshots) {
         this.game = game;
         this.snapshots = snapshots;
-        this.actions = new GuiActions(game, snapshots);
+        this.trajectory = new GuiTrajectory(TRAJECTORY_CAPACITY);
+        this.actions = new GuiActions(game, snapshots, trajectory);
     }
 
     /** Register all GUI tools into the supervised registry with their true rings. */
@@ -50,9 +61,11 @@ public final class GuiTools {
     private List<SyncToolSpecification> all() {
         List<SyncToolSpecification> t = new ArrayList<>();
         t.add(guiSnapshot());
+        t.add(guiSnapshotImage());
         t.add(guiClickElement());
         t.add(guiTypeText());
         t.add(guiPressKey());
+        t.add(guiTrajectory());
         return t;
     }
 
@@ -126,6 +139,70 @@ public final class GuiTools {
                 return err("gui_snapshot failed: " + rootMsg(e));
             }
         });
+    }
+
+    /**
+     * Separate tool for the Set-of-Marks annotated screenshot. Split out from
+     * gui_snapshot so the plain JSON grounding call stays a free R2 read, while
+     * the image path — which drives glReadPixels exactly like capture_screen —
+     * carries its own SE_SCREEN_CAP / CAP_SCREEN_CAP gate (L4 gates per-tool, not
+     * per-arg, so a shared tool couldn't gate only the image branch).
+     */
+    private SyncToolSpecification guiSnapshotImage() {
+        Tool tool = Tool.builder()
+                .name("gui_snapshot_image")
+                .description("Like gui_snapshot, but ALSO returns a Set-of-Marks annotated PNG of the "
+                        + "current frame: a numbered box on each element (the number IS its id, e.g. "
+                        + "'b0'/'s13') so you can cross-reference the JSON element list against the "
+                        + "picture. Costs image tokens and drives glReadPixels (requires screen-capture "
+                        + "clearance, same as capture_screen). Prefer plain gui_snapshot for routine "
+                        + "grounding; use this only when you need to SEE the layout.")
+                .inputSchema(schema(Map.of(
+                        "onlyInteractable", prop("boolean",
+                                "only include visible+enabled interactable elements (default true)"),
+                        "maxEdge", prop("integer",
+                                "max long-edge pixels of the PNG, 64-1600 (default 1024)")),
+                        List.of()))
+                .build();
+        return new SyncToolSpecification(tool, (exchange, request) -> {
+            Map<String, Object> a = request.arguments();
+            boolean onlyInteractable = boolArg(a, "onlyInteractable", true);
+            int maxEdge = Math.max(64, Math.min(1600,
+                    intArg(a, "maxEdge", ScreenCapture.DEFAULT_MAX_EDGE)));
+            return snapshotWithImage(onlyInteractable, maxEdge);
+        });
+    }
+
+    /**
+     * Build the snapshot and its Set-of-Marks annotated PNG in ONE game-thread
+     * pass so the drawn boxes match the elements captured from the very same frame
+     * (no drift between a JSON read and a separately-timed screenshot).
+     * {@link GuiSnapshotService#snapshot} marshals to the game thread too, but the
+     * executor is reentrancy-safe so it runs inline here.
+     */
+    private CallToolResult snapshotWithImage(boolean onlyInteractable, int maxEdge) {
+        try {
+            byte[][] pngBox = new byte[1][];
+            GuiSnapshot snap = GameBridge.onGameThread(() -> {
+                GuiSnapshot s = snapshots.snapshot(game, onlyInteractable);
+                if (s.screen() != null) {
+                    BufferedImage frame = ScreenCapture.captureFrame(game);
+                    BufferedImage marked = SoMOverlay.annotate(frame, s.elements(), s.viewport());
+                    pngBox[0] = ScreenCapture.encodePng(marked, maxEdge);
+                }
+                return s;
+            });
+            CallToolResult.Builder out = CallToolResult.builder()
+                    .addTextContent(snap.toJson())
+                    .isError(false);
+            if (pngBox[0] != null) {
+                String b64 = Base64.getEncoder().encodeToString(pngBox[0]);
+                out.addContent(ImageContent.builder(b64, "image/png").build());
+            }
+            return out.build();
+        } catch (Exception e) {
+            return err("gui_snapshot (includeImage) failed: " + rootMsg(e));
+        }
     }
 
     private SyncToolSpecification guiClickElement() {
@@ -227,6 +304,57 @@ public final class GuiTools {
                 return err("gui_press_key failed: " + rootMsg(e));
             }
         });
+    }
+
+    private SyncToolSpecification guiTrajectory() {
+        Tool tool = Tool.builder()
+                .name("gui_trajectory")
+                .description("Review your recent GUI actions as a screen-before -> action -> "
+                        + "screen-after log. Returns the most recent entries (default all in the "
+                        + "buffer), each with the action kind (click/type/press), the element id or "
+                        + "key, whether it succeeded (with the message), and the structural screen "
+                        + "fingerprint captured just before and just after the action — so you can "
+                        + "see what each action changed. Read-only; drives nothing. Pass 'n' to cap "
+                        + "how many recent entries to return.")
+                .inputSchema(schema(Map.of(
+                        "n", prop("integer", "max number of most-recent entries to return (default all)")),
+                        List.of()))
+                .build();
+        return new SyncToolSpecification(tool, (exchange, request) -> {
+            Map<String, Object> a = request.arguments();
+            int n = intArg(a, "n", -1);
+            List<GuiTrajectory.Entry> entries = (n >= 0) ? trajectory.recent(n) : trajectory.recent();
+            return ok(trajectoryJson(entries));
+        });
+    }
+
+    /** Serialize trajectory entries to a compact JSON array. */
+    private static String trajectoryJson(List<GuiTrajectory.Entry> entries) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("{\"count\":").append(entries.size()).append(",\"entries\":[");
+        for (int i = 0; i < entries.size(); i++) {
+            GuiTrajectory.Entry e = entries.get(i);
+            if (i > 0) {
+                sb.append(',');
+            }
+            sb.append("{\"time\":").append(e.timeMillis())
+                    .append(",\"kind\":\"").append(esc(e.kind())).append('"')
+                    .append(",\"elementId\":\"").append(esc(e.elementId())).append('"')
+                    .append(",\"ok\":").append(e.ok())
+                    .append(",\"message\":\"").append(esc(e.message())).append('"')
+                    .append(",\"before\":\"").append(esc(e.beforeFingerprint())).append('"')
+                    .append(",\"after\":\"").append(esc(e.afterFingerprint())).append("\"}");
+        }
+        sb.append("]}");
+        return sb.toString();
+    }
+
+    private static String esc(String s) {
+        if (s == null) {
+            return "";
+        }
+        return s.replace("\\", "\\\\").replace("\"", "\\\"")
+                .replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t");
     }
 
     /** Map a key name (or single char) to {char, LWJGL keyCode}. Null if unknown. */

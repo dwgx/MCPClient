@@ -144,6 +144,10 @@ public final class McpCore {
         // Privilege tools (7-layer model): drop/restore/list clearance. Driven
         // through the same engine the gate reads, so a drop takes effect at once.
         new PermissionTools(engine, registry).registerAll(registry);
+        // L4/L5 self-management (GAP-2): enable/disable_privilege + grant/revoke_capability.
+        // Mutations bite only when engine is InProcessPolicyEngine; under P-SECURE the
+        // interface defaults return false and the tools report "not locally owned".
+        new net.marcloud.mcp.core.security.PrivilegeControlTools(engine).registerAll(registry);
 
         // Durable memory (persists across restarts) — the knowledge counterpart
         // to create_tool's capabilities. Stored under the game working dir.

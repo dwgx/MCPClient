@@ -93,10 +93,17 @@ public enum Ring {
             Map.entry("capture_screen", R2),
             Map.entry("read_player_state", R2),
             Map.entry("gui_snapshot", R2),
+            Map.entry("gui_snapshot_image", R2),
+            Map.entry("gui_trajectory", R3),
             // R1 system: GUI interaction drives real handlers → server-visible effects
             Map.entry("gui_click_element", R1),
             Map.entry("gui_type_text", R1),
             Map.entry("gui_press_key", R1),
+            // R0 kernel: self privilege/capability management (enable/disable/grant/revoke)
+            Map.entry("enable_privilege", R0),
+            Map.entry("disable_privilege", R0),
+            Map.entry("grant_capability", R0),
+            Map.entry("revoke_capability", R0),
             // R3 user: local read-only / bookkeeping
             Map.entry("recent_packets", R3),
             Map.entry("disconnect_report", R3),

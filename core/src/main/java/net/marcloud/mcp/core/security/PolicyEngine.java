@@ -39,4 +39,48 @@ public interface PolicyEngine {
 
     /** The subject to evaluate a tool call as (dev default = wide open). */
     SecurityContext currentSubject();
+
+    /**
+     * L4 self privilege management: enable a granted privilege on the live subject
+     * so a tool requiring it is again permitted. Returns false if the privilege was
+     * never granted (no self-escalation) or the engine does not own the subject
+     * locally (e.g. the P-SECURE authority holds it — see the remote engine).
+     *
+     * <p>Default: no-op returning {@code false}. Only {@link InProcessPolicyEngine}
+     * owns a mutable local subject; {@code RemotePolicyEngine} keeps its authority's
+     * subject across the wall and does not mutate it from in-process.
+     */
+    default boolean enablePrivilege(Privilege p) {
+        return false;
+    }
+
+    /**
+     * L4 self privilege management: disable a granted privilege on the live subject
+     * (least privilege in time). A tool requiring it is then denied at L4 until
+     * re-enabled. Returns false if never granted or the engine does not own the
+     * subject locally. Default: no-op returning {@code false}.
+     */
+    default boolean disablePrivilege(Privilege p) {
+        return false;
+    }
+
+    /**
+     * L5 self capability management: grant a capability SID on the live subject so a
+     * tool requiring it is permitted. Returns false if the engine does not own the
+     * subject locally. Default: no-op returning {@code false}.
+     */
+    default boolean grantCapability(CapabilitySid sid) {
+        return false;
+    }
+
+    /**
+     * L5 self capability management: revoke a capability SID from the live subject
+     * so a tool requiring it is denied at L5. When the subject holds the wildcard
+     * set, this materializes the full set minus the revoked SID so the revoke
+     * actually bites. Returns false if the engine does not own the subject locally.
+     * Default: no-op returning {@code false}.
+     */
+    default boolean revokeCapability(CapabilitySid sid) {
+        return false;
+    }
 }

@@ -1,6 +1,7 @@
 package net.marcloud.mcp.core.security;
 
 import java.util.EnumSet;
+import java.util.LinkedHashSet;
 import java.util.Set;
 
 /**
@@ -30,11 +31,24 @@ import java.util.Set;
 public final class InProcessPolicyEngine implements PolicyEngine {
 
     private final PermissionPolicy policy;
-    private final SecurityContext baseSubject;
+
+    /**
+     * The ONE stable, mutable base subject for this engine's lifetime. Its {@link
+     * PrivilegeToken} is mutable (enable/disable flip {@code AtomicBoolean}s in
+     * place), and its capability set is swapped by reassigning this field via
+     * {@link SecurityContext#withCapabilities} — which preserves the SAME token
+     * instance, so an L4 change is never lost when an L5 change happens. Every
+     * {@link #currentSubject()} re-stamps THIS instance with the live clearance, so
+     * a disable/revoke persists across calls instead of resetting to wide open.
+     */
+    private volatile SecurityContext baseSubject;
+
+    /** L6 object-handle manager, or null (the default — L6 is a pure no-op then). */
+    private final ObjectManager objects;
 
     /** Wide-open dev default: wraps the policy, subject holds everything. */
     public InProcessPolicyEngine(PermissionPolicy policy) {
-        this(policy, SecurityContext.wideOpen());
+        this(policy, SecurityContext.wideOpen(), null);
     }
 
     /**
@@ -43,8 +57,19 @@ public final class InProcessPolicyEngine implements PolicyEngine {
      *                    call with the live {@code policy.clearance()}
      */
     public InProcessPolicyEngine(PermissionPolicy policy, SecurityContext baseSubject) {
+        this(policy, baseSubject, null);
+    }
+
+    /**
+     * @param policy      the clearance authority (drop/restore)
+     * @param baseSubject the subject template
+     * @param objects     L6 object-handle manager, or null (L6 becomes a no-op)
+     */
+    public InProcessPolicyEngine(PermissionPolicy policy, SecurityContext baseSubject,
+                                 ObjectManager objects) {
         this.policy = policy;
         this.baseSubject = baseSubject;
+        this.objects = objects;
     }
 
     /**
@@ -97,7 +122,16 @@ public final class InProcessPolicyEngine implements PolicyEngine {
                     + " which the subject does not fully hold");
         }
 
-        // L6/L7 are enforced elsewhere (object handles / supervise() boundary guard).
+        // L6 — object-handle subset check. No-op unless an ObjectManager is wired
+        // AND the request carries a "handle" arg; handle-less tools are unaffected.
+        if (objects != null) {
+            AccessDecision h6 = objects.checkRequest(subject, request);
+            if (!h6.allow()) {
+                return h6;
+            }
+        }
+
+        // L7 is enforced elsewhere (supervise() boundary guard).
         return AccessDecision.allowed();
     }
 
@@ -124,6 +158,59 @@ public final class InProcessPolicyEngine implements PolicyEngine {
     @Override
     public SecurityContext currentSubject() {
         return baseSubject.withClearance(policy.clearance());
+    }
+
+    // ---- L4 / L5 self management on the live base subject ------------------
+    // These mutate the ONE stable base subject so a change persists across every
+    // subsequent evaluate(). The privilege token is mutated in place (its
+    // AtomicBooleans); the capability set is swapped by reassigning baseSubject to
+    // a copy that keeps the SAME token instance (withCapabilities), so L4 and L5
+    // changes never clobber each other.
+
+    @Override
+    public synchronized boolean enablePrivilege(Privilege p) {
+        return p != null && baseSubject.privileges().enable(p);
+    }
+
+    @Override
+    public synchronized boolean disablePrivilege(Privilege p) {
+        return p != null && baseSubject.privileges().disable(p);
+    }
+
+    @Override
+    public synchronized boolean grantCapability(CapabilitySid sid) {
+        if (sid == null) {
+            return false;
+        }
+        Set<CapabilitySid> caps = baseSubject.capabilities();
+        if (caps == null) {
+            // Already wildcard — holds everything, including this SID. Nothing to do.
+            return true;
+        }
+        Set<CapabilitySid> next = new LinkedHashSet<>(caps);
+        next.add(sid);
+        baseSubject = baseSubject.withCapabilities(next);
+        return true;
+    }
+
+    @Override
+    public synchronized boolean revokeCapability(CapabilitySid sid) {
+        if (sid == null) {
+            return false;
+        }
+        Set<CapabilitySid> caps = baseSubject.capabilities();
+        Set<CapabilitySid> next;
+        if (caps == null) {
+            // Wildcard: materialize the full set MINUS the revoked SID so the
+            // revoke actually bites (otherwise holdsAll would keep passing).
+            next = EnumSet.allOf(CapabilitySid.class);
+            next.remove(sid);
+        } else {
+            next = new LinkedHashSet<>(caps);
+            next.remove(sid);
+        }
+        baseSubject = baseSubject.withCapabilities(next);
+        return true;
     }
 
     /** The underlying clearance policy (for PermissionTools compatibility). */
