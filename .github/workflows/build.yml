@@ -3,9 +3,12 @@ name: build
 # CI for the MC 1.8.9 → JDK25/LWJGL3 port. Works on private repos
 # (GitHub-hosted runners include free minutes for private repositories).
 on:
-  # Auto-triggers disabled: the reactor layout differs per branch (main = client+shim
-  # only; mcp-core adds core/board), so a single push/PR workflow can't fit both.
-  # Run manually from the Actions tab when a build check is wanted.
+  # Auto-triggers on every branch: Maven's reactor discovers modules from each
+  # branch's own pom.xml (main = client+shim; mcp-core adds core/board), so the
+  # same workflow adapts per branch with no special-casing. Manual dispatch stays.
+  push:
+    branches: [ main, mcp-core, rank1-encryption-test ]
+  pull_request:
   workflow_dispatch:
 
 jobs:
@@ -21,18 +24,30 @@ jobs:
           java-version: '25'
           cache: maven
 
-      # Reactor build: compiles the lwjgl2-shim library, then the client,
-      # then produces the shaded fat jar. This is the regression guard —
-      # any compile break in either module fails the build.
+      # Unit tests, reactor-wide. This runs whatever modules the branch's pom
+      # declares: on main = lwjgl2-shim + client; on mcp-core = + core (253) +
+      # board (172). This is the primary regression net — a failing unit test
+      # fails the build. (Live/native ITs self-skip; see the reactor package step.)
+      - name: Unit tests (reactor)
+        run: ./mvnw -B -ntp test
+
+      # Reactor build: compiles every module and produces the shaded fat jars.
+      # Tests were already run above, so skip them here to avoid double work.
       - name: Build (reactor package)
         run: ./mvnw -B -ntp clean package -DskipTests
 
-      # Verify the publishable shim jar and the client fat jar were produced.
+      # Verify the publishable artifacts. shim + client exist on every branch;
+      # the core fat agent jar only exists on branches whose pom includes core
+      # (mcp-core), so assert it conditionally rather than failing on main.
       - name: Verify artifacts
         run: |
           test -f lwjgl2-shim/target/lwjgl2-shim-*.jar
           test -f client/target/MCP-1.8.9.jar
           echo "shim + client artifacts present"
+          if [ -d core ]; then
+            ls core/target/core-*.jar >/dev/null 2>&1 || { echo "core module present but no core-*.jar built" >&2; exit 1; }
+            echo "core fat agent jar present"
+          fi
 
       # Failsafe smoke tests. On CI there are no game assets, so the runtime
       # smoke IT self-skips via Assume (assets missing) — the phase still runs
