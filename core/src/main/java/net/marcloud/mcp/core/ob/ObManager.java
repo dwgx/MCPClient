@@ -43,6 +43,16 @@ public final class ObManager {
     private final LongSupplier clock;   // System::nanoTime in prod; fake clock in tests
 
     /**
+     * Strict-handle posture (default false). When true, a tool listed in
+     * {@link #HANDLE_OPS} invoked WITHOUT a {@code "handle"} arg is DENIED instead
+     * of passing through — so L6's frozen-handle TOCTOU protection cannot be
+     * bypassed simply by omitting the handle and falling back to name-based
+     * resolution. Wired from {@code -Dmcp.core.hardened=true}. Off ⇒ the historical
+     * "voluntary" behavior (handle-less handle-op tools pass to their own name path).
+     */
+    private final boolean strictHandles;
+
+    /**
      * Per-tool right needed for a handle op. Only handle-using tools are listed;
      * a tool not present defaults to {@link ObAccessMask#READ}. The {@code "handle"}
      * arg key is reserved — non-handle tools must not declare it.
@@ -56,14 +66,24 @@ public final class ObManager {
             Map.entry("debug_single_step",   ObAccessMask.EXECUTE.bit()));
 
     public ObManager(TargetResolver r, int cap, long idleTtlMillis) {
-        this(r, cap, idleTtlMillis, System::nanoTime);
+        this(r, cap, idleTtlMillis, System::nanoTime, false);
+    }
+
+    /** As the 3-arg ctor but with the strict-handle posture (see {@link #strictHandles}). */
+    public ObManager(TargetResolver r, int cap, long idleTtlMillis, boolean strictHandles) {
+        this(r, cap, idleTtlMillis, System::nanoTime, strictHandles);
     }
 
     ObManager(TargetResolver r, int cap, long idleTtlMillis, LongSupplier clock) {
+        this(r, cap, idleTtlMillis, clock, false);
+    }
+
+    ObManager(TargetResolver r, int cap, long idleTtlMillis, LongSupplier clock, boolean strictHandles) {
         this.resolver = r;
         this.perSubjectCap = cap;
         this.idleTtlNanos = idleTtlMillis * 1_000_000L;
         this.clock = clock;
+        this.strictHandles = strictHandles;
     }
 
     /**
@@ -153,10 +173,23 @@ public final class ObManager {
         return SeAccessCheck.allowed();
     }
 
-    /** The gate seam: no {@code "handle"} arg ⇒ allowed() (pure no-op for every non-handle tool). */
+    /**
+     * The gate seam. No {@code "handle"} arg ⇒ allowed() (pure no-op for every
+     * non-handle tool) — EXCEPT under {@link #strictHandles}, where a tool listed
+     * in {@link #HANDLE_OPS} invoked without a handle is DENIED: those tools have a
+     * frozen-handle path precisely to close the name-reuse TOCTOU, so in a hardened
+     * posture we refuse the handle-less name-based fallback rather than letting it
+     * silently bypass L6.
+     */
     public SeAccessCheck checkRequest(SeToken s, IoRequestPacket req) {
         Object hv = req.arguments().get("handle");
         if (hv == null) {
+            if (strictHandles && HANDLE_OPS.containsKey(req.toolName())) {
+                return SeAccessCheck.deny("L6 handle",
+                        "tool '" + req.toolName() + "' is a handle-op and strict-handle posture "
+                        + "(-Dmcp.core.hardened=true) requires an explicit 'handle' arg — open one "
+                        + "with debug_open_thread first (refusing the name-based TOCTOU fallback).");
+            }
             return SeAccessCheck.allowed();
         }
         long id;

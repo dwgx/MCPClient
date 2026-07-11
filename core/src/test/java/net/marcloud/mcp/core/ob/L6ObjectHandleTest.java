@@ -304,4 +304,46 @@ public class L6ObjectHandleTest {
         assertEquals("L6 handle", d.layer());
         assertTrue(d.reason().contains(ObAccessMask.render(ObAccessMask.EXECUTE.bit())));
     }
+
+    // ---- 13. strict-handle posture: a handle-op WITHOUT a handle is denied ----
+
+    /**
+     * Regression for the audit ② P1 finding: L6 was "voluntary" — a handle-op tool
+     * (e.g. debug_suspend_thread) invoked WITHOUT a "handle" arg fell straight through
+     * checkRequest to allowed(), bypassing the frozen-handle TOCTOU protection via the
+     * name-based path. Under the hardened/strict posture that handle-less call must now
+     * be DENIED. These assertions fail on the pre-fix ObManager (which had no strict
+     * mode and returned allowed() for every handle-less call).
+     */
+    @Test
+    public void strictHandlePostureDeniesHandleLessHandleOp() {
+        // Default posture (strictHandles=false): historical voluntary behavior preserved.
+        ObManager lenient = new ObManager(ref -> new Object(), 8, TTL_MILLIS);
+        SeToken s = subject("alice");
+        assertTrue("default posture: handle-less handle-op still passes (voluntary)",
+                lenient.checkRequest(s,
+                        new IoRequestPacket("debug_suspend_thread", Map.of(), true)).allow());
+
+        // Strict posture (strictHandles=true): the same handle-less handle-op is DENIED.
+        ObManager strict = new ObManager(ref -> new Object(), 8, TTL_MILLIS, true);
+        SeAccessCheck denied = strict.checkRequest(s,
+                new IoRequestPacket("debug_suspend_thread", Map.of(), true));
+        assertFalse("strict posture: handle-less handle-op is refused", denied.allow());
+        assertEquals("L6 handle", denied.layer());
+        assertTrue("reason points at the hardened-posture requirement",
+                denied.reason().contains("handle"));
+
+        // Strict posture must NOT punish a non-handle tool (empty args pre-handler gate).
+        assertTrue("strict posture: non-handle tool unaffected",
+                strict.checkRequest(s,
+                        new IoRequestPacket("scan_surroundings", Map.of(), true)).allow());
+
+        // Strict posture with a VALID handle still works end-to-end.
+        ObHandle h = strict.open(s, ObRef.parse("thread:Server thread"),
+                ObAccessMask.mask(ObAccessMask.READ, ObAccessMask.EXECUTE));
+        assertTrue("strict posture: handle-op WITH a valid handle is allowed",
+                strict.checkRequest(s,
+                        new IoRequestPacket("debug_suspend_thread",
+                                Map.of("handle", Long.toString(h.id())), true)).allow());
+    }
 }

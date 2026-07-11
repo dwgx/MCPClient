@@ -378,11 +378,18 @@ public final class McpCore {
         }
         int cap = Integer.getInteger("mcp.core.handlesCap", 32);
         long idleMillis = Long.getLong("mcp.core.handlesIdleMs", 300_000L); // 5 min idle reap
+        // Under the hardened posture, run L6 in STRICT-handle mode: a handle-op tool
+        // invoked without a "handle" arg is denied rather than falling back to the
+        // name-based TOCTOU path. Default (dev) posture keeps the voluntary behavior.
+        boolean strictHandles =
+                "true".equalsIgnoreCase(System.getProperty("mcp.core.hardened", "false"));
         System.err.println("[MCP Core] L6 object-handles ENABLED (cap " + cap + "/subject, idle "
-                + idleMillis + "ms). debug_open_thread / debug_close_handle registered.");
+                + idleMillis + "ms, strictHandles=" + strictHandles
+                + "). debug_open_thread / debug_close_handle registered.");
         // Resolver: THREAD refs → the live thread by name. debug_open_thread passes
         // its own already-resolved thread, so this is the fallback for other callers.
-        return new net.marcloud.mcp.core.ob.ObManager(McpCore::resolveThreadRef, cap, idleMillis);
+        return new net.marcloud.mcp.core.ob.ObManager(
+                McpCore::resolveThreadRef, cap, idleMillis, strictHandles);
     }
 
     /** Default L6 TargetResolver: resolve a {@code thread:<name>} ref to the live Thread. */

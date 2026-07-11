@@ -36,3 +36,7 @@ core-jvmti.dll
 #     instructions like CLAUDE.md/CONTRIBUTING/SECURITY). AI-only scratch;
 #     never committed. See .ai-notes/README.md for the index. ---
 .ai-notes/
+
+# CodeGraph local code-knowledge-graph index (tree-sitter -> SQLite). Machine-
+# local, rebuildable via `codegraph init`/`sync`; never committed.
+.codegraph/
