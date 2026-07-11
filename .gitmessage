@@ -1,0 +1,42 @@
+scope: imperative-or-noun summary (no trailing period)
+
+# ---------------------------------------------------------------------------
+# SUBJECT (first line, target <=72 / hard ~90, never wrap to a 2nd line):
+#   Pick one opening --
+#     (a) scope: summary    scope in L<n> / Phase <n> / C<n> / named-tool /
+#                           CI / CLAUDE.md / "Audit fixes" / concept (Keystone...)
+#     (b) imperative verb    Add / Fix / Upgrade / Restructure / Integrate /
+#                            Activate / Close / Unblock / Move / Drop / gitignore
+#   May carry a ": subtitle" to expand. Lowercase after colon (proper nouns aside).
+#   No trailing period.
+#   Punctuation: + joins co-delivered items · -> migration/rename/version ·
+#                / groups siblings · ; splits two changes · (...) trailing status.
+# ---------------------------------------------------------------------------
+
+# WHAT / WHY (1-2 sentences): state the problem/motivation/threat, then what you did.
+
+# Body: bullets or numbered findings, naming real classes/tools/methods.
+# - Name: explanation ...
+# - Name: explanation ...
+#   (audit batches: GAP-n (HIGH): ... / CRITICAL#1 (...): ... / 1. area: ...)
+#   (optional group headers: Security / guard:  Correctness:  Major:  Minor:  Cleanup:)
+
+# Closing line (MANDATORY when code/tests change):
+#   test count + green, e.g.  core 258/258 green | core 251 -> 253 green (2 new tests)
+#   fixes MUST assert the regression test is real: teeth-verified / non-vacuous /
+#   fails on pre-fix code
+# Situational (add when applicable):
+#   Verified live in a running MC client: <tool> <concrete evidence>.
+#   <artifact> is gitignored (rebuild via <cmd>).
+#   Frozen contract unchanged (additive only). / Default posture unchanged. /
+#   zero MC source edits / No caller changed / Fat agent jar builds.
+
+# ---------------------------------------------------------------------------
+# IRON RULES (violate = do not commit):
+#   1. NEVER add AI attribution: no Co-Authored-By, no "Generated with". Author = user only.
+#   2. Compile, then test, then commit.
+#   3. Every fix/feature ships a non-vacuous regression test (fails on pre-fix code).
+#   4. Honesty: name what is gitignored / untested / unwired; never fake green.
+#   5. English commits; no graphical symbols except -> <-.
+#   6. One commit = one independently verifiable claim; split unrelated changes.
+# ---------------------------------------------------------------------------
