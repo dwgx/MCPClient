@@ -3,8 +3,8 @@ import static org.junit.Assert.assertTrue;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
-import net.marcloud.mcp.core.debug.DebugEvent;
-import net.marcloud.mcp.core.debug.DebugEventQueue;
+import net.marcloud.mcp.core.kd.DebugEvent;
+import net.marcloud.mcp.core.kd.DebugEventQueue;
 import org.junit.Test;
 
 /** Pure-Java (no native): drop-oldest bounding, listener isolation, delivery. */

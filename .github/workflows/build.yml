@@ -60,3 +60,64 @@ jobs:
         with:
           name: MCP-client
           path: client/target/MCP-1.8.9.jar
+
+  # C6 native happy-path guard. The JVMTI agent DLL is windows-x64 only, so it
+  # can't build on the ubuntu `build` job. Here we compile it with clang against
+  # the runner JDK's own headers (JBRINC=$JAVA_HOME/include) and run the live IT
+  # in REQUIRED mode: a missing DLL, a stale JNI bind, or absent onload caps make
+  # KdBridge.isAvailable() false, which -Dmcp.it.nativeRequired=true turns into a
+  # hard test failure instead of a silent Assume-skip. This is the only place the
+  # native suspend/resume round-trip is exercised end-to-end.
+  c6-native-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+
+      # Windows runners ship Chocolatey; LLVM/clang may or may not be preinstalled.
+      - name: Ensure clang (LLVM)
+        shell: bash
+        run: |
+          if ! command -v clang >/dev/null 2>&1; then
+            echo "[ci] clang not found — installing LLVM via choco"
+            choco install llvm -y
+            # choco puts clang under Program Files\LLVM\bin
+            echo "C:\\Program Files\\LLVM\\bin" >> "$GITHUB_PATH"
+          fi
+
+      - name: Show clang version
+        shell: bash
+        run: clang --version
+
+      # Build core-jvmti.dll with clang, using the runner JDK's own JVMTI headers
+      # (temurin ships include/jvmti.h + include/win32). JBRINC override keeps the
+      # local _tools default untouched.
+      - name: Build core-jvmti.dll (clang)
+        shell: bash
+        run: |
+          export JBRINC="$JAVA_HOME/include"
+          echo "[ci] JBRINC=$JBRINC"
+          test -f "$JBRINC/jvmti.h" || { echo "[ci] ERROR: no jvmti.h under $JBRINC" >&2; exit 1; }
+          bash core/src/main/native/core-jvmti/build-clang.sh
+
+      # Run ONLY the live native IT, with the agent attached and REQUIRED so a
+      # broken bind fails CI. -DargLine replaces (not appends to) surefire argLine;
+      # core has none today. Paths converted to Windows form for the JVM's -agentpath.
+      - name: Live native suspend/resume IT (required)
+        shell: bash
+        run: |
+          DLL_UNIX="$(pwd)/core/src/main/native/core-jvmti/core-jvmti.dll"
+          test -f "$DLL_UNIX" || { echo "[ci] ERROR: DLL not built at $DLL_UNIX" >&2; exit 1; }
+          DLL_WIN="$(cygpath -w "$DLL_UNIX")"
+          echo "[ci] agent DLL: $DLL_WIN"
+          ./mvnw -B -ntp -pl core test \
+            -Dtest=NativeDebugOpLiveIT \
+            -Dmcp.it.live=true \
+            -Dmcp.it.nativeRequired=true \
+            "-DargLine=-agentpath:$DLL_WIN -Dmcp.core.jvmtiLib=$DLL_WIN"

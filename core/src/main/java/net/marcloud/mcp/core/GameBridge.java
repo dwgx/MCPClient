@@ -2,7 +2,7 @@ package net.marcloud.mcp.core;
 
 import java.util.concurrent.Callable;
 
-import net.marcloud.mcp.core.thread.MainThreadExecutor;
+import net.marcloud.mcp.core.ke.KeGameDispatcher;
 
 /**
  * A process-wide static handle to the game thread and game façade, so that
@@ -19,14 +19,14 @@ import net.marcloud.mcp.core.thread.MainThreadExecutor;
  */
 public final class GameBridge {
 
-    private static volatile MainThreadExecutor executor;
+    private static volatile KeGameDispatcher executor;
     private static volatile GameAccess game;
 
     private GameBridge() {
     }
 
     /** Wire the bridge (called once during Core startup). */
-    public static void init(MainThreadExecutor exec, GameAccess gameAccess) {
+    public static void init(KeGameDispatcher exec, GameAccess gameAccess) {
         executor = exec;
         game = gameAccess;
     }
@@ -38,7 +38,7 @@ public final class GameBridge {
 
     /** True if the calling thread is the game thread. */
     public static boolean onGameThread() {
-        MainThreadExecutor e = executor;
+        KeGameDispatcher e = executor;
         return e != null && e.onGameThread();
     }
 
@@ -50,7 +50,7 @@ public final class GameBridge {
      * @throws IllegalStateException if the bridge isn't initialized
      */
     public static <V> V onGameThread(Callable<V> task, long timeoutMillis) throws Exception {
-        MainThreadExecutor e = executor;
+        KeGameDispatcher e = executor;
         if (e == null) {
             throw new IllegalStateException("GameBridge not initialized (Core not started)");
         }

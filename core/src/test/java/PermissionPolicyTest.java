@@ -2,8 +2,8 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
-import net.marcloud.mcp.core.security.PermissionPolicy;
-import net.marcloud.mcp.core.security.Ring;
+import net.marcloud.mcp.core.se.SeClearancePolicy;
+import net.marcloud.mcp.core.se.Ring;
 import org.junit.Test;
 
 /** Tests the CPU-ring privilege model: gating, self-drop, token-gated restore. */
@@ -11,7 +11,7 @@ public class PermissionPolicyTest {
 
     @Test
     public void clearanceGatesByRingLevel() {
-        PermissionPolicy p = new PermissionPolicy(Ring.R2, "tok");
+        SeClearancePolicy p = new SeClearancePolicy(Ring.R2, "tok");
         // R2 clearance permits R2 and R3, denies the more-privileged rings.
         assertFalse("R-1 denied at R2 clearance", p.allows(Ring.R_MINUS_1));
         assertFalse(p.allows(Ring.R0));
@@ -22,7 +22,7 @@ public class PermissionPolicyTest {
 
     @Test
     public void wideOpenPermitsEverything() {
-        PermissionPolicy p = new PermissionPolicy(Ring.R_MINUS_1, "tok");
+        SeClearancePolicy p = new SeClearancePolicy(Ring.R_MINUS_1, "tok");
         for (Ring r : Ring.values()) {
             assertTrue(r.tag() + " allowed at R-1", p.allows(r));
         }
@@ -30,7 +30,7 @@ public class PermissionPolicyTest {
 
     @Test
     public void dropOnlyLowersNeverRaises() {
-        PermissionPolicy p = new PermissionPolicy(Ring.R_MINUS_1, "tok");
+        SeClearancePolicy p = new SeClearancePolicy(Ring.R_MINUS_1, "tok");
         assertEquals(Ring.R2, p.dropTo(Ring.R2));
         assertFalse(p.allows(Ring.R1));
         // A "drop" to a MORE privileged ring is ignored.
@@ -40,7 +40,7 @@ public class PermissionPolicyTest {
 
     @Test
     public void restoreRequiresCorrectToken() {
-        PermissionPolicy p = new PermissionPolicy(Ring.R_MINUS_1, "secret");
+        SeClearancePolicy p = new SeClearancePolicy(Ring.R_MINUS_1, "secret");
         p.dropTo(Ring.R3);
         assertFalse("wrong token denied", p.tryRestore(Ring.R_MINUS_1, "nope"));
         assertEquals(Ring.R3, p.clearance());
@@ -50,7 +50,7 @@ public class PermissionPolicyTest {
 
     @Test
     public void restoreDisabledWhenNoToken() {
-        PermissionPolicy p = new PermissionPolicy(Ring.R_MINUS_1, null);
+        SeClearancePolicy p = new SeClearancePolicy(Ring.R_MINUS_1, null);
         p.dropTo(Ring.R3);
         assertFalse(p.restorable());
         assertFalse(p.tryRestore(Ring.R_MINUS_1, "anything"));

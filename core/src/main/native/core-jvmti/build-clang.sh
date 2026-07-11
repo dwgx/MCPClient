@@ -13,7 +13,11 @@
 # ============================================================================
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-JBRINC="$HERE/../../../../../_tools/jbrsdk-25.0.3-windows-x64-b508.16/include"
+# JBRINC = directory holding jvmti.h (+ win32/ subdir). Default is the local
+# _tools JBR SDK, byte-identical to the historical hardcoded value so the local
+# build is unchanged. CI overrides it (export JBRINC=$JAVA_HOME/include) to use
+# the runner JDK's own headers instead of the _tools SDK.
+JBRINC="${JBRINC:-$HERE/../../../../../_tools/jbrsdk-25.0.3-windows-x64-b508.16/include}"
 
 CLANG="${CLANG:-/c/Program Files/LLVM/bin/clang.exe}"
 [ -x "$CLANG" ] || CLANG="$(command -v clang || true)"

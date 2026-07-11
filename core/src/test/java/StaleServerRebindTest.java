@@ -1,4 +1,6 @@
 import static org.junit.Assert.assertEquals;
+
+import net.marcloud.mcp.core.io.transport.SocketTransportServer;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 
@@ -8,11 +10,11 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolRequest;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import java.util.Map;
-import net.marcloud.mcp.core.registry.CapabilityRegistry;
-import net.marcloud.mcp.core.registry.SafeToolExecutor;
-import net.marcloud.mcp.core.security.InProcessPolicyEngine;
-import net.marcloud.mcp.core.security.PermissionPolicy;
-import net.marcloud.mcp.core.security.Ring;
+import net.marcloud.mcp.core.io.IoManager;
+import net.marcloud.mcp.core.io.IoSupervisor;
+import net.marcloud.mcp.core.se.SeLocalMonitor;
+import net.marcloud.mcp.core.se.SeClearancePolicy;
+import net.marcloud.mcp.core.se.Ring;
 import org.junit.Test;
 
 /**
@@ -39,9 +41,9 @@ public class StaleServerRebindTest {
 
     @Test
     public void registerCommitsInMemoryWhenNoServerBound() {
-        SafeToolExecutor exec = new SafeToolExecutor(2, 2000L);
-        CapabilityRegistry reg = new CapabilityRegistry(exec,
-                new InProcessPolicyEngine(new PermissionPolicy(Ring.R_MINUS_1, "tok")));
+        IoSupervisor exec = new IoSupervisor(2, 2000L);
+        IoManager reg = new IoManager(exec,
+                new SeLocalMonitor(new SeClearancePolicy(Ring.R_MINUS_1, "tok")));
 
         // Simulate the post-disconnect state: no server bound (bindServer(null)).
         reg.bindServer(null);
@@ -65,9 +67,9 @@ public class StaleServerRebindTest {
         // bindServer(null) then a later bindServer(realServer) must not corrupt
         // state — mirrors disconnect → reconnect. We only exercise the null leg +
         // re-null here (no real server), proving repeated unbinds are safe.
-        SafeToolExecutor exec = new SafeToolExecutor(2, 2000L);
-        CapabilityRegistry reg = new CapabilityRegistry(exec,
-                new InProcessPolicyEngine(new PermissionPolicy(Ring.R_MINUS_1, "tok")));
+        IoSupervisor exec = new IoSupervisor(2, 2000L);
+        IoManager reg = new IoManager(exec,
+                new SeLocalMonitor(new SeClearancePolicy(Ring.R_MINUS_1, "tok")));
         reg.bindServer(null);
         reg.register("gen.one", tool("gen.one"), "src", "d", false, Ring.DEFAULT_GENERATED);
         reg.bindServer(null); // idempotent unbind (a second disconnect)

@@ -82,8 +82,8 @@
                 <configuration>
                     <archive>
                         <manifestEntries>
-                            <Premain-Class>net.marcloud.mcp.core.agent.CoreAgent</Premain-Class>
-                            <Agent-Class>net.marcloud.mcp.core.agent.CoreAgent</Agent-Class>
+                            <Premain-Class>net.marcloud.mcp.core.boot.CoreAgent</Premain-Class>
+                            <Agent-Class>net.marcloud.mcp.core.boot.CoreAgent</Agent-Class>
                             <Can-Redefine-Classes>true</Can-Redefine-Classes>
                             <Can-Retransform-Classes>true</Can-Retransform-Classes>
                         </manifestEntries>
@@ -126,8 +126,8 @@
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
                                     <manifestEntries>
-                                        <Premain-Class>net.marcloud.mcp.core.agent.CoreAgent</Premain-Class>
-                                        <Agent-Class>net.marcloud.mcp.core.agent.CoreAgent</Agent-Class>
+                                        <Premain-Class>net.marcloud.mcp.core.boot.CoreAgent</Premain-Class>
+                                        <Agent-Class>net.marcloud.mcp.core.boot.CoreAgent</Agent-Class>
                                         <Can-Redefine-Classes>true</Can-Redefine-Classes>
                                         <Can-Retransform-Classes>true</Can-Retransform-Classes>
                                         <Multi-Release>true</Multi-Release>

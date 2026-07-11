@@ -2,8 +2,8 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import net.marcloud.mcp.core.GameAccess;
-import net.marcloud.mcp.core.event.EventBus;
-import net.marcloud.mcp.core.seam.SeamController;
+import net.marcloud.mcp.core.ke.event.EventBus;
+import net.marcloud.mcp.core.flt.seam.SeamController;
 import org.junit.Assume;
 import org.junit.Test;
 

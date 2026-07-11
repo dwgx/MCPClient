@@ -3,15 +3,15 @@ import static org.junit.Assert.assertTrue;
 
 import java.util.Map;
 
-import net.marcloud.mcp.core.security.AccessDecision;
-import net.marcloud.mcp.core.security.InProcessPolicyEngine;
-import net.marcloud.mcp.core.security.IntegrityLevel;
-import net.marcloud.mcp.core.security.PermissionPolicy;
-import net.marcloud.mcp.core.security.Privilege;
-import net.marcloud.mcp.core.security.PrivilegeToken;
-import net.marcloud.mcp.core.security.Ring;
-import net.marcloud.mcp.core.security.SecurityContext;
-import net.marcloud.mcp.core.security.ToolRequest;
+import net.marcloud.mcp.core.se.SeAccessCheck;
+import net.marcloud.mcp.core.se.SeLocalMonitor;
+import net.marcloud.mcp.core.se.IntegrityLevel;
+import net.marcloud.mcp.core.se.SeClearancePolicy;
+import net.marcloud.mcp.core.se.Privilege;
+import net.marcloud.mcp.core.se.PrivilegeToken;
+import net.marcloud.mcp.core.se.Ring;
+import net.marcloud.mcp.core.se.SeToken;
+import net.marcloud.mcp.core.io.IoRequestPacket;
 import org.junit.Test;
 
 /**
@@ -28,19 +28,19 @@ import org.junit.Test;
 public class L4DenyMessageHonestyTest {
 
     /** A subject at full clearance/integrity whose SE_DEBUG_CLASS is granted but disabled. */
-    private static AccessDecision l4Denial() {
-        PermissionPolicy p = new PermissionPolicy(Ring.R_MINUS_1, "tok");
+    private static SeAccessCheck l4Denial() {
+        SeClearancePolicy p = new SeClearancePolicy(Ring.R_MINUS_1, "tok");
         // Granted (present in the token) but disabled (false) → forces the L4
         // "granted but disabled" branch specifically. SE_NET_RAW enabled so the
         // token is not empty.
         PrivilegeToken tok = new PrivilegeToken(Map.of(
                 Privilege.SE_DEBUG_CLASS, false, Privilege.SE_NET_RAW, true));
-        SecurityContext subj = new SecurityContext("t", Ring.R_MINUS_1,
+        SeToken subj = new SeToken("t", Ring.R_MINUS_1,
                 IntegrityLevel.SYSTEM, tok, null);
-        InProcessPolicyEngine e = new InProcessPolicyEngine(p, subj);
+        SeLocalMonitor e = new SeLocalMonitor(p, subj);
         // redefine_class requires SE_DEBUG_CLASS enabled (L4); L2/L3/L5 all pass
         // for this SYSTEM/R-1/wildcard-cap subject, so L4 is the deciding layer.
-        AccessDecision d = e.evaluate(e.currentSubject(), new ToolRequest("redefine_class", Map.of(), true));
+        SeAccessCheck d = e.evaluate(e.currentSubject(), new IoRequestPacket("redefine_class", Map.of(), true));
         assertFalse("must be a denial", d.allow());
         assertTrue("must be denied at L4, got: " + d.layer(), d.layer().contains("L4"));
         return d;

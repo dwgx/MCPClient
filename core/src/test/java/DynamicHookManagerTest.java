@@ -1,4 +1,7 @@
 import static org.junit.Assert.assertEquals;
+
+import net.marcloud.mcp.core.io.Capability;
+import net.marcloud.mcp.core.se.SeToken;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
@@ -8,19 +11,19 @@ import java.lang.instrument.Instrumentation;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import net.marcloud.mcp.core.event.EventBus;
-import net.marcloud.mcp.core.event.events.HookFiredEvent;
-import net.marcloud.mcp.core.hook.DynamicHookManager;
-import net.marcloud.mcp.core.hook.HookBridge;
-import net.marcloud.mcp.core.security.AccessGate;
-import net.marcloud.mcp.core.security.AllowAllGate;
-import net.marcloud.mcp.core.security.CapabilitySid;
-import net.marcloud.mcp.core.hook.HookTools;
+import net.marcloud.mcp.core.ke.event.EventBus;
+import net.marcloud.mcp.core.ke.event.events.HookFiredEvent;
+import net.marcloud.mcp.core.flt.FltDynamicManager;
+import net.marcloud.mcp.core.flt.HookBridge;
+import net.marcloud.mcp.core.se.AccessGate;
+import net.marcloud.mcp.core.se.AllowAllGate;
+import net.marcloud.mcp.core.se.CapabilitySid;
+import net.marcloud.mcp.core.flt.HookTools;
 import org.junit.Assume;
 import org.junit.Test;
 
 /**
- * Tests for the C3 INTERCEPT capability: {@link DynamicHookManager}, hook
+ * Tests for the C3 INTERCEPT capability: {@link FltDynamicManager}, hook
  * events, route bookkeeping, and the capability/denylist guards. Most tests are
  * agent-less (work without Instrumentation); the live retransform test
  * self-skips if ByteBuddyAgent.install() fails (e.g. on a restricted JVM).
@@ -39,22 +42,22 @@ public class DynamicHookManagerTest {
     @Test
     public void denylistRejectsSecurityClasses() {
         EventBus bus = new EventBus();
-        DynamicHookManager mgr = new DynamicHookManager(null, bus);
+        FltDynamicManager mgr = new FltDynamicManager(null, bus);
         assertFalse("no agent → canInstall false", mgr.canInstall());
 
         // Denylist check must precede the inst==null gate in install(), or this
         // would throw IllegalStateException instead of SecurityException.
         try {
-            mgr.install("net.marcloud.mcp.core.security.PermissionPolicy", "allows");
+            mgr.install("net.marcloud.mcp.core.se.SeClearancePolicy", "allows");
             fail("expected SecurityException for protected class");
         } catch (SecurityException e) {
             assertTrue("message names the class",
-                    e.getMessage().contains("net.marcloud.mcp.core.security.PermissionPolicy"));
+                    e.getMessage().contains("net.marcloud.mcp.core.se.SeClearancePolicy"));
         }
 
         // Also test another protected class from the denylist
         try {
-            mgr.install("net.marcloud.mcp.core.agent.CoreAgent", "premain");
+            mgr.install("net.marcloud.mcp.core.boot.CoreAgent", "premain");
             fail("expected SecurityException for CoreAgent");
         } catch (SecurityException e) {
             assertTrue("message names CoreAgent", e.getMessage().contains("CoreAgent"));
@@ -69,7 +72,7 @@ public class DynamicHookManagerTest {
     @Test
     public void installWithoutInstrumentationFails() {
         EventBus bus = new EventBus();
-        DynamicHookManager mgr = new DynamicHookManager(null, bus);
+        FltDynamicManager mgr = new FltDynamicManager(null, bus);
         assertFalse("no instrumentation → canInstall false", mgr.canInstall());
         assertEquals("no hooks initially", 0, mgr.size());
 
@@ -96,7 +99,7 @@ public class DynamicHookManagerTest {
         // which tested nothing about HookTools. Here the gate is wired INTO HookTools
         // and reached via the tool's own call path.
         EventBus bus = new EventBus();
-        DynamicHookManager mgr = new DynamicHookManager(null, bus);
+        FltDynamicManager mgr = new FltDynamicManager(null, bus);
 
         AccessGate denyAll = (cap, privs) -> {
             throw new SecurityException("capability " + cap + " not granted");
@@ -123,13 +126,13 @@ public class DynamicHookManagerTest {
     /** Invoke the install_hook tool spec from a HookTools instance via a registry. */
     private static io.modelcontextprotocol.spec.McpSchema.CallToolResult invokeInstallHook(
             HookTools tools, String targetClass, String method) {
-        net.marcloud.mcp.core.registry.SafeToolExecutor exec =
-                new net.marcloud.mcp.core.registry.SafeToolExecutor(2, 2000L);
-        net.marcloud.mcp.core.registry.CapabilityRegistry reg =
-                new net.marcloud.mcp.core.registry.CapabilityRegistry(exec,
-                        new net.marcloud.mcp.core.security.InProcessPolicyEngine(
-                                new net.marcloud.mcp.core.security.PermissionPolicy(
-                                        net.marcloud.mcp.core.security.Ring.R_MINUS_1, "tok")));
+        net.marcloud.mcp.core.io.IoSupervisor exec =
+                new net.marcloud.mcp.core.io.IoSupervisor(2, 2000L);
+        net.marcloud.mcp.core.io.IoManager reg =
+                new net.marcloud.mcp.core.io.IoManager(exec,
+                        new net.marcloud.mcp.core.se.SeLocalMonitor(
+                                new net.marcloud.mcp.core.se.SeClearancePolicy(
+                                        net.marcloud.mcp.core.se.Ring.R_MINUS_1, "tok")));
         tools.registerAll(reg);
         io.modelcontextprotocol.spec.McpSchema.CallToolResult r =
                 reg.invoke("install_hook", java.util.Map.of("targetClass", targetClass, "method", method));
@@ -213,7 +216,7 @@ public class DynamicHookManagerTest {
                 inst != null && inst.isRetransformClassesSupported());
 
         EventBus bus = new EventBus();
-        DynamicHookManager mgr = new DynamicHookManager(inst, bus);
+        FltDynamicManager mgr = new FltDynamicManager(inst, bus);
         assertTrue("can install with live agent", mgr.canInstall());
 
         // Sample target class (already loaded since it's a nested class here)
@@ -252,7 +255,7 @@ public class DynamicHookManagerTest {
         assertEquals("still one event (no new event after uninstall)", 1, eventCount.get());
 
         // list() should be empty
-        List<DynamicHookManager.HookRecord> remaining = mgr.list();
+        List<FltDynamicManager.HookRecord> remaining = mgr.list();
         assertTrue("list() empty after uninstall", remaining.isEmpty());
     }
 
@@ -274,7 +277,7 @@ public class DynamicHookManagerTest {
                 inst != null && inst.isRetransformClassesSupported());
 
         EventBus bus = new EventBus();
-        DynamicHookManager mgr = new DynamicHookManager(inst, bus);
+        FltDynamicManager mgr = new FltDynamicManager(inst, bus);
         String hookId = mgr.install(Sample.class.getName(), "probe");
         assertNotNull(hookId);
         assertEquals("one hook installed", 1, mgr.size());
@@ -288,7 +291,7 @@ public class DynamicHookManagerTest {
 
     /**
      * Sample target class for the live retransform test. Must be public and
-     * static so DynamicHookManager can find it via Class.forName.
+     * static so FltDynamicManager can find it via Class.forName.
      */
     public static class Sample {
         public String probe() {
@@ -297,25 +300,25 @@ public class DynamicHookManagerTest {
     }
 
     // (Capability-set semantics are covered by SecurityKernelTest against the
-    // canonical CapabilitySid / SecurityContext model; the C3 agent's duplicate
+    // canonical CapabilitySid / SeToken model; the C3 agent's duplicate
     // CapClass/CapabilitySet were dropped during integration.)
 
     /**
-     * DynamicHookManager.list() returns a snapshot (defensive copy), so
+     * FltDynamicManager.list() returns a snapshot (defensive copy), so
      * mutating it doesn't affect the live hooks.
      */
     @Test
     public void listIsDefensiveCopy() {
         EventBus bus = new EventBus();
-        DynamicHookManager mgr = new DynamicHookManager(null, bus);
+        FltDynamicManager mgr = new FltDynamicManager(null, bus);
         assertEquals("initially empty", 0, mgr.size());
 
-        List<DynamicHookManager.HookRecord> list1 = mgr.list();
+        List<FltDynamicManager.HookRecord> list1 = mgr.list();
         assertTrue("list1 empty", list1.isEmpty());
 
         // list() returns a copy, so we can't mutate it directly (it's unmodifiable)
         // but we can verify that a second call returns a separate instance
-        List<DynamicHookManager.HookRecord> list2 = mgr.list();
+        List<FltDynamicManager.HookRecord> list2 = mgr.list();
         assertTrue("list2 also empty", list2.isEmpty());
         // They are equal but not the same instance (defensive copy semantics)
         assertEquals("lists equal", list1, list2);

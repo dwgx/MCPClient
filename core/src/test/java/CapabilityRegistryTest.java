@@ -5,9 +5,9 @@ import static org.junit.Assert.assertTrue;
 import io.modelcontextprotocol.server.McpServerFeatures.SyncToolSpecification;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
-import net.marcloud.mcp.core.registry.CapabilityRegistry;
-import net.marcloud.mcp.core.registry.SafeToolExecutor;
-import net.marcloud.mcp.core.registry.ToolStats;
+import net.marcloud.mcp.core.io.IoManager;
+import net.marcloud.mcp.core.io.IoSupervisor;
+import net.marcloud.mcp.core.io.ToolStats;
 import org.junit.Test;
 
 /**
@@ -55,7 +55,7 @@ public class CapabilityRegistryTest {
     public void thrownToolFaultTripsBreaker_butRunawayRejectionIsFailFast() {
         // A tool that THROWS (not returns isError) must count as a fault so the
         // breaker can eventually quarantine it — the self-heal for AI tools.
-        SafeToolExecutor exec = new SafeToolExecutor(4, 1000L);
+        IoSupervisor exec = new IoSupervisor(4, 1000L);
         ToolStats stats = new ToolStats("throws");
         for (int i = 0; i < 3; i++) {
             exec.run(stats, (ex, req) -> { throw new IllegalStateException("boom"); }, null, null, 0);
@@ -67,7 +67,7 @@ public class CapabilityRegistryTest {
     @Test
     public void negativeCountDoesNotThrow() {
         // Finding #6: negative n must not throw (would be mis-counted as a fault).
-        net.marcloud.mcp.core.state.PacketLog log = new net.marcloud.mcp.core.state.PacketLog(8);
+        net.marcloud.mcp.core.drivers.world.PacketLog log = new net.marcloud.mcp.core.drivers.world.PacketLog(8);
         log.recordInbound("A");
         log.recordOutbound("B");
         assertTrue("negative n yields empty, not an exception", log.recent(-5).isEmpty());
@@ -76,7 +76,7 @@ public class CapabilityRegistryTest {
 
     @Test
     public void executorContainsAThrowingTool() {
-        SafeToolExecutor exec = new SafeToolExecutor(2, 2000L);
+        IoSupervisor exec = new IoSupervisor(2, 2000L);
         ToolStats stats = new ToolStats("thrower");
         CallToolResult r = exec.run(stats,
                 (ex, req) -> { throw new RuntimeException("boom"); },
@@ -88,7 +88,7 @@ public class CapabilityRegistryTest {
 
     @Test
     public void executorTimesOutAHangingTool() {
-        SafeToolExecutor exec = new SafeToolExecutor(2, 300L);
+        IoSupervisor exec = new IoSupervisor(2, 300L);
         ToolStats stats = new ToolStats("hang");
         CallToolResult r = exec.run(stats, (ex, req) -> {
             try { Thread.sleep(5000); } catch (InterruptedException ignored) { }
@@ -105,7 +105,7 @@ public class CapabilityRegistryTest {
         // rejection, e.g. create_tool on bad source) must NOT trip the breaker,
         // else the AI's self-extension loop would quarantine create_tool after a
         // few compile errors. Only thrown exceptions / timeouts are faults.
-        SafeToolExecutor exec = new SafeToolExecutor(2, 2000L);
+        IoSupervisor exec = new IoSupervisor(2, 2000L);
         ToolStats stats = new ToolStats("validator");
         for (int i = 0; i < 5; i++) {
             CallToolResult r = exec.run(stats,
@@ -121,15 +121,15 @@ public class CapabilityRegistryTest {
 
     @Test
     public void registryVersionsAndRollsBack() {
-        SafeToolExecutor exec = new SafeToolExecutor(2, 2000L);
-        CapabilityRegistry reg = new CapabilityRegistry(exec,
-                new net.marcloud.mcp.core.security.PermissionPolicy(
-                        net.marcloud.mcp.core.security.Ring.R_MINUS_1, "t"));
+        IoSupervisor exec = new IoSupervisor(2, 2000L);
+        IoManager reg = new IoManager(exec,
+                new net.marcloud.mcp.core.se.SeClearancePolicy(
+                        net.marcloud.mcp.core.se.Ring.R_MINUS_1, "t"));
         reg.register("t", tool("t", (e, r) -> CallToolResult.builder().addTextContent("v1").build()),
-                "src-v1", "d1", false, net.marcloud.mcp.core.security.Ring.R2);
+                "src-v1", "d1", false, net.marcloud.mcp.core.se.Ring.R2);
         assertEquals(1, reg.get("t").version());
         reg.register("t", tool("t", (e, r) -> CallToolResult.builder().addTextContent("v2").build()),
-                "src-v2", "d2", false, net.marcloud.mcp.core.security.Ring.R2);
+                "src-v2", "d2", false, net.marcloud.mcp.core.se.Ring.R2);
         assertEquals(2, reg.get("t").version());
         assertEquals("src-v2", reg.get("t").source());
         assertTrue(reg.rollback("t"));

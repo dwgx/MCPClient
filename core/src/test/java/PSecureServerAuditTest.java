@@ -12,22 +12,22 @@ import java.net.SocketException;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
 
-import net.marcloud.mcp.core.http.Json;
-import net.marcloud.mcp.core.secure.PSecureProtocol;
-import net.marcloud.mcp.core.secure.PSecureServer;
-import net.marcloud.mcp.core.security.AccessDecision;
-import net.marcloud.mcp.core.security.InProcessPolicyEngine;
-import net.marcloud.mcp.core.security.PermissionPolicy;
-import net.marcloud.mcp.core.security.RemotePolicyEngine;
-import net.marcloud.mcp.core.security.Ring;
-import net.marcloud.mcp.core.security.SecurityContext;
-import net.marcloud.mcp.core.security.ToolRequest;
+import net.marcloud.mcp.core.io.http.Json;
+import net.marcloud.mcp.core.alpc.AlpcProtocol;
+import net.marcloud.mcp.core.alpc.AlpcServer;
+import net.marcloud.mcp.core.se.SeAccessCheck;
+import net.marcloud.mcp.core.se.SeLocalMonitor;
+import net.marcloud.mcp.core.se.SeClearancePolicy;
+import net.marcloud.mcp.core.se.SeRemoteMonitor;
+import net.marcloud.mcp.core.se.Ring;
+import net.marcloud.mcp.core.se.SeToken;
+import net.marcloud.mcp.core.io.IoRequestPacket;
 import org.junit.After;
 import org.junit.Test;
 
 public class PSecureServerAuditTest {
 
-    private PSecureServer server;
+    private AlpcServer server;
 
     @After
     public void tearDown() {
@@ -40,10 +40,10 @@ public class PSecureServerAuditTest {
     public void silentHandshakeCannotMonopolizeAuthority() throws Exception {
         startServer();
         try (Socket silent = connect()) {
-            RemotePolicyEngine client = remote();
+            SeRemoteMonitor client = remote();
             try {
-                AccessDecision decision = client.evaluate(SecurityContext.wideOpen(),
-                        new ToolRequest("eval_java", Map.of(), true));
+                SeAccessCheck decision = client.evaluate(SeToken.wideOpen(),
+                        new IoRequestPacket("eval_java", Map.of(), true));
                 assertTrue("new authenticated client replaces silent client", decision.allow());
                 assertEquals("silent socket is actively closed", -1, silent.getInputStream().read());
             } finally {
@@ -77,7 +77,7 @@ public class PSecureServerAuditTest {
             assertClosed(in);
         }
 
-        RemotePolicyEngine replacement = remote();
+        SeRemoteMonitor replacement = remote();
         try {
             assertEquals(Ring.R_MINUS_1, replacement.clearance());
         } finally {
@@ -88,13 +88,13 @@ public class PSecureServerAuditTest {
     @Test
     public void closeDisconnectsAuthenticatedActiveClient() throws Exception {
         startServer();
-        RemotePolicyEngine client = remote();
+        SeRemoteMonitor client = remote();
         try {
-            assertTrue(client.evaluate(SecurityContext.wideOpen(),
-                    new ToolRequest("eval_java", Map.of(), true)).allow());
+            assertTrue(client.evaluate(SeToken.wideOpen(),
+                    new IoRequestPacket("eval_java", Map.of(), true)).allow());
             server.close();
-            AccessDecision afterClose = client.evaluate(SecurityContext.wideOpen(),
-                    new ToolRequest("eval_java", Map.of(), true));
+            SeAccessCheck afterClose = client.evaluate(SeToken.wideOpen(),
+                    new IoRequestPacket("eval_java", Map.of(), true));
             assertFalse("active client fails closed after server close", afterClose.allow());
         } finally {
             client.close();
@@ -102,8 +102,8 @@ public class PSecureServerAuditTest {
     }
 
     private void startServer() throws Exception {
-        server = new PSecureServer(new InProcessPolicyEngine(
-                new PermissionPolicy(Ring.R_MINUS_1, "restore")), 0, "secret");
+        server = new AlpcServer(new SeLocalMonitor(
+                new SeClearancePolicy(Ring.R_MINUS_1, "restore")), 0, "secret");
         server.start();
     }
 
@@ -113,8 +113,8 @@ public class PSecureServerAuditTest {
         return socket;
     }
 
-    private RemotePolicyEngine remote() {
-        return new RemotePolicyEngine("127.0.0.1", server.boundPort(), "secret", 2000);
+    private SeRemoteMonitor remote() {
+        return new SeRemoteMonitor("127.0.0.1", server.boundPort(), "secret", 2000);
     }
 
     private static BufferedReader reader(Socket socket) throws IOException {
@@ -128,11 +128,11 @@ public class PSecureServerAuditTest {
     }
 
     private static void authenticate(BufferedReader in, BufferedWriter out) throws IOException {
-        out.write(Json.write(Map.of(PSecureProtocol.K_AUTH, "secret")));
+        out.write(Json.write(Map.of(AlpcProtocol.K_AUTH, "secret")));
         out.newLine();
         out.flush();
         assertTrue(Boolean.TRUE.equals(
-                Json.readObject(in.readLine()).get(PSecureProtocol.K_AUTHED)));
+                Json.readObject(in.readLine()).get(AlpcProtocol.K_AUTHED)));
     }
 
     private static void assertClosed(BufferedReader in) throws IOException {

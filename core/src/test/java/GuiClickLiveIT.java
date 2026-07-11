@@ -1,10 +1,12 @@
 import static org.junit.Assert.assertNotNull;
+
+import net.marcloud.mcp.core.ke.KeGameDispatcher;
 import static org.junit.Assert.assertTrue;
 
 import net.marcloud.mcp.core.GameAccess;
-import net.marcloud.mcp.core.gui.GuiActions;
-import net.marcloud.mcp.core.gui.GuiSnapshot;
-import net.marcloud.mcp.core.gui.GuiSnapshotService;
+import net.marcloud.mcp.core.drivers.gui.GuiActions;
+import net.marcloud.mcp.core.drivers.gui.GuiSnapshot;
+import net.marcloud.mcp.core.drivers.gui.GuiSnapshotService;
 import org.junit.Assume;
 import org.junit.Test;
 
@@ -18,7 +20,7 @@ import org.junit.Test;
  * <p>Run live with:
  * {@code ./mvnw -pl core test -Dtest=GuiClickLiveIT -Dmcp.it.live=true}
  * inside a JVM that has Core started against a live client (so
- * {@code Minecraft.getMinecraft()} and the {@code MainThreadExecutor} exist).
+ * {@code Minecraft.getMinecraft()} and the {@code KeGameDispatcher} exist).
  *
  * <p>Covers the one path the headless {@code GuiSnapshotTest} cannot: taking a
  * snapshot of the REAL open screen and driving {@link GuiActions#click} on the

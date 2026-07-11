@@ -58,7 +58,7 @@
             <scope>runtime</scope>
         </dependency>
 
-        <!-- ==== Networking: Netty 4.1.124 (up from 4.0.23) ==== -->
+        <!-- ==== Networking: Netty 4.2.16.Final (up from 4.0.23) ==== -->
         <dependency>
             <groupId>io.netty</groupId>
             <artifactId>netty-all</artifactId>

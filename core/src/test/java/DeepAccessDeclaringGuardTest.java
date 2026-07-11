@@ -3,16 +3,16 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import net.marcloud.mcp.core.GameAccess;
-import net.marcloud.mcp.core.deepaccess.DeepAccess;
-import net.marcloud.mcp.core.deepaccess.DeepAccessException;
-import net.marcloud.mcp.core.security.AllowAllGate;
-import net.marcloud.mcp.core.security.DeepAccessProtectedBase;
-import net.marcloud.mcp.core.security.ProtectedClasses;
+import net.marcloud.mcp.core.mm.MmAccess;
+import net.marcloud.mcp.core.mm.MmAccessException;
+import net.marcloud.mcp.core.se.AllowAllGate;
+import net.marcloud.mcp.core.se.DeepAccessProtectedBase;
+import net.marcloud.mcp.core.se.SeProtectedObjects;
 import org.junit.Before;
 import org.junit.Test;
 
 /**
- * Regression test for LOW#17: DeepAccess must guard the resolved DECLARING
+ * Regression test for LOW#17: MmAccess must guard the resolved DECLARING
  * (super)class of a field/method, not only the runtime/start class.
  *
  * <p>{@link UnprotectedSub} is a runtime class whose own FQN is NOT protected, so
@@ -24,11 +24,11 @@ import org.junit.Test;
  *
  * <p>Non-vacuous: against the old behavior each call either succeeded (no throw →
  * {@code fail}) or threw a non-"protected" error (assertion fails). The gate is
- * {@link AllowAllGate} so the only thing under test is the ProtectedClasses guard.
+ * {@link AllowAllGate} so the only thing under test is the SeProtectedObjects guard.
  */
 public class DeepAccessDeclaringGuardTest {
 
-    private DeepAccess deepAccess;
+    private MmAccess deepAccess;
 
     /** Runtime class is NOT protected; its super IS. */
     public static class UnprotectedSub extends DeepAccessProtectedBase {
@@ -46,15 +46,15 @@ public class DeepAccessDeclaringGuardTest {
 
     @Before
     public void setup() {
-        this.deepAccess = new DeepAccess(new GameAccess(), new AllowAllGate(), () -> null);
+        this.deepAccess = new MmAccess(new GameAccess(), new AllowAllGate(), () -> null);
     }
 
     /** Sanity: the runtime class passes the guard, the declaring class does not. */
     @Test
     public void fixtureModelsTheLatentGap() {
-        assertTrue(ProtectedClasses.isProtected(DeepAccessProtectedBase.class.getName()));
+        assertTrue(SeProtectedObjects.isProtected(DeepAccessProtectedBase.class.getName()));
         assertTrue("subclass runtime type must be unprotected",
-                !ProtectedClasses.isProtected(UnprotectedSub.class.getName()));
+                !SeProtectedObjects.isProtected(UnprotectedSub.class.getName()));
     }
 
     @Test
@@ -64,7 +64,7 @@ public class DeepAccessDeclaringGuardTest {
             // "secret" is declared on the protected base; VarHandle write path.
             deepAccess.setField(obj, "secret", 999, null);
             fail("write to field declared on protected class must be refused");
-        } catch (DeepAccessException e) {
+        } catch (MmAccessException e) {
             assertEquals(EXPECTED_REFUSAL, e.getMessage());
         }
     }
@@ -76,7 +76,7 @@ public class DeepAccessDeclaringGuardTest {
             // "finalSecret" is a non-constant final on the protected base; Unsafe path.
             deepAccess.setField(obj, "finalSecret", 123, null);
             fail("Unsafe write to final field declared on protected class must be refused");
-        } catch (DeepAccessException e) {
+        } catch (MmAccessException e) {
             assertEquals(EXPECTED_REFUSAL, e.getMessage());
         }
     }
@@ -89,7 +89,7 @@ public class DeepAccessDeclaringGuardTest {
             deepAccess.invoke(obj, "hidden", new Class<?>[]{int.class},
                     new Object[]{21}, null);
             fail("invoke of method declared on protected class must be refused");
-        } catch (DeepAccessException e) {
+        } catch (MmAccessException e) {
             assertEquals(EXPECTED_REFUSAL, e.getMessage());
         }
     }

@@ -6,15 +6,15 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
-import net.marcloud.mcp.core.registry.SafeToolExecutor;
-import net.marcloud.mcp.core.registry.ToolStats;
+import net.marcloud.mcp.core.io.IoSupervisor;
+import net.marcloud.mcp.core.io.ToolStats;
 import org.junit.Test;
 
 public class SafeToolExecutorAuditTest {
 
     @Test
     public void interruptIgnoringRunawaysTripLimitAndRecoveryLaneStillRuns() throws Exception {
-        SafeToolExecutor executor = new SafeToolExecutor(2, 100L);
+        IoSupervisor executor = new IoSupervisor(2, 100L);
         AtomicBoolean release = new AtomicBoolean();
         CountDownLatch exited = new CountDownLatch(2);
         try {

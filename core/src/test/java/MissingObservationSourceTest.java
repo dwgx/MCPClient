@@ -9,12 +9,12 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import java.util.List;
 import java.util.Map;
 
-import net.marcloud.mcp.core.agent.AgentAccess;
-import net.marcloud.mcp.core.introspect.IntrospectionService;
-import net.marcloud.mcp.core.introspect.MethodInfo;
-import net.marcloud.mcp.core.mcp.ToolContext;
-import net.marcloud.mcp.core.mcp.ToolRegistry;
-import net.marcloud.mcp.core.state.PacketLog;
+import net.marcloud.mcp.core.boot.AgentAccess;
+import net.marcloud.mcp.core.cm.CmQuery;
+import net.marcloud.mcp.core.cm.MethodInfo;
+import net.marcloud.mcp.core.io.transport.ToolContext;
+import net.marcloud.mcp.core.io.transport.ToolRegistry;
+import net.marcloud.mcp.core.drivers.world.PacketLog;
 import org.junit.Test;
 
 /**
@@ -94,7 +94,7 @@ public class MissingObservationSourceTest {
         assertFalse("test JVM must have no -javaagent for this regression",
                 AgentAccess.isLoaded());
 
-        IntrospectionService svc = new IntrospectionService(
+        CmQuery svc = new CmQuery(
                 getClass().getClassLoader(), List.of());
 
         // A method name that cannot exist in the seed set (Object/String/etc.).
@@ -117,7 +117,7 @@ public class MissingObservationSourceTest {
     public void findMethodStillReturnsRealMatchesFromSeed() {
         // Happy path within the seed: toString exists on Object/String, so a
         // non-empty result must be returned WITHOUT raising incompleteness.
-        IntrospectionService svc = new IntrospectionService(
+        CmQuery svc = new CmQuery(
                 getClass().getClassLoader(), List.of());
 
         List<MethodInfo> results = svc.findMethod("toString", null, null, 100);
@@ -134,7 +134,7 @@ public class MissingObservationSourceTest {
     public void findMethodBlankNameStillReturnsEmptyWithoutRaising() {
         // Blank filter is a caller error handled before the search, so it must
         // stay a plain empty list — the incompleteness guard must not fire here.
-        IntrospectionService svc = new IntrospectionService(
+        CmQuery svc = new CmQuery(
                 getClass().getClassLoader(), List.of());
 
         List<MethodInfo> results = svc.findMethod("", null, null, 100);

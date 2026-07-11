@@ -1,12 +1,14 @@
 import static org.junit.Assert.assertFalse;
+
+import net.marcloud.mcp.core.boot.AgentAccess;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 
-import net.marcloud.mcp.core.hotload.Redefiner;
-import net.marcloud.mcp.core.security.PermissionPolicy;
+import net.marcloud.mcp.core.ldr.LdrRedefiner;
+import net.marcloud.mcp.core.se.SeClearancePolicy;
 import org.junit.Test;
 
 /**
@@ -19,12 +21,12 @@ public class RedefineGuardTest {
 
     @Test
     public void redefineRefusesProtectedClass() {
-        Redefiner r = new Redefiner();
+        LdrRedefiner r = new LdrRedefiner();
         // The protected-class guard runs BEFORE any Instrumentation check, so this
-        // throws even with no agent loaded (headless-provable). PermissionPolicy
+        // throws even with no agent loaded (headless-provable). SeClearancePolicy
         // is a protected security-package class.
         try {
-            r.redefine(PermissionPolicy.class, new byte[]{1, 2, 3});
+            r.redefine(SeClearancePolicy.class, new byte[]{1, 2, 3});
             fail("expected redefine of a protected class to be refused");
         } catch (IllegalStateException expected) {
             assertTrue("message names the protection",
@@ -39,7 +41,7 @@ public class RedefineGuardTest {
         // Hole (ii): CoreAgent.instrumentation() used to be public static — any
         // in-process code could grab full Instrumentation. It is now package-
         // private, reachable only through the agent package's AgentAccess seam.
-        Class<?> coreAgent = Class.forName("net.marcloud.mcp.core.agent.CoreAgent");
+        Class<?> coreAgent = Class.forName("net.marcloud.mcp.core.boot.CoreAgent");
         Method m = coreAgent.getDeclaredMethod("instrumentation");
         assertFalse("CoreAgent.instrumentation() must not be public",
                 Modifier.isPublic(m.getModifiers()));
@@ -50,10 +52,10 @@ public class RedefineGuardTest {
         // In the test JVM no -javaagent is loaded, so isAvailable() is false; the
         // guard must still reject a protected target rather than fall through to
         // an "agent missing" path.
-        Redefiner r = new Redefiner();
+        LdrRedefiner r = new LdrRedefiner();
         assertFalse("no agent in test JVM", r.isAvailable());
         try {
-            r.redefine(net.marcloud.mcp.core.security.Ring.class, new byte[]{0});
+            r.redefine(net.marcloud.mcp.core.se.Ring.class, new byte[]{0});
             fail("expected refusal");
         } catch (IllegalStateException expected) {
             assertTrue(expected.getMessage().toLowerCase().contains("protected"));

@@ -1,12 +1,14 @@
 import static org.junit.Assert.assertEquals;
+
+import net.marcloud.mcp.core.flt.HookBridge;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
-import net.marcloud.mcp.core.agent.AgentAccess;
-import net.marcloud.mcp.core.event.EventBus;
-import net.marcloud.mcp.core.event.events.DisconnectedEvent;
-import net.marcloud.mcp.core.state.DisconnectTracker;
-import net.marcloud.mcp.core.state.PacketLog;
+import net.marcloud.mcp.core.boot.AgentAccess;
+import net.marcloud.mcp.core.ke.event.EventBus;
+import net.marcloud.mcp.core.ke.event.events.DisconnectedEvent;
+import net.marcloud.mcp.core.drivers.world.DisconnectTracker;
+import net.marcloud.mcp.core.drivers.world.PacketLog;
 import net.minecraft.util.ChatComponentText;
 import org.junit.Test;
 

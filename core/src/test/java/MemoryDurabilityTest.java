@@ -9,12 +9,12 @@ import java.util.List;
 import java.util.Map;
 
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
-import net.marcloud.mcp.core.memory.MemoryStore;
-import net.marcloud.mcp.core.memory.MemoryTools;
-import net.marcloud.mcp.core.registry.CapabilityRegistry;
-import net.marcloud.mcp.core.registry.SafeToolExecutor;
-import net.marcloud.mcp.core.security.PermissionPolicy;
-import net.marcloud.mcp.core.security.Ring;
+import net.marcloud.mcp.core.drivers.store.MemoryStore;
+import net.marcloud.mcp.core.drivers.store.MemoryTools;
+import net.marcloud.mcp.core.io.IoManager;
+import net.marcloud.mcp.core.io.IoSupervisor;
+import net.marcloud.mcp.core.se.SeClearancePolicy;
+import net.marcloud.mcp.core.se.Ring;
 import org.junit.Test;
 
 /**
@@ -33,9 +33,9 @@ import org.junit.Test;
 public class MemoryDurabilityTest {
 
     /** A registry wired with a wide-open clearance so the R3 memory tools run. */
-    private static CapabilityRegistry openRegistry() {
-        SafeToolExecutor exec = new SafeToolExecutor(2, 2000L);
-        return new CapabilityRegistry(exec, new PermissionPolicy(Ring.R_MINUS_1, null));
+    private static IoManager openRegistry() {
+        IoSupervisor exec = new IoSupervisor(2, 2000L);
+        return new IoManager(exec, new SeClearancePolicy(Ring.R_MINUS_1, null));
     }
 
     /** A path guaranteed to be unwritable: its parent segment is a regular file. */
@@ -51,7 +51,7 @@ public class MemoryDurabilityTest {
     public void writeToUnwritablePathReportsFailureAndDoesNotCommit() throws Exception {
         MemoryStore store = new MemoryStore(unwritableTarget());
         MemoryTools tools = new MemoryTools(store);
-        CapabilityRegistry reg = openRegistry();
+        IoManager reg = openRegistry();
         tools.registerAll(reg);
 
         assertEquals("store starts empty", 0, store.size());
@@ -74,7 +74,7 @@ public class MemoryDurabilityTest {
         Path target = sub.resolve("mcp_memory.json");
         MemoryStore store = new MemoryStore(target);
         MemoryTools tools = new MemoryTools(store);
-        CapabilityRegistry reg = openRegistry();
+        IoManager reg = openRegistry();
         tools.registerAll(reg);
 
         CallToolResult wrote = reg.invoke("memory_write",

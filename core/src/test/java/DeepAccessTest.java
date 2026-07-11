@@ -1,4 +1,5 @@
 import static org.junit.Assert.assertEquals;
+
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -6,27 +7,27 @@ import static org.junit.Assert.fail;
 import java.lang.reflect.Modifier;
 
 import net.marcloud.mcp.core.GameAccess;
-import net.marcloud.mcp.core.deepaccess.DeepAccess;
-import net.marcloud.mcp.core.deepaccess.DeepAccessException;
-import net.marcloud.mcp.core.security.AllowAllGate;
+import net.marcloud.mcp.core.mm.MmAccess;
+import net.marcloud.mcp.core.mm.MmAccessException;
+import net.marcloud.mcp.core.se.AllowAllGate;
 import org.junit.Before;
 import org.junit.Test;
 
 /**
- * Tests DeepAccess: read/write private fields (incl final), invoke private methods,
+ * Tests MmAccess: read/write private fields (incl final), invoke private methods,
  * hierarchy walk, protected-class guard, and cache invalidation. Game-free unit
- * tests on plain POJOs. Tests only the public DeepAccess API (doesn't access
+ * tests on plain POJOs. Tests only the public MmAccess API (doesn't access
  * package-private RootResolver/ValueCodec directly).
  */
 public class DeepAccessTest {
 
-    private DeepAccess deepAccess;
+    private MmAccess deepAccess;
 
     @Before
     public void setup() {
         // Dummy GameAccess (tests use static targets, no game objects)
         GameAccess game = new GameAccess();
-        this.deepAccess = new DeepAccess(game, new AllowAllGate(), () -> null);
+        this.deepAccess = new MmAccess(game, new AllowAllGate(), () -> null);
     }
 
     // ===== TEST POJOs =====
@@ -131,13 +132,13 @@ public class DeepAccessTest {
 
     @Test
     public void refusesProtectedClass() {
-        // PermissionPolicy is in the protected set
+        // SeClearancePolicy is in the protected set
         try {
             deepAccess.setStaticField(
-                    net.marcloud.mcp.core.security.PermissionPolicy.class,
+                    net.marcloud.mcp.core.se.SeClearancePolicy.class,
                     "someFakeField", "evil", null);
-            fail("should have thrown DeepAccessException for protected class");
-        } catch (DeepAccessException e) {
+            fail("should have thrown MmAccessException for protected class");
+        } catch (MmAccessException e) {
             assertTrue(e.getMessage().contains("protected"));
         }
     }

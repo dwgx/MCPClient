@@ -6,27 +6,27 @@ import static org.junit.Assert.assertTrue;
 
 import java.util.Map;
 
-import net.marcloud.mcp.core.synth.EphemeralSynthesizer;
+import net.marcloud.mcp.core.ps.PsSynthesizer;
 import org.junit.Before;
 import org.junit.Test;
 
 /**
- * Tests EphemeralSynthesizer: compile+define+invoke hidden classes, GC-ability,
+ * Tests PsSynthesizer: compile+define+invoke hidden classes, GC-ability,
  * error handling, package constraint.
  */
 public class EphemeralSynthesizerTest {
 
-    private EphemeralSynthesizer synth;
+    private PsSynthesizer synth;
 
     @Before
     public void setup() {
-        this.synth = new EphemeralSynthesizer();
+        this.synth = new PsSynthesizer();
     }
 
     @Test
     public void computesFromArgs() {
         String src = """
-                package net.marcloud.mcp.core.synth;
+                package net.marcloud.mcp.core.ps;
                 import java.util.Map;
                 public class Compute {
                     public String handle(Map<String,Object> args) {
@@ -36,7 +36,7 @@ public class EphemeralSynthesizerTest {
                     }
                 }
                 """;
-        var result = synth.eval("net.marcloud.mcp.core.synth.Compute", src,
+        var result = synth.eval("net.marcloud.mcp.core.ps.Compute", src,
                 Map.of("a", 3, "b", 4));
         assertTrue(result.message(), result.success());
         assertEquals("7", result.output());
@@ -45,12 +45,12 @@ public class EphemeralSynthesizerTest {
     @Test
     public void missingHandleReported() {
         String src = """
-                package net.marcloud.mcp.core.synth;
+                package net.marcloud.mcp.core.ps;
                 public class NoHandle {
                     public String wrongName() { return "nope"; }
                 }
                 """;
-        var result = synth.eval("net.marcloud.mcp.core.synth.NoHandle", src, Map.of());
+        var result = synth.eval("net.marcloud.mcp.core.ps.NoHandle", src, Map.of());
         assertFalse(result.success());
         assertTrue(result.message().contains("handle"));
     }
@@ -66,18 +66,18 @@ public class EphemeralSynthesizerTest {
                 """;
         var result = synth.eval("gen.WrongPkg", src, Map.of());
         assertFalse(result.success());
-        assertTrue(result.message().contains("package net.marcloud.mcp.core.synth"));
+        assertTrue(result.message().contains("package net.marcloud.mcp.core.ps"));
     }
 
     @Test
     public void compileErrorReported() {
         String src = """
-                package net.marcloud.mcp.core.synth;
+                package net.marcloud.mcp.core.ps;
                 public class Broken {
                     int x = ;
                 }
                 """;
-        var result = synth.eval("net.marcloud.mcp.core.synth.Broken", src, Map.of());
+        var result = synth.eval("net.marcloud.mcp.core.ps.Broken", src, Map.of());
         assertFalse(result.success());
         assertTrue(result.message().contains("compile failed"));
     }
@@ -85,13 +85,13 @@ public class EphemeralSynthesizerTest {
     @Test
     public void definesHiddenClass() {
         String src = """
-                package net.marcloud.mcp.core.synth;
+                package net.marcloud.mcp.core.ps;
                 import java.util.Map;
                 public class Hidden {
                     public String handle(Map<String,Object> args) { return "ok"; }
                 }
                 """;
-        var result = synth.eval("net.marcloud.mcp.core.synth.Hidden", src, Map.of());
+        var result = synth.eval("net.marcloud.mcp.core.ps.Hidden", src, Map.of());
         assertTrue(result.success());
         assertNotNull(result.hiddenClass().get());
         assertTrue(result.hiddenClass().get().isHidden());
@@ -106,13 +106,13 @@ public class EphemeralSynthesizerTest {
         // only ever pass. We assert the ref is genuinely collected, and separately
         // that it WAS a hidden class (checked before dropping the ref).
         String src = """
-                package net.marcloud.mcp.core.synth;
+                package net.marcloud.mcp.core.ps;
                 import java.util.Map;
                 public class Temp {
                     public String handle(Map<String,Object> args) { return "temp"; }
                 }
                 """;
-        var result = synth.eval("net.marcloud.mcp.core.synth.Temp", src, Map.of());
+        var result = synth.eval("net.marcloud.mcp.core.ps.Temp", src, Map.of());
         assertTrue(result.success());
 
         java.lang.ref.ReferenceQueue<Class<?>> queue = new java.lang.ref.ReferenceQueue<>();
@@ -139,7 +139,7 @@ public class EphemeralSynthesizerTest {
     @Test
     public void evalThrowSurfaces() {
         String src = """
-                package net.marcloud.mcp.core.synth;
+                package net.marcloud.mcp.core.ps;
                 import java.util.Map;
                 public class Throw {
                     public String handle(Map<String,Object> args) {
@@ -147,7 +147,7 @@ public class EphemeralSynthesizerTest {
                     }
                 }
                 """;
-        var result = synth.eval("net.marcloud.mcp.core.synth.Throw", src, Map.of());
+        var result = synth.eval("net.marcloud.mcp.core.ps.Throw", src, Map.of());
         assertFalse(result.success());
         assertTrue(result.message().contains("eval threw"));
         assertTrue(result.message().contains("boom"));

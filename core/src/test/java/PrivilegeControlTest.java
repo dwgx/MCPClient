@@ -5,16 +5,16 @@ import static org.junit.Assert.assertTrue;
 import java.util.Map;
 
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
-import net.marcloud.mcp.core.registry.CapabilityRegistry;
-import net.marcloud.mcp.core.registry.SafeToolExecutor;
-import net.marcloud.mcp.core.security.AccessDecision;
-import net.marcloud.mcp.core.security.CapabilitySid;
-import net.marcloud.mcp.core.security.InProcessPolicyEngine;
-import net.marcloud.mcp.core.security.PermissionPolicy;
-import net.marcloud.mcp.core.security.Privilege;
-import net.marcloud.mcp.core.security.PrivilegeControlTools;
-import net.marcloud.mcp.core.security.Ring;
-import net.marcloud.mcp.core.security.ToolRequest;
+import net.marcloud.mcp.core.io.IoManager;
+import net.marcloud.mcp.core.io.IoSupervisor;
+import net.marcloud.mcp.core.se.SeAccessCheck;
+import net.marcloud.mcp.core.se.CapabilitySid;
+import net.marcloud.mcp.core.se.SeLocalMonitor;
+import net.marcloud.mcp.core.se.SeClearancePolicy;
+import net.marcloud.mcp.core.se.Privilege;
+import net.marcloud.mcp.core.se.PrivilegeControlTools;
+import net.marcloud.mcp.core.se.Ring;
+import net.marcloud.mcp.core.io.IoRequestPacket;
 import org.junit.Test;
 
 /**
@@ -25,19 +25,19 @@ import org.junit.Test;
  */
 public class PrivilegeControlTest {
 
-    private static InProcessPolicyEngine engine() {
-        return new InProcessPolicyEngine(new PermissionPolicy(Ring.R_MINUS_1, "tok"));
+    private static SeLocalMonitor engine() {
+        return new SeLocalMonitor(new SeClearancePolicy(Ring.R_MINUS_1, "tok"));
     }
 
-    private static ToolRequest req(String name) {
-        return new ToolRequest(name, Map.of(), true);
+    private static IoRequestPacket req(String name) {
+        return new IoRequestPacket(name, Map.of(), true);
     }
 
     // ---- L4: disable a privilege → L4 deny → re-enable → allow (through engine) ----
 
     @Test
     public void disablePrivilegePersistsAndDeniesAtL4() {
-        InProcessPolicyEngine e = engine();
+        SeLocalMonitor e = engine();
         // Baseline: wide-open, send_raw_packet (needs SE_NET_RAW enabled) is allowed.
         assertTrue("wide-open allows send_raw_packet",
                 e.evaluate(e.currentSubject(), req("send_raw_packet")).allow());
@@ -47,7 +47,7 @@ public class PrivilegeControlTest {
 
         // The disable must PERSIST across a fresh currentSubject() (this is the GAP-2
         // fix — the old always-fresh-wide-open subject would re-allow here).
-        AccessDecision denied = e.evaluate(e.currentSubject(), req("send_raw_packet"));
+        SeAccessCheck denied = e.evaluate(e.currentSubject(), req("send_raw_packet"));
         assertFalse("send_raw_packet denied after disable", denied.allow());
         assertEquals("L4 privilege", denied.layer());
 
@@ -65,7 +65,7 @@ public class PrivilegeControlTest {
 
     @Test
     public void revokeCapabilityMaterializesWildcardAndDeniesAtL5() {
-        InProcessPolicyEngine e = engine();
+        SeLocalMonitor e = engine();
         // Baseline: wildcard caps, send_chat (needs CAP_NETWORK_SEND) allowed.
         assertTrue("wildcard holds CAP_NETWORK_SEND",
                 e.evaluate(e.currentSubject(), req("send_chat")).allow());
@@ -75,7 +75,7 @@ public class PrivilegeControlTest {
 
         // Revoke must bite even though the subject was wildcard (materialized set
         // minus the SID). Old wildcard-forever behavior would still allow.
-        AccessDecision denied = e.evaluate(e.currentSubject(), req("send_chat"));
+        SeAccessCheck denied = e.evaluate(e.currentSubject(), req("send_chat"));
         assertFalse("send_chat denied after revoke", denied.allow());
         assertEquals("L5 capability", denied.layer());
 
@@ -93,7 +93,7 @@ public class PrivilegeControlTest {
 
     @Test
     public void privilegeAndCapabilityChangesAreIndependent() {
-        InProcessPolicyEngine e = engine();
+        SeLocalMonitor e = engine();
         e.disablePrivilege(Privilege.SE_DEBUG_CLASS);   // L4 mutation (token in place)
         e.revokeCapability(CapabilitySid.CAP_NETWORK_SEND); // L5 mutation (set swap)
         // The token change must survive the capability-set swap: SE_DEBUG_CLASS
@@ -110,12 +110,12 @@ public class PrivilegeControlTest {
     @Test
     public void cannotEnableUngrantedPrivilege() {
         // Subject with NO privileges granted: enable must fail (no self-escalation).
-        net.marcloud.mcp.core.security.SecurityContext noPrivs =
-                new net.marcloud.mcp.core.security.SecurityContext("t", Ring.R_MINUS_1,
-                        net.marcloud.mcp.core.security.IntegrityLevel.SYSTEM,
-                        net.marcloud.mcp.core.security.PrivilegeToken.none(), null);
-        InProcessPolicyEngine e = new InProcessPolicyEngine(
-                new PermissionPolicy(Ring.R_MINUS_1, "tok"), noPrivs);
+        net.marcloud.mcp.core.se.SeToken noPrivs =
+                new net.marcloud.mcp.core.se.SeToken("t", Ring.R_MINUS_1,
+                        net.marcloud.mcp.core.se.IntegrityLevel.SYSTEM,
+                        net.marcloud.mcp.core.se.PrivilegeToken.none(), null);
+        SeLocalMonitor e = new SeLocalMonitor(
+                new SeClearancePolicy(Ring.R_MINUS_1, "tok"), noPrivs);
         assertFalse("cannot enable a never-granted privilege",
                 e.enablePrivilege(Privilege.SE_NET_RAW));
     }
@@ -124,9 +124,9 @@ public class PrivilegeControlTest {
 
     @Test
     public void toolsDriveTheLiveGateEndToEnd() {
-        SafeToolExecutor exec = new SafeToolExecutor(4, 2000L);
-        InProcessPolicyEngine e = engine();
-        CapabilityRegistry reg = new CapabilityRegistry(exec, e);
+        IoSupervisor exec = new IoSupervisor(4, 2000L);
+        SeLocalMonitor e = engine();
+        IoManager reg = new IoManager(exec, e);
         new PrivilegeControlTools(e).registerAll(reg);
 
         // A stand-in gated tool: send_chat needs SE_NET_RAW (L4) + CAP_NETWORK_SEND (L5).
@@ -138,7 +138,7 @@ public class PrivilegeControlTest {
         CallToolResult disable = reg.invoke("disable_privilege",
                 Map.of("privilege", "SE_NET_RAW"));
         assertFalse("disable_privilege succeeded", Boolean.TRUE.equals(disable.isError()));
-        AccessDecision afterDisable = e.evaluate(e.currentSubject(), req("send_chat"));
+        SeAccessCheck afterDisable = e.evaluate(e.currentSubject(), req("send_chat"));
         assertFalse("send_chat denied after disable_privilege tool", afterDisable.allow());
         assertEquals("L4 privilege", afterDisable.layer());
 
@@ -151,7 +151,7 @@ public class PrivilegeControlTest {
         CallToolResult revoke = reg.invoke("revoke_capability",
                 Map.of("capability", "CAP_NETWORK_SEND"));
         assertFalse("revoke_capability succeeded", Boolean.TRUE.equals(revoke.isError()));
-        AccessDecision afterRevoke = e.evaluate(e.currentSubject(), req("send_chat"));
+        SeAccessCheck afterRevoke = e.evaluate(e.currentSubject(), req("send_chat"));
         assertFalse("send_chat denied after revoke_capability tool", afterRevoke.allow());
         assertEquals("L5 capability", afterRevoke.layer());
 
@@ -172,8 +172,8 @@ public class PrivilegeControlTest {
     public void remoteEngineDefaultsAreNoOps() {
         // The widened interface's default methods must not accidentally allow a
         // remote (P-SECURE) engine to mutate an authority-owned subject.
-        net.marcloud.mcp.core.security.PolicyEngine remote =
-                new net.marcloud.mcp.core.security.RemotePolicyEngine("127.0.0.1", 1, "t", 50);
+        net.marcloud.mcp.core.se.SeReferenceMonitor remote =
+                new net.marcloud.mcp.core.se.SeRemoteMonitor("127.0.0.1", 1, "t", 50);
         assertFalse(remote.enablePrivilege(Privilege.SE_NET_RAW));
         assertFalse(remote.disablePrivilege(Privilege.SE_NET_RAW));
         assertFalse(remote.grantCapability(CapabilitySid.CAP_NETWORK_SEND));

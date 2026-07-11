@@ -1,45 +1,45 @@
 package net.marcloud.mcp.core;
 
-import net.marcloud.mcp.core.action.ActionManager;
-import net.marcloud.mcp.core.event.EventBus;
-import net.marcloud.mcp.core.event.events.PacketReceivedEvent;
-import net.marcloud.mcp.core.event.events.PacketSentEvent;
-import net.marcloud.mcp.core.deepaccess.DeepAccess;
-import net.marcloud.mcp.core.deepaccess.MutateStateTools;
-import net.marcloud.mcp.core.hook.DynamicHookManager;
-import net.marcloud.mcp.core.hook.HookManager;
-import net.marcloud.mcp.core.hook.HookTools;
-import net.marcloud.mcp.core.hotload.HotLoadEngine;
-import net.marcloud.mcp.core.introspect.IntrospectionService;
-import net.marcloud.mcp.core.introspect.IntrospectionTools;
-import net.marcloud.mcp.core.seam.SeamController;
-import net.marcloud.mcp.core.seam.SeamTools;
-import net.marcloud.mcp.core.security.AccessGate;
-import net.marcloud.mcp.core.security.AllowAllGate;
-import net.marcloud.mcp.core.synth.EphemeralSynthesizer;
-import net.marcloud.mcp.core.synth.SynthTools;
-import net.marcloud.mcp.core.http.HttpFacade;
-import net.marcloud.mcp.core.memory.MemoryStore;
-import net.marcloud.mcp.core.memory.MemoryTools;
-import net.marcloud.mcp.core.narrative.GoalStack;
-import net.marcloud.mcp.core.narrative.NarrativeTools;
-import net.marcloud.mcp.core.mcp.SocketTransportServer;
-import net.marcloud.mcp.core.mcp.ToolContext;
-import net.marcloud.mcp.core.mcp.ToolRegistry;
-import net.marcloud.mcp.core.registry.CapabilityRegistry;
-import net.marcloud.mcp.core.registry.DynamicToolFactory;
-import net.marcloud.mcp.core.registry.MetaTools;
-import net.marcloud.mcp.core.registry.SafeToolExecutor;
-import net.marcloud.mcp.core.security.CapabilitySid;
-import net.marcloud.mcp.core.security.InProcessPolicyEngine;
-import net.marcloud.mcp.core.security.PermissionPolicy;
-import net.marcloud.mcp.core.security.PermissionTools;
-import net.marcloud.mcp.core.security.PolicyEngine;
-import net.marcloud.mcp.core.security.Ring;
-import net.marcloud.mcp.core.security.SecurityContext;
-import net.marcloud.mcp.core.state.DisconnectTracker;
-import net.marcloud.mcp.core.state.PacketLog;
-import net.marcloud.mcp.core.thread.MainThreadExecutor;
+import net.marcloud.mcp.core.drivers.action.ActionManager;
+import net.marcloud.mcp.core.ke.event.EventBus;
+import net.marcloud.mcp.core.ke.event.events.PacketReceivedEvent;
+import net.marcloud.mcp.core.ke.event.events.PacketSentEvent;
+import net.marcloud.mcp.core.mm.MmAccess;
+import net.marcloud.mcp.core.mm.MutateStateTools;
+import net.marcloud.mcp.core.flt.FltDynamicManager;
+import net.marcloud.mcp.core.flt.FltManager;
+import net.marcloud.mcp.core.flt.HookTools;
+import net.marcloud.mcp.core.ldr.LdrEngine;
+import net.marcloud.mcp.core.cm.CmQuery;
+import net.marcloud.mcp.core.cm.IntrospectionTools;
+import net.marcloud.mcp.core.flt.seam.SeamController;
+import net.marcloud.mcp.core.flt.seam.SeamTools;
+import net.marcloud.mcp.core.se.AccessGate;
+import net.marcloud.mcp.core.se.AllowAllGate;
+import net.marcloud.mcp.core.ps.PsSynthesizer;
+import net.marcloud.mcp.core.ps.SynthTools;
+import net.marcloud.mcp.core.io.http.HttpFacade;
+import net.marcloud.mcp.core.drivers.store.MemoryStore;
+import net.marcloud.mcp.core.drivers.store.MemoryTools;
+import net.marcloud.mcp.core.drivers.narrative.GoalStack;
+import net.marcloud.mcp.core.drivers.narrative.NarrativeTools;
+import net.marcloud.mcp.core.io.transport.SocketTransportServer;
+import net.marcloud.mcp.core.io.transport.ToolContext;
+import net.marcloud.mcp.core.io.transport.ToolRegistry;
+import net.marcloud.mcp.core.io.IoManager;
+import net.marcloud.mcp.core.io.DynamicToolFactory;
+import net.marcloud.mcp.core.io.MetaTools;
+import net.marcloud.mcp.core.io.IoSupervisor;
+import net.marcloud.mcp.core.se.CapabilitySid;
+import net.marcloud.mcp.core.se.SeLocalMonitor;
+import net.marcloud.mcp.core.se.SeClearancePolicy;
+import net.marcloud.mcp.core.se.PermissionTools;
+import net.marcloud.mcp.core.se.SeReferenceMonitor;
+import net.marcloud.mcp.core.se.Ring;
+import net.marcloud.mcp.core.se.SeToken;
+import net.marcloud.mcp.core.drivers.world.DisconnectTracker;
+import net.marcloud.mcp.core.drivers.world.PacketLog;
+import net.marcloud.mcp.core.ke.KeGameDispatcher;
 
 /**
  * MCP Core entry point — assembles the whole stack and exposes the running game
@@ -47,11 +47,11 @@ import net.marcloud.mcp.core.thread.MainThreadExecutor;
  *
  * <p>Wiring order:
  * <ol>
- *   <li>{@link GameAccess} + {@link MainThreadExecutor} (game façade + thread marshal),</li>
- *   <li>{@link EventBus} + {@link HookManager} (observe MC networking at runtime),</li>
+ *   <li>{@link GameAccess} + {@link KeGameDispatcher} (game façade + thread marshal),</li>
+ *   <li>{@link EventBus} + {@link FltManager} (observe MC networking at runtime),</li>
  *   <li>{@link PacketLog} fed from packet events,</li>
- *   <li>{@link HotLoadEngine} + {@link ActionManager} (control + live code),</li>
- *   <li>{@link CapabilityRegistry} + {@link SocketTransportServer} (expose it all
+ *   <li>{@link LdrEngine} + {@link ActionManager} (control + live code),</li>
+ *   <li>{@link IoManager} + {@link SocketTransportServer} (expose it all
  *       as supervised, runtime-extensible MCP tools over a loopback socket).</li>
  * </ol>
  *
@@ -66,10 +66,10 @@ public final class McpCore {
     private final PacketLog packetLog = new PacketLog(PACKET_LOG_CAPACITY);
     private SocketTransportServer socketServer;
     private HttpFacade httpFacade;
-    private net.marcloud.mcp.core.seam.SeamController seams;
+    private net.marcloud.mcp.core.flt.seam.SeamController seams;
     // MEDIUM#8: kept as a field so stop() can revert dynamic hooks before the
     // transports go down, instead of letting installed advice outlive the server.
-    private net.marcloud.mcp.core.hook.DynamicHookManager dynHooks;
+    private net.marcloud.mcp.core.flt.FltDynamicManager dynHooks;
 
     /**
      * Assemble and start Core. Installs runtime hooks (if Instrumentation is
@@ -77,9 +77,9 @@ public final class McpCore {
      * server on 127.0.0.1:25599 (not stdio — the game owns the console).
      */
     public void start() {
-        MainThreadExecutor exec = new MainThreadExecutor(game.mc());
+        KeGameDispatcher exec = new KeGameDispatcher(game.mc());
         ActionManager actions = new ActionManager(game, exec);
-        HotLoadEngine hotLoad = new HotLoadEngine(getClass().getClassLoader());
+        LdrEngine hotLoad = new LdrEngine(getClass().getClassLoader());
 
         // Expose the game thread + façade statically so AI-authored tools and
         // eval_java snippets (which run on worker threads) can safely marshal
@@ -96,7 +96,7 @@ public final class McpCore {
         // Install runtime network hooks (needs -javaagent). Non-fatal if absent:
         // the MCP server still serves state/chat/eval; only live packet
         // observation requires the agent.
-        HookManager hooks = new HookManager(bus);
+        FltManager hooks = new FltManager(bus);
         try {
             if (hooks.canInstall()) {
                 hooks.install();
@@ -113,10 +113,10 @@ public final class McpCore {
         }
 
         // C3 INTERCEPT: dynamic (install/uninstall/reset) hooks, sharing the
-        // captured Instrumentation. Coexists with the fixed HookManager above.
+        // captured Instrumentation. Coexists with the fixed FltManager above.
         // Assigned to the field so stop() can tear its hooks down (MEDIUM#8).
-        dynHooks = new DynamicHookManager(
-                net.marcloud.mcp.core.agent.AgentAccess.instrumentation(), bus);
+        dynHooks = new FltDynamicManager(
+                net.marcloud.mcp.core.boot.AgentAccess.instrumentation(), bus);
 
         ToolContext ctx = new ToolContext(game, actions, hotLoad, packetLog, disconnects);
 
@@ -126,10 +126,16 @@ public final class McpCore {
         // Privilege policy: dev default = wide open (R-1). The restore token
         // (from -Dmcp.core.restoreToken or a random one) gates re-escalation, so
         // drop_privilege is a real kill-switch. Pin lower via -Dmcp.core.clearance.
-        PermissionPolicy policy = buildPolicy();
-        PolicyEngine engine = buildEngine(policy);
-        SafeToolExecutor executor = new SafeToolExecutor(8, 5000L);
-        CapabilityRegistry registry = new CapabilityRegistry(executor, engine);
+        SeClearancePolicy policy = buildPolicy();
+        // L6 object-handle layer. Off by default (objects == null → L6 is a pure
+        // no-op and every existing tool is gated exactly as before). -Dmcp.core.handles=true
+        // wires it: the engine runs the L6 subset check for any request that carries
+        // a "handle" arg, and DebugTools exposes debug_open_thread / debug_close_handle
+        // so a C6 op can bind to a frozen, TOCTOU-safe thread target.
+        net.marcloud.mcp.core.ob.ObManager objects = buildObjectManager();
+        SeReferenceMonitor engine = buildEngine(policy, objects);
+        IoSupervisor executor = new IoSupervisor(8, 5000L);
+        IoManager registry = new IoManager(executor, engine);
 
         // Register the built-in game tools through the registry (supervised).
         ToolRegistry builtins = new ToolRegistry(ctx);
@@ -145,9 +151,9 @@ public final class McpCore {
         // through the same engine the gate reads, so a drop takes effect at once.
         new PermissionTools(engine, registry).registerAll(registry);
         // L4/L5 self-management (GAP-2): enable/disable_privilege + grant/revoke_capability.
-        // Mutations bite only when engine is InProcessPolicyEngine; under P-SECURE the
+        // Mutations bite only when engine is SeLocalMonitor; under P-SECURE the
         // interface defaults return false and the tools report "not locally owned".
-        new net.marcloud.mcp.core.security.PrivilegeControlTools(engine).registerAll(registry);
+        new net.marcloud.mcp.core.se.PrivilegeControlTools(engine).registerAll(registry);
 
         // Durable memory (persists across restarts) — the knowledge counterpart
         // to create_tool's capabilities. Stored under the game working dir.
@@ -165,7 +171,7 @@ public final class McpCore {
 
         // C1 INTROSPECT: read-only self-model. list_hooks aggregates both the
         // fixed network hooks and the dynamic ones via the HookSource SPI.
-        IntrospectionService introspect = new IntrospectionService(
+        CmQuery introspect = new CmQuery(
                 getClass().getClassLoader(), java.util.List.of(hooks, dynHooks));
         new IntrospectionTools(introspect).registerAll(registry);
 
@@ -174,15 +180,15 @@ public final class McpCore {
 
         // C5 MUTATE-STATE: read/write any field, invoke private methods, open
         // modules. Instrumentation reached through the gated AgentAccess seam.
-        DeepAccess deep = new DeepAccess(game, gate,
-                net.marcloud.mcp.core.agent.AgentAccess::instrumentation);
-        // Invalidate DeepAccess's layout-dependent caches after any redefine
+        MmAccess deep = new MmAccess(game, gate,
+                net.marcloud.mcp.core.boot.AgentAccess::instrumentation);
+        // Invalidate MmAccess's layout-dependent caches after any redefine
         // (a DCEVM structural redefine can move field offsets → stale VarHandle).
         hotLoad.setOnRedefined(deep::invalidate);
         new MutateStateTools(deep, game).registerAll(registry);
 
         // C7 SYNTHESIZE: one-shot GC-able hidden-class tools.
-        new SynthTools(new EphemeralSynthesizer()).registerAll(registry);
+        new SynthTools(new PsSynthesizer()).registerAll(registry);
 
         // C8 SEAM: Netty pipeline MITM / GLFW input / tick injection. Kept as a
         // field so stop() can tear the seams down.
@@ -192,11 +198,18 @@ public final class McpCore {
         // C6 CONTROL-EXEC: native JVMTI debugger. Graceful no-op without
         // -agentpath:core-jvmti.dll — the debug_* tools still register and report
         // honestly (no dead tools). Debug events also flow onto the EventBus.
-        net.marcloud.mcp.core.debug.DebugEventQueue.INSTANCE.addListener(bus::publish);
-        new net.marcloud.mcp.core.debug.DebugTools(gate).registerAll(registry);
-        if (!net.marcloud.mcp.core.debug.DebuggerBridge.isAvailable()) {
+        net.marcloud.mcp.core.kd.DebugEventQueue.INSTANCE.addListener(bus::publish);
+        if (objects != null) {
+            // L6 wired: debug ops can bind to a frozen thread handle; the subject
+            // supplier ties a minted handle's owner to the gate's principal.
+            new net.marcloud.mcp.core.kd.DebugTools(gate, objects, engine::currentSubject)
+                    .registerAll(registry);
+        } else {
+            new net.marcloud.mcp.core.kd.DebugTools(gate).registerAll(registry);
+        }
+        if (!net.marcloud.mcp.core.kd.KdBridge.isAvailable()) {
             System.err.println("[MCP Core] JVMTI debugger absent — "
-                    + net.marcloud.mcp.core.debug.DebuggerBridge.unavailableReason()
+                    + net.marcloud.mcp.core.kd.KdBridge.unavailableReason()
                     + " (debug_* tools registered, return isError until the agent is present).");
         }
 
@@ -204,7 +217,7 @@ public final class McpCore {
         // slots, text fields) to the LLM as addressable elements and drive the
         // real vanilla handlers by element id. gui_snapshot is R2 (game-thread
         // read); the action tools are R1 (server-visible effects) + SE_GUI_INTERACT.
-        new net.marcloud.mcp.core.gui.GuiTools(game, new net.marcloud.mcp.core.gui.GuiSnapshotService())
+        new net.marcloud.mcp.core.drivers.gui.GuiTools(game, new net.marcloud.mcp.core.drivers.gui.GuiSnapshotService())
                 .registerAll(registry);
 
         // Socket transport (not stdio): the game owns the console, so a stdio
@@ -225,11 +238,25 @@ public final class McpCore {
         if (!"false".equalsIgnoreCase(System.getProperty("mcp.core.http", "true"))) {
             String bind = System.getProperty("mcp.core.httpBind", "127.0.0.1");
             int httpPort = Integer.getInteger("mcp.core.httpPort", HttpFacade.DEFAULT_PORT);
-            httpFacade = new HttpFacade(registry, bind, httpPort);
-            try {
-                httpFacade.start();
-            } catch (java.io.IOException e) {
-                System.err.println("[MCP Core] could not start REST facade: " + e);
+            String httpToken = System.getProperty("mcp.core.httpToken", "");
+            // SECURITY.md invariant: R-1 arbitrary code execution (eval_java,
+            // redefine_class, C5 field write, C6 JVMTI) must not reach the network
+            // unauthenticated. On loopback the no-auth dev posture is intentional;
+            // on any non-loopback bind, refuse to start without a token.
+            if (isNonLoopback(bind) && httpToken.isBlank()) {
+                System.err.println("[MCP Core] REFUSING REST facade on non-loopback bind '" + bind
+                        + "' without auth. Set -Dmcp.core.httpToken=<secret> (Authorization: Bearer). "
+                        + "See SECURITY.md.");
+            } else {
+                httpFacade = new HttpFacade(registry, bind, httpPort, httpToken);
+                if (!httpToken.isBlank()) {
+                    System.err.println("[MCP Core] REST facade auth ENABLED (Authorization: Bearer <token>).");
+                }
+                try {
+                    httpFacade.start();
+                } catch (java.io.IOException e) {
+                    System.err.println("[MCP Core] could not start REST facade: " + e);
+                }
             }
         }
     }
@@ -266,7 +293,7 @@ public final class McpCore {
      *       (only someone who saw the log can restore).</li>
      * </ul>
      */
-    private static PermissionPolicy buildPolicy() {
+    private static SeClearancePolicy buildPolicy() {
         Ring clearance = Ring.R_MINUS_1;
         String c = System.getProperty("mcp.core.clearance");
         if (c != null) {
@@ -284,7 +311,7 @@ public final class McpCore {
                     + "drop_privilege): " + token);
         }
         System.err.println("[MCP Core] initial clearance: " + clearance.tag());
-        return new PermissionPolicy(clearance, token);
+        return new SeClearancePolicy(clearance, token);
     }
 
     /**
@@ -296,31 +323,101 @@ public final class McpCore {
      * subject starts with an EMPTY capability set, so every tool that touches a
      * gated resource class must be granted its SID first. Use for hardened runs.
      */
-    private static PolicyEngine buildEngine(PermissionPolicy policy) {
+    static SeReferenceMonitor buildEngine(SeClearancePolicy policy,
+                                            net.marcloud.mcp.core.ob.ObManager objects) {
         // L1 VTL: if enabled, defer EVERY decision to the separate P-SECURE
         // process over a loopback socket (fail-closed). This is the only real
-        // wall — a rogue in-JVM hook cannot reach that address space.
+        // wall — a rogue in-JVM hook cannot reach that address space. (L6 handles
+        // are an in-JVM concept; under P-SECURE the remote authority owns decisions.)
         if ("true".equalsIgnoreCase(System.getProperty(
-                net.marcloud.mcp.core.secure.PSecureProtocol.ENABLE_PROPERTY, "false"))) {
+                net.marcloud.mcp.core.alpc.AlpcProtocol.ENABLE_PROPERTY, "false"))) {
             String host = System.getProperty("mcp.core.psecureHost", "127.0.0.1");
             int port = Integer.getInteger("mcp.core.psecurePort",
-                    net.marcloud.mcp.core.secure.PSecureProtocol.DEFAULT_PORT);
+                    net.marcloud.mcp.core.alpc.AlpcProtocol.DEFAULT_PORT);
             String token = System.getProperty(
-                    net.marcloud.mcp.core.secure.PSecureProtocol.TOKEN_PROPERTY, "");
+                    net.marcloud.mcp.core.alpc.AlpcProtocol.TOKEN_PROPERTY, "");
             System.err.println("[MCP Core] L1 VTL ENABLED: decisions deferred to P-SECURE at "
                     + host + ":" + port + " (fail-closed).");
-            return new net.marcloud.mcp.core.security.RemotePolicyEngine(host, port, token, 2000);
+            return new net.marcloud.mcp.core.se.SeRemoteMonitor(host, port, token, 2000);
+        }
+
+        // Hardened opt-in (additive, default OFF): -Dmcp.core.hardened=true wires a
+        // subject that PASSES L3 (SYSTEM integrity) but DENIES at L4 (every
+        // privilege granted-but-disabled) and L5 (empty capability set), so a
+        // dangerous verb is refused while a benign R3/no-cap tool still runs. The
+        // existing R0 enable_privilege / grant_capability tools remain live
+        // in-session levers (privileges are granted, just disabled). This does NOT
+        // change the shipped wide-open default below.
+        if ("true".equalsIgnoreCase(System.getProperty("mcp.core.hardened", "false"))) {
+            System.err.println("[MCP Core] HARDENED posture ENABLED (-Dmcp.core.hardened=true): "
+                    + "L4 privileges granted-but-disabled, L5 capabilities empty (default-deny). "
+                    + "Use enable_privilege / grant_capability to open specific verbs in-session.");
+            return new SeLocalMonitor(policy, SeLocalMonitor.hardenedSubject(), objects);
         }
 
         String caps = System.getProperty("mcp.core.caps", "wildcard");
         if ("strict".equalsIgnoreCase(caps.trim())) {
             System.err.println("[MCP Core] L5 capabilities: STRICT default-deny "
                     + "(grant SIDs explicitly to use gated tools)");
-            SecurityContext strict = InProcessPolicyEngine.strictSubject(
+            SeToken strict = SeLocalMonitor.strictSubject(
                     java.util.EnumSet.noneOf(CapabilitySid.class));
-            return new InProcessPolicyEngine(policy, strict);
+            return new SeLocalMonitor(policy, strict, objects);
         }
-        return new InProcessPolicyEngine(policy);
+        return new SeLocalMonitor(policy, SeToken.wideOpen(), objects);
+    }
+
+    /**
+     * Build the L6 object-handle manager, or null when the layer is off (the
+     * default). {@code -Dmcp.core.handles=true} enables it. Off ⇒ the engine's L6
+     * branch is a pure no-op and no handle tools are registered, so the default
+     * behavior (and the whole headless test suite) is unchanged.
+     */
+    private static net.marcloud.mcp.core.ob.ObManager buildObjectManager() {
+        if (!"true".equalsIgnoreCase(System.getProperty("mcp.core.handles", "false"))) {
+            return null;
+        }
+        int cap = Integer.getInteger("mcp.core.handlesCap", 32);
+        long idleMillis = Long.getLong("mcp.core.handlesIdleMs", 300_000L); // 5 min idle reap
+        System.err.println("[MCP Core] L6 object-handles ENABLED (cap " + cap + "/subject, idle "
+                + idleMillis + "ms). debug_open_thread / debug_close_handle registered.");
+        // Resolver: THREAD refs → the live thread by name. debug_open_thread passes
+        // its own already-resolved thread, so this is the fallback for other callers.
+        return new net.marcloud.mcp.core.ob.ObManager(McpCore::resolveThreadRef, cap, idleMillis);
+    }
+
+    /** Default L6 TargetResolver: resolve a {@code thread:<name>} ref to the live Thread. */
+    private static Object resolveThreadRef(net.marcloud.mcp.core.ob.ObRef ref) {
+        if (ref.scheme() == net.marcloud.mcp.core.ob.ObRef.Scheme.THREAD) {
+            for (Thread t : Thread.getAllStackTraces().keySet()) {
+                if (t.getName().equals(ref.target())) {
+                    return t;
+                }
+            }
+            throw new IllegalArgumentException("no live thread named '" + ref.target() + "'");
+        }
+        throw new IllegalArgumentException("unsupported L6 scheme for this resolver: " + ref.scheme());
+    }
+
+    /**
+     * True if {@code bind} is anything other than a pure loopback address (so the
+     * facade would be reachable off-host). A blank/unset bind is treated as
+     * loopback. Wildcards ({@code 0.0.0.0}, {@code ::}) and any resolvable
+     * non-loopback host count as non-loopback; an unresolvable host is treated as
+     * non-loopback (fail-safe — we would rather refuse than expose).
+     */
+    static boolean isNonLoopback(String bind) {
+        if (bind == null || bind.isBlank()) {
+            return false;
+        }
+        String host = bind.trim();
+        if (host.equals("0.0.0.0") || host.equals("::") || host.equals("*")) {
+            return true;
+        }
+        try {
+            return !java.net.InetAddress.getByName(host).isLoopbackAddress();
+        } catch (java.net.UnknownHostException e) {
+            return true; // fail-safe: cannot prove it is loopback → treat as exposed
+        }
     }
 
     /** Marker so callers/tests can confirm the module loaded and its Java level. */

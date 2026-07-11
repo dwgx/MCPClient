@@ -1,6 +1,6 @@
 /*
  * core-jvmti.c — MCPClient C6 native JVMTI debugger agent (windows-x64).
- * Binds onto net.marcloud.mcp.core.debug.DebuggerBridge. See core-jvmti.h.
+ * Binds onto net.marcloud.mcp.core.kd.KdBridge. See core-jvmti.h.
  *
  * All jvmti.h/jni.h signatures verified against
  * _tools/jbrsdk-25.0.3-windows-x64-b508.16/include.
@@ -13,8 +13,8 @@
 static JavaVM*   g_vm       = NULL;
 static jvmtiEnv* g_jvmti    = NULL;
 static volatile int g_ready = 0;      /* 1 iff OnLoad ran AND AddCapabilities succeeded */
-static jclass    g_bridge   = NULL;   /* global ref to DebuggerBridge */
-static jmethodID g_onEvent  = NULL;   /* DebuggerBridge.onDebugEvent(I,Thread,String,J)V */
+static jclass    g_bridge   = NULL;   /* global ref to KdBridge */
+static jmethodID g_onEvent  = NULL;   /* KdBridge.onDebugEvent(I,Thread,String,J)V */
 
 /* Log a jvmtiError and return it as jint (0 == JVMTI_ERROR_NONE). */
 static jint check(jvmtiError e) {
@@ -42,7 +42,7 @@ static jstring locString(JNIEnv* e, jmethodID m, jlocation loc) {
     return (*e)->NewStringUTF(e, buf);
 }
 
-/* ---- event callbacks: forward to DebuggerBridge.onDebugEvent, cheaply ---- */
+/* ---- event callbacks: forward to KdBridge.onDebugEvent, cheaply ---- */
 
 static void JNICALL onBreakpoint(jvmtiEnv* j, JNIEnv* e, jthread t, jmethodID m, jlocation loc) {
     if (g_bridge && g_onEvent) {
@@ -87,8 +87,8 @@ static void JNICALL onFieldModification(jvmtiEnv* j, JNIEnv* e, jthread t, jmeth
     }
 }
 
-/* ---- native bridge functions (bound onto DebuggerBridge via RegisterNatives) ----
- * Signatures match DebuggerBridge's private static native declarations exactly.
+/* ---- native bridge functions (bound onto KdBridge via RegisterNatives) ----
+ * Signatures match KdBridge's private static native declarations exactly.
  */
 
 static jboolean JNICALL nAgentReady(JNIEnv* e, jclass c) {
@@ -202,14 +202,14 @@ static jint JNICALL nClearFieldModificationWatch(JNIEnv* e, jclass c, jclass k, 
 
 /* ---- native binding: shared by VMInit and JNI_OnLoad ----
  *
- * Binds the DebuggerBridge natives + caches onDebugEvent onto the class as
+ * Binds the KdBridge natives + caches onDebugEvent onto the class as
  * resolved by the given JNIEnv. Idempotent: RegisterNatives may run more than
- * once (VMInit's bootstrap-context resolution AND DebuggerBridge's own
+ * once (VMInit's bootstrap-context resolution AND KdBridge's own
  * System.load in the APP classloader context); the app-context binding is the
  * one that matters, so calling twice is harmless and the second (correct) call
  * wins. Returns 1 on success, 0 if the class could not be found/bound. */
 static int bindNatives(JNIEnv* e) {
-    jclass bridge = (*e)->FindClass(e, "net/marcloud/mcp/core/debug/DebuggerBridge");
+    jclass bridge = (*e)->FindClass(e, "net/marcloud/mcp/core/kd/KdBridge");
     if (bridge == NULL) {
         (*e)->ExceptionClear(e);
         return 0;
@@ -303,7 +303,7 @@ JNIEXPORT jint JNICALL Agent_OnLoad(JavaVM* vm, char* options, void* reserved) {
     return JNI_OK;
 }
 
-/* Authoritative native binding point. When DebuggerBridge calls System.load on
+/* Authoritative native binding point. When KdBridge calls System.load on
  * the (already -agentpath-loaded) module, the JVM invokes JNI_OnLoad on the
  * calling thread, whose JNIEnv resolves FindClass in the APP classloader context
  * — the same class whose `native` methods must be bound. VMInit's earlier bind
@@ -315,9 +315,9 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
     JNIEnv* e = NULL;
     if ((*vm)->GetEnv(vm, (void**)&e, JNI_VERSION_10) == JNI_OK && e != NULL) {
         if (!bindNatives(e)) {
-            fprintf(stderr, "[core-jvmti] JNI_OnLoad: DebuggerBridge natives not bound\n");
+            fprintf(stderr, "[core-jvmti] JNI_OnLoad: KdBridge natives not bound\n");
         } else {
-            fprintf(stderr, "[core-jvmti] JNI_OnLoad: natives bound to DebuggerBridge.\n");
+            fprintf(stderr, "[core-jvmti] JNI_OnLoad: natives bound to KdBridge.\n");
         }
     }
     return JNI_VERSION_10;

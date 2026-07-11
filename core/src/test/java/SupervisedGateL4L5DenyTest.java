@@ -7,22 +7,22 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolRequest;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import java.util.Map;
-import net.marcloud.mcp.core.registry.CapabilityRegistry;
-import net.marcloud.mcp.core.registry.SafeToolExecutor;
-import net.marcloud.mcp.core.security.CapabilitySid;
-import net.marcloud.mcp.core.security.InProcessPolicyEngine;
-import net.marcloud.mcp.core.security.IntegrityLevel;
-import net.marcloud.mcp.core.security.PermissionPolicy;
-import net.marcloud.mcp.core.security.Privilege;
-import net.marcloud.mcp.core.security.PrivilegeToken;
-import net.marcloud.mcp.core.security.Ring;
-import net.marcloud.mcp.core.security.SecurityContext;
+import net.marcloud.mcp.core.io.IoManager;
+import net.marcloud.mcp.core.io.IoSupervisor;
+import net.marcloud.mcp.core.se.CapabilitySid;
+import net.marcloud.mcp.core.se.SeLocalMonitor;
+import net.marcloud.mcp.core.se.IntegrityLevel;
+import net.marcloud.mcp.core.se.SeClearancePolicy;
+import net.marcloud.mcp.core.se.Privilege;
+import net.marcloud.mcp.core.se.PrivilegeToken;
+import net.marcloud.mcp.core.se.Ring;
+import net.marcloud.mcp.core.se.SeToken;
 import org.junit.Test;
 
 /**
  * AUTOMATABLE. Drives the L3/L4/L5 layers through the <b>supervised</b>
  * {@code registry.invoke(...)} call path — proving {@code
- * CapabilityRegistry.supervise()} runs the FULL 7-layer decision, not just the L2
+ * IoManager.supervise()} runs the FULL 7-layer decision, not just the L2
  * ring. {@code SecurityKernelTest} exercises these layers against the engine
  * directly; {@code SupervisedGateIntegrationTest} exercises L2-drop + L7 through
  * the registry. This closes the remaining gap: L3/L4/L5 denials must also be
@@ -53,11 +53,11 @@ public class SupervisedGateL4L5DenyTest {
      */
     @Test
     public void l5CapabilityDenyIsEnforcedThroughSupervisedInvoke() {
-        SafeToolExecutor exec = new SafeToolExecutor(2, 2000L);
-        PermissionPolicy p = new PermissionPolicy(Ring.R_MINUS_1, "tok");
-        SecurityContext strict = InProcessPolicyEngine.strictSubject(
+        IoSupervisor exec = new IoSupervisor(2, 2000L);
+        SeClearancePolicy p = new SeClearancePolicy(Ring.R_MINUS_1, "tok");
+        SeToken strict = SeLocalMonitor.strictSubject(
                 java.util.Set.of(CapabilitySid.CAP_WORLD_READ));
-        CapabilityRegistry reg = new CapabilityRegistry(exec, new InProcessPolicyEngine(p, strict));
+        IoManager reg = new IoManager(exec, new SeLocalMonitor(p, strict));
         reg.register("capture_screen", tool("capture_screen"), null, "d", true, Ring.R2);
         reg.register("scan_surroundings", tool("scan_surroundings"), null, "d", true, Ring.R2);
 
@@ -84,17 +84,17 @@ public class SupervisedGateL4L5DenyTest {
      */
     @Test
     public void l4PrivilegeDisabledDenyIsEnforcedThroughSupervisedInvoke() {
-        SafeToolExecutor exec = new SafeToolExecutor(2, 2000L);
-        PermissionPolicy p = new PermissionPolicy(Ring.R_MINUS_1, "tok");
+        IoSupervisor exec = new IoSupervisor(2, 2000L);
+        SeClearancePolicy p = new SeClearancePolicy(Ring.R_MINUS_1, "tok");
         // Grant every privilege but leave SE_SCREEN_CAP disabled.
         java.util.Map<Privilege, Boolean> grants = new java.util.EnumMap<>(Privilege.class);
         for (Privilege pr : Privilege.values()) {
             grants.put(pr, true);
         }
         grants.put(Privilege.SE_SCREEN_CAP, false);
-        SecurityContext subj = new SecurityContext("t", Ring.R_MINUS_1, IntegrityLevel.SYSTEM,
+        SeToken subj = new SeToken("t", Ring.R_MINUS_1, IntegrityLevel.SYSTEM,
                 new PrivilegeToken(grants), null); // null caps = wildcard, so L5 passes
-        CapabilityRegistry reg = new CapabilityRegistry(exec, new InProcessPolicyEngine(p, subj));
+        IoManager reg = new IoManager(exec, new SeLocalMonitor(p, subj));
         reg.register("capture_screen", tool("capture_screen"), null, "d", true, Ring.R2);
 
         CallToolResult denied = reg.invoke("capture_screen", Map.of());
@@ -113,11 +113,11 @@ public class SupervisedGateL4L5DenyTest {
      */
     @Test
     public void l3IntegrityDenyIsEnforcedThroughSupervisedInvoke() {
-        SafeToolExecutor exec = new SafeToolExecutor(2, 2000L);
-        PermissionPolicy p = new PermissionPolicy(Ring.R_MINUS_1, "tok");
-        SecurityContext medium = new SecurityContext("t", Ring.R_MINUS_1, IntegrityLevel.MEDIUM,
+        IoSupervisor exec = new IoSupervisor(2, 2000L);
+        SeClearancePolicy p = new SeClearancePolicy(Ring.R_MINUS_1, "tok");
+        SeToken medium = new SeToken("t", Ring.R_MINUS_1, IntegrityLevel.MEDIUM,
                 PrivilegeToken.wideOpen(), null);
-        CapabilityRegistry reg = new CapabilityRegistry(exec, new InProcessPolicyEngine(p, medium));
+        IoManager reg = new IoManager(exec, new SeLocalMonitor(p, medium));
         reg.register("send_chat", tool("send_chat"), null, "d", true, Ring.R1);
 
         CallToolResult denied = reg.invoke("send_chat", Map.of());

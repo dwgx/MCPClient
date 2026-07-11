@@ -1,19 +1,21 @@
 import static org.junit.Assert.assertEquals;
+
+import net.marcloud.mcp.core.mm.MutateStateTools;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import net.marcloud.mcp.core.GameAccess;
-import net.marcloud.mcp.core.deepaccess.DeepAccess;
-import net.marcloud.mcp.core.deepaccess.DeepAccessException;
-import net.marcloud.mcp.core.security.AllowAllGate;
-import net.marcloud.mcp.core.security.DeepAccessProtectedBase;
-import net.marcloud.mcp.core.security.ProtectedClasses;
+import net.marcloud.mcp.core.mm.MmAccess;
+import net.marcloud.mcp.core.mm.MmAccessException;
+import net.marcloud.mcp.core.se.AllowAllGate;
+import net.marcloud.mcp.core.se.DeepAccessProtectedBase;
+import net.marcloud.mcp.core.se.SeProtectedObjects;
 import org.junit.Before;
 import org.junit.Test;
 
 /**
  * Regression test for GAP-9: the C5 READ paths ({@code getField} /
- * {@code getStaticField}) must apply the {@link ProtectedClasses} guard on both
+ * {@code getStaticField}) must apply the {@link SeProtectedObjects} guard on both
  * the start class AND the resolved DECLARING (super)class, symmetric with the
  * write/invoke paths. Before the fix the read paths had NO {@code guardProtected}
  * call at all; the only read protection was
@@ -31,14 +33,14 @@ import org.junit.Test;
  * <p><b>Non-vacuous.</b> Against the OLD read paths every call returned the field
  * value with no throw (the read paths were unguarded), so each {@code fail(...)}
  * would trip. The gate is {@link AllowAllGate}, so the ONLY thing under test is
- * the ProtectedClasses guard, not any capability check. Matching the exact
+ * the SeProtectedObjects guard, not any capability check. Matching the exact
  * declaring-class refusal string (not the loose substring "protected", which the
  * runtime type name {@code UnprotectedReadSub} does not even contain) proves the
  * guard fired on the declaring class rather than some unrelated reflection error.
  */
 public class DeepAccessReadGuardTest {
 
-    private DeepAccess deepAccess;
+    private MmAccess deepAccess;
 
     /** Runtime class is NOT protected; the class declaring its fields IS. */
     public static class UnprotectedReadSub extends DeepAccessProtectedBase {
@@ -54,15 +56,15 @@ public class DeepAccessReadGuardTest {
 
     @Before
     public void setup() {
-        this.deepAccess = new DeepAccess(new GameAccess(), new AllowAllGate(), () -> null);
+        this.deepAccess = new MmAccess(new GameAccess(), new AllowAllGate(), () -> null);
     }
 
     /** Sanity: runtime subclass passes the guard, its declaring base does not. */
     @Test
     public void fixtureModelsTheLatentReadGap() {
-        assertTrue(ProtectedClasses.isProtected(DeepAccessProtectedBase.class.getName()));
+        assertTrue(SeProtectedObjects.isProtected(DeepAccessProtectedBase.class.getName()));
         assertTrue("subclass runtime type must be unprotected",
-                !ProtectedClasses.isProtected(UnprotectedReadSub.class.getName()));
+                !SeProtectedObjects.isProtected(UnprotectedReadSub.class.getName()));
     }
 
     @Test
@@ -74,7 +76,7 @@ public class DeepAccessReadGuardTest {
             // can catch it. Old read path: no guard -> returned 7.
             deepAccess.getField(obj, "secret");
             fail("read of field declared on protected class must be refused");
-        } catch (DeepAccessException e) {
+        } catch (MmAccessException e) {
             assertEquals(EXPECTED_REFUSAL, e.getMessage());
         }
     }
@@ -86,7 +88,7 @@ public class DeepAccessReadGuardTest {
             // "finalSecret" is a non-constant final int on the protected base.
             deepAccess.getField(obj, "finalSecret");
             fail("read of final field declared on protected class must be refused");
-        } catch (DeepAccessException e) {
+        } catch (MmAccessException e) {
             assertEquals(EXPECTED_REFUSAL, e.getMessage());
         }
     }
@@ -98,7 +100,7 @@ public class DeepAccessReadGuardTest {
             // path, so a static read against a protected class went through.
             deepAccess.getStaticField(DeepAccessProtectedBase.class, "anyFieldName");
             fail("static read on protected class must be refused");
-        } catch (DeepAccessException e) {
+        } catch (MmAccessException e) {
             assertEquals("refusing to mutate protected class "
                     + DeepAccessProtectedBase.class.getName(), e.getMessage());
         }

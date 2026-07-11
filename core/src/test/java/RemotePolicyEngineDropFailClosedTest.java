@@ -3,11 +3,11 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
-import net.marcloud.mcp.core.secure.PSecureServer;
-import net.marcloud.mcp.core.security.InProcessPolicyEngine;
-import net.marcloud.mcp.core.security.PermissionPolicy;
-import net.marcloud.mcp.core.security.RemotePolicyEngine;
-import net.marcloud.mcp.core.security.Ring;
+import net.marcloud.mcp.core.alpc.AlpcServer;
+import net.marcloud.mcp.core.se.SeLocalMonitor;
+import net.marcloud.mcp.core.se.SeClearancePolicy;
+import net.marcloud.mcp.core.se.SeRemoteMonitor;
+import net.marcloud.mcp.core.se.Ring;
 import org.junit.After;
 import org.junit.Test;
 
@@ -19,18 +19,18 @@ import org.junit.Test;
  * <p><b>Why this fails against the OLD behavior.</b> The previous {@code dropTo}
  * treated "remote down" as "safe to apply locally": it lowered {@code
  * cachedClearance} and RETURNED the lowered ring, so {@link
- * net.marcloud.mcp.core.security.PermissionTools} rendered "clearance is now R2".
+ * net.marcloud.mcp.core.se.PermissionTools} rendered "clearance is now R2".
  * But {@code evaluate()} in remote mode always asks the authority and never
  * consults that cache, so the authority stayed at R-1 — when connectivity
  * returned, R-1 tools were allowed again and the kill-switch had silently done
  * nothing. This test primes the client cache to R-1, kills the authority, and
  * calls {@code dropTo(R2)}: the old code returned {@code R2} with no error
  * (phantom success) and would fall through to {@code fail(...)} here; the fixed
- * code throws {@link RemotePolicyEngine.AuthorityUnreachableException}.
+ * code throws {@link SeRemoteMonitor.AuthorityUnreachableException}.
  */
 public class RemotePolicyEngineDropFailClosedTest {
 
-    private PSecureServer server;
+    private AlpcServer server;
 
     @After
     public void tearDown() {
@@ -39,10 +39,10 @@ public class RemotePolicyEngineDropFailClosedTest {
         }
     }
 
-    private PSecureServer startAuthority(Ring clearance, String token) throws Exception {
-        InProcessPolicyEngine authority =
-                new InProcessPolicyEngine(new PermissionPolicy(clearance, "restore"));
-        PSecureServer s = new PSecureServer(authority, 0, token);
+    private AlpcServer startAuthority(Ring clearance, String token) throws Exception {
+        SeLocalMonitor authority =
+                new SeLocalMonitor(new SeClearancePolicy(clearance, "restore"));
+        AlpcServer s = new AlpcServer(authority, 0, token);
         s.start();
         assertTrue("bound to an ephemeral port", s.boundPort() > 0);
         return s;
@@ -53,7 +53,7 @@ public class RemotePolicyEngineDropFailClosedTest {
         // 1. Live authority at R-1 (wide open); prime the client cache to R-1 so a
         //    later drop to R2 would look like a genuine reduction on the OLD path.
         server = startAuthority(Ring.R_MINUS_1, "secret");
-        RemotePolicyEngine client = new RemotePolicyEngine(
+        SeRemoteMonitor client = new SeRemoteMonitor(
                 "127.0.0.1", server.boundPort(), "secret", 2000);
         assertEquals("cache primed from the authority", Ring.R_MINUS_1, client.clearance());
 
@@ -67,7 +67,7 @@ public class RemotePolicyEngineDropFailClosedTest {
             Ring reported = client.dropTo(Ring.R2);
             fail("phantom success: dropTo reported clearance " + reported.tag()
                     + " while the authority was unreachable and unchanged");
-        } catch (RemotePolicyEngine.AuthorityUnreachableException expected) {
+        } catch (SeRemoteMonitor.AuthorityUnreachableException expected) {
             assertTrue("failure message must say the drop did not take effect",
                     expected.getMessage().contains("FAILED"));
         }

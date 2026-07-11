@@ -8,12 +8,12 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolRequest;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import java.util.Map;
-import net.marcloud.mcp.core.registry.CapabilityRegistry;
-import net.marcloud.mcp.core.registry.SafeToolExecutor;
-import net.marcloud.mcp.core.security.InProcessPolicyEngine;
-import net.marcloud.mcp.core.security.PermissionPolicy;
-import net.marcloud.mcp.core.security.Ring;
-import net.marcloud.mcp.core.security.ToolPolicy;
+import net.marcloud.mcp.core.io.IoManager;
+import net.marcloud.mcp.core.io.IoSupervisor;
+import net.marcloud.mcp.core.se.SeLocalMonitor;
+import net.marcloud.mcp.core.se.SeClearancePolicy;
+import net.marcloud.mcp.core.se.Ring;
+import net.marcloud.mcp.core.se.SeToolRequirement;
 import org.junit.Test;
 
 /**
@@ -50,16 +50,16 @@ public class GeneratedToolGateTest {
      */
     @Test
     public void generatedToolPolicyIsAlwaysMaximalGate() {
-        ToolPolicy tp = ToolPolicy.forTool("some_generated_name_not_in_any_table", false);
+        SeToolRequirement tp = SeToolRequirement.forTool("some_generated_name_not_in_any_table", false);
         assertEquals("generated tool sits at hypervisor ring",
                 Ring.R_MINUS_1, tp.requiredRing());
         assertEquals("generated tool writes at SYSTEM integrity",
-                net.marcloud.mcp.core.security.IntegrityLevel.SYSTEM, tp.writesResourceAt());
+                net.marcloud.mcp.core.se.IntegrityLevel.SYSTEM, tp.writesResourceAt());
         assertEquals("generated tool requires SE_RUN_GENERATED",
-                net.marcloud.mcp.core.security.Privilege.SE_RUN_GENERATED, tp.requiredPrivilege());
+                net.marcloud.mcp.core.se.Privilege.SE_RUN_GENERATED, tp.requiredPrivilege());
         assertTrue("generated tool requires the tool-create capability",
                 tp.requiredCaps().contains(
-                        net.marcloud.mcp.core.security.CapabilitySid.CAP_TOOL_CREATE));
+                        net.marcloud.mcp.core.se.CapabilitySid.CAP_TOOL_CREATE));
     }
 
     /**
@@ -68,10 +68,10 @@ public class GeneratedToolGateTest {
      */
     @Test
     public void generatedToolDeniedAfterClearanceDrop() {
-        SafeToolExecutor exec = new SafeToolExecutor(2, 2000L);
-        PermissionPolicy p = new PermissionPolicy(Ring.R_MINUS_1, "secret");
-        InProcessPolicyEngine engine = new InProcessPolicyEngine(p);
-        CapabilityRegistry reg = new CapabilityRegistry(exec, engine);
+        IoSupervisor exec = new IoSupervisor(2, 2000L);
+        SeClearancePolicy p = new SeClearancePolicy(Ring.R_MINUS_1, "secret");
+        SeLocalMonitor engine = new SeLocalMonitor(p);
+        IoManager reg = new IoManager(exec, engine);
         // A generated (builtIn=false) tool, registered at the generated default ring.
         reg.register("gen.evil", tool("gen.evil", GeneratedToolGateTest::okTool),
                 "public class Evil {}", "generated", false, Ring.DEFAULT_GENERATED);
@@ -93,9 +93,9 @@ public class GeneratedToolGateTest {
      */
     @Test
     public void generatedToolCannotReplaceBuiltin() {
-        SafeToolExecutor exec = new SafeToolExecutor(2, 2000L);
-        CapabilityRegistry reg = new CapabilityRegistry(exec,
-                new InProcessPolicyEngine(new PermissionPolicy(Ring.R_MINUS_1, "tok")));
+        IoSupervisor exec = new IoSupervisor(2, 2000L);
+        IoManager reg = new IoManager(exec,
+                new SeLocalMonitor(new SeClearancePolicy(Ring.R_MINUS_1, "tok")));
         // A built-in occupies the name (as the real registrars do at startup).
         reg.register("memory_search", tool("memory_search", GeneratedToolGateTest::okTool),
                 null, "builtin", true, Ring.R3);
@@ -118,9 +118,9 @@ public class GeneratedToolGateTest {
      */
     @Test
     public void builtinCanBeReplacedByBuiltin() {
-        SafeToolExecutor exec = new SafeToolExecutor(2, 2000L);
-        CapabilityRegistry reg = new CapabilityRegistry(exec,
-                new InProcessPolicyEngine(new PermissionPolicy(Ring.R_MINUS_1, "tok")));
+        IoSupervisor exec = new IoSupervisor(2, 2000L);
+        IoManager reg = new IoManager(exec,
+                new SeLocalMonitor(new SeClearancePolicy(Ring.R_MINUS_1, "tok")));
         reg.register("list_hooks", tool("list_hooks", GeneratedToolGateTest::okTool),
                 null, "v1", true, Ring.R3);
         reg.register("list_hooks", tool("list_hooks", GeneratedToolGateTest::okTool),
@@ -134,9 +134,9 @@ public class GeneratedToolGateTest {
      */
     @Test
     public void evalJavaRequiresPrivilege() {
-        ToolPolicy tp = ToolPolicy.forTool("eval_java", true);
+        SeToolRequirement tp = SeToolRequirement.forTool("eval_java", true);
         assertEquals("eval_java requires SE_CREATE_TOOL",
-                net.marcloud.mcp.core.security.Privilege.SE_CREATE_TOOL, tp.requiredPrivilege());
+                net.marcloud.mcp.core.se.Privilege.SE_CREATE_TOOL, tp.requiredPrivilege());
     }
 
     /**
@@ -146,9 +146,9 @@ public class GeneratedToolGateTest {
     @Test
     public void narrativeMutatorsWriteAtLowIntegrity() {
         for (String name : new String[] {"set_goal", "push_subgoal", "complete_goal", "narrate"}) {
-            ToolPolicy tp = ToolPolicy.forTool(name, true);
+            SeToolRequirement tp = SeToolRequirement.forTool(name, true);
             assertEquals(name + " writes at LOW integrity",
-                    net.marcloud.mcp.core.security.IntegrityLevel.LOW, tp.writesResourceAt());
+                    net.marcloud.mcp.core.se.IntegrityLevel.LOW, tp.writesResourceAt());
         }
     }
 }

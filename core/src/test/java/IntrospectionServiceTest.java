@@ -6,18 +6,18 @@ import static org.junit.Assert.assertTrue;
 import java.util.ArrayList;
 import java.util.List;
 
-import net.marcloud.mcp.core.hook.HookInfo;
-import net.marcloud.mcp.core.hook.HookSource;
-import net.marcloud.mcp.core.introspect.ClassDetail;
-import net.marcloud.mcp.core.introspect.ClassInfo;
-import net.marcloud.mcp.core.introspect.ClassListing;
-import net.marcloud.mcp.core.introspect.IntrospectionService;
-import net.marcloud.mcp.core.introspect.MethodInfo;
-import net.marcloud.mcp.core.security.PermissionPolicy;
+import net.marcloud.mcp.core.flt.HookInfo;
+import net.marcloud.mcp.core.flt.HookSource;
+import net.marcloud.mcp.core.cm.ClassDetail;
+import net.marcloud.mcp.core.cm.ClassInfo;
+import net.marcloud.mcp.core.cm.ClassListing;
+import net.marcloud.mcp.core.cm.CmQuery;
+import net.marcloud.mcp.core.cm.MethodInfo;
+import net.marcloud.mcp.core.se.SeClearancePolicy;
 import org.junit.Test;
 
 /**
- * Tests for IntrospectionService: list_classes, describe_class, find_method,
+ * Tests for CmQuery: list_classes, describe_class, find_method,
  * list_hooks, and descriptor generation. Uses the AgentAccess seam for
  * injection (no live agent required).
  */
@@ -25,7 +25,7 @@ public class IntrospectionServiceTest {
 
     @Test
     public void listClassesWithInstrumentationSnapshot() {
-        IntrospectionService svc = new IntrospectionService(
+        CmQuery svc = new CmQuery(
                 getClass().getClassLoader(), List.of());
 
         ClassListing listing = svc.listClasses(null, null, 200);
@@ -37,14 +37,14 @@ public class IntrospectionServiceTest {
         // old "instrumentation OR reflection-fallback" was a tautology). This
         // proves the fallback path actually produces a non-empty listing.
         assertFalse("no agent in test JVM",
-                net.marcloud.mcp.core.agent.AgentAccess.isLoaded());
+                net.marcloud.mcp.core.boot.AgentAccess.isLoaded());
         assertEquals("reflection-fallback", listing.source());
         assertTrue("fallback still enumerates classes", listing.classes().size() > 0);
     }
 
     @Test
     public void listClassesWithPackageFilter() {
-        IntrospectionService svc = new IntrospectionService(
+        CmQuery svc = new CmQuery(
                 getClass().getClassLoader(), List.of());
 
         ClassListing listing = svc.listClasses("java.lang", null, 200);
@@ -58,7 +58,7 @@ public class IntrospectionServiceTest {
 
     @Test
     public void listClassesWithNameFilter() {
-        IntrospectionService svc = new IntrospectionService(
+        CmQuery svc = new CmQuery(
                 getClass().getClassLoader(), List.of());
 
         ClassListing listing = svc.listClasses(null, "string", 200);
@@ -72,7 +72,7 @@ public class IntrospectionServiceTest {
 
     @Test
     public void listClassesHonorsLimit() {
-        IntrospectionService svc = new IntrospectionService(
+        CmQuery svc = new CmQuery(
                 getClass().getClassLoader(), List.of());
 
         ClassListing listing = svc.listClasses(null, null, 10);
@@ -83,18 +83,18 @@ public class IntrospectionServiceTest {
     @Test
     public void listClassesFlagsProtectedClass() {
         // Force the class to be loaded so we can test the protected flag
-        Class<?> permClass = PermissionPolicy.class;
-        assertNotNull("PermissionPolicy should be loadable", permClass);
+        Class<?> permClass = SeClearancePolicy.class;
+        assertNotNull("SeClearancePolicy should be loadable", permClass);
 
-        IntrospectionService svc = new IntrospectionService(
+        CmQuery svc = new CmQuery(
                 getClass().getClassLoader(), List.of());
 
         ClassListing listing = svc.listClasses("net.marcloud.mcp.core.security", null, 200);
 
         boolean foundProtected = false;
         for (ClassInfo c : listing.classes()) {
-            if (c.name().equals("net.marcloud.mcp.core.security.PermissionPolicy")) {
-                assertTrue("PermissionPolicy should be flagged protected", c.protectedClass());
+            if (c.name().equals("net.marcloud.mcp.core.se.SeClearancePolicy")) {
+                assertTrue("SeClearancePolicy should be flagged protected", c.protectedClass());
                 foundProtected = true;
                 break;
             }
@@ -103,15 +103,15 @@ public class IntrospectionServiceTest {
         // If we're in fallback mode, the class might not be in the snapshot even though loaded.
         // So test describe_class directly instead.
         if (!foundProtected) {
-            ClassDetail d = svc.describeClass("net.marcloud.mcp.core.security.PermissionPolicy");
-            assertTrue("PermissionPolicy should be flagged protected via describe",
+            ClassDetail d = svc.describeClass("net.marcloud.mcp.core.se.SeClearancePolicy");
+            assertTrue("SeClearancePolicy should be flagged protected via describe",
                     d.protectedClass());
         }
     }
 
     @Test
     public void describeClassForLoadedJdkClass() {
-        IntrospectionService svc = new IntrospectionService(
+        CmQuery svc = new CmQuery(
                 getClass().getClassLoader(), List.of());
 
         ClassDetail d = svc.describeClass("java.util.ArrayList");
@@ -129,18 +129,18 @@ public class IntrospectionServiceTest {
 
     @Test
     public void describeClassForProtectedCoreClass() {
-        IntrospectionService svc = new IntrospectionService(
+        CmQuery svc = new CmQuery(
                 getClass().getClassLoader(), List.of());
 
-        ClassDetail d = svc.describeClass("net.marcloud.mcp.core.security.PermissionPolicy");
+        ClassDetail d = svc.describeClass("net.marcloud.mcp.core.se.SeClearancePolicy");
 
-        assertEquals("net.marcloud.mcp.core.security.PermissionPolicy", d.name());
-        assertTrue("PermissionPolicy should be flagged protected", d.protectedClass());
+        assertEquals("net.marcloud.mcp.core.se.SeClearancePolicy", d.name());
+        assertTrue("SeClearancePolicy should be flagged protected", d.protectedClass());
     }
 
     @Test
     public void describeClassForUnresolvedClass() {
-        IntrospectionService svc = new IntrospectionService(
+        CmQuery svc = new CmQuery(
                 getClass().getClassLoader(), List.of());
 
         ClassDetail d = svc.describeClass("does.not.Exist");
@@ -154,7 +154,7 @@ public class IntrospectionServiceTest {
 
     @Test
     public void findMethodByName() {
-        IntrospectionService svc = new IntrospectionService(
+        CmQuery svc = new CmQuery(
                 getClass().getClassLoader(), List.of());
 
         List<MethodInfo> results = svc.findMethod("toString", null, null, 100);
@@ -168,7 +168,7 @@ public class IntrospectionServiceTest {
 
     @Test
     public void findMethodWithOwnerFilter() {
-        IntrospectionService svc = new IntrospectionService(
+        CmQuery svc = new CmQuery(
                 getClass().getClassLoader(), List.of());
 
         List<MethodInfo> results = svc.findMethod("toString", "java.lang.String", null, 100);
@@ -185,7 +185,7 @@ public class IntrospectionServiceTest {
 
     @Test
     public void findMethodReturnsEmptyForBlankMethodName() {
-        IntrospectionService svc = new IntrospectionService(
+        CmQuery svc = new CmQuery(
                 getClass().getClassLoader(), List.of());
 
         List<MethodInfo> results = svc.findMethod("", null, null, 100);
@@ -197,28 +197,28 @@ public class IntrospectionServiceTest {
     public void descriptorOfMethod() throws Exception {
         java.lang.reflect.Method m = String.class.getDeclaredMethod("substring", int.class, int.class);
 
-        String desc = IntrospectionService.descriptorOf(m);
+        String desc = CmQuery.descriptorOf(m);
 
         assertEquals("(II)Ljava/lang/String;", desc);
     }
 
     @Test
     public void typeNameForPrimitive() {
-        String name = IntrospectionService.typeName(int.class);
+        String name = CmQuery.typeName(int.class);
 
         assertEquals("int", name);
     }
 
     @Test
     public void typeNameForArray() {
-        String name = IntrospectionService.typeName(int[].class);
+        String name = CmQuery.typeName(int[].class);
 
         assertEquals("int[]", name);
     }
 
     @Test
     public void typeNameForObjectArray() {
-        String name = IntrospectionService.typeName(String[].class);
+        String name = CmQuery.typeName(String[].class);
 
         assertEquals("java.lang.String[]", name);
     }
@@ -238,7 +238,7 @@ public class IntrospectionServiceTest {
             }
         };
 
-        IntrospectionService svc = new IntrospectionService(
+        CmQuery svc = new CmQuery(
                 getClass().getClassLoader(), List.of(stubSource));
 
         List<HookInfo> result = svc.listHooks();
@@ -260,7 +260,7 @@ public class IntrospectionServiceTest {
         HookSource goodSource = () -> List.of(
                 new HookInfo("test.Class", "testMethod", "TestAdvice", "test", true));
 
-        IntrospectionService svc = new IntrospectionService(
+        CmQuery svc = new CmQuery(
                 getClass().getClassLoader(), List.of(failingSource, goodSource));
 
         List<HookInfo> result = svc.listHooks();

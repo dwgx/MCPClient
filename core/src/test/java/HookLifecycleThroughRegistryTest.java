@@ -1,4 +1,6 @@
 import static org.junit.Assert.assertEquals;
+
+import net.marcloud.mcp.core.flt.HookBridge;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
@@ -7,16 +9,16 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
-import net.marcloud.mcp.core.event.EventBus;
-import net.marcloud.mcp.core.event.events.HookFiredEvent;
-import net.marcloud.mcp.core.hook.DynamicHookManager;
-import net.marcloud.mcp.core.hook.HookTools;
-import net.marcloud.mcp.core.registry.CapabilityRegistry;
-import net.marcloud.mcp.core.registry.SafeToolExecutor;
-import net.marcloud.mcp.core.security.AllowAllGate;
-import net.marcloud.mcp.core.security.InProcessPolicyEngine;
-import net.marcloud.mcp.core.security.PermissionPolicy;
-import net.marcloud.mcp.core.security.Ring;
+import net.marcloud.mcp.core.ke.event.EventBus;
+import net.marcloud.mcp.core.ke.event.events.HookFiredEvent;
+import net.marcloud.mcp.core.flt.FltDynamicManager;
+import net.marcloud.mcp.core.flt.HookTools;
+import net.marcloud.mcp.core.io.IoManager;
+import net.marcloud.mcp.core.io.IoSupervisor;
+import net.marcloud.mcp.core.se.AllowAllGate;
+import net.marcloud.mcp.core.se.SeLocalMonitor;
+import net.marcloud.mcp.core.se.SeClearancePolicy;
+import net.marcloud.mcp.core.se.Ring;
 import org.junit.Assume;
 import org.junit.Test;
 
@@ -24,7 +26,7 @@ import org.junit.Test;
  * AUTOMATABLE (self-attach). The full install→fire→uninstall hook lifecycle driven
  * end-to-end through the SUPERVISED registry — i.e. via {@code
  * install_hook}/{@code uninstall_hook} tool calls, exactly as an MCP client would,
- * NOT by calling {@link DynamicHookManager} directly (that path is covered by
+ * NOT by calling {@link FltDynamicManager} directly (that path is covered by
  * {@code DynamicHookManagerTest}). This proves the tool surface, the supervised
  * gate, the ByteBuddy retransform, the HookBridge route, and the EventBus all
  * cooperate through one real round-trip.
@@ -41,10 +43,10 @@ public class HookLifecycleThroughRegistryTest {
         }
     }
 
-    private static CapabilityRegistry registryWith(DynamicHookManager mgr) {
-        SafeToolExecutor exec = new SafeToolExecutor(2, 3000L);
-        CapabilityRegistry reg = new CapabilityRegistry(exec,
-                new InProcessPolicyEngine(new PermissionPolicy(Ring.R_MINUS_1, "tok")));
+    private static IoManager registryWith(FltDynamicManager mgr) {
+        IoSupervisor exec = new IoSupervisor(2, 3000L);
+        IoManager reg = new IoManager(exec,
+                new SeLocalMonitor(new SeClearancePolicy(Ring.R_MINUS_1, "tok")));
         new HookTools(mgr, new AllowAllGate()).registerAll(reg);
         return reg;
     }
@@ -62,8 +64,8 @@ public class HookLifecycleThroughRegistryTest {
                 inst != null && inst.isRetransformClassesSupported());
 
         EventBus bus = new EventBus();
-        DynamicHookManager mgr = new DynamicHookManager(inst, bus);
-        CapabilityRegistry reg = registryWith(mgr);
+        FltDynamicManager mgr = new FltDynamicManager(inst, bus);
+        IoManager reg = registryWith(mgr);
 
         AtomicInteger fired = new AtomicInteger(0);
         bus.subscribe(HookFiredEvent.class, e -> {

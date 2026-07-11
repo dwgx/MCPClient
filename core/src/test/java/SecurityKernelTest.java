@@ -5,18 +5,18 @@ import static org.junit.Assert.assertTrue;
 import java.util.Map;
 import java.util.Set;
 
-import net.marcloud.mcp.core.security.AccessDecision;
-import net.marcloud.mcp.core.security.CapabilityCatalog;
-import net.marcloud.mcp.core.security.CapabilitySid;
-import net.marcloud.mcp.core.security.InProcessPolicyEngine;
-import net.marcloud.mcp.core.security.IntegrityLevel;
-import net.marcloud.mcp.core.security.PermissionPolicy;
-import net.marcloud.mcp.core.security.Privilege;
-import net.marcloud.mcp.core.security.PrivilegeToken;
-import net.marcloud.mcp.core.security.Ring;
-import net.marcloud.mcp.core.security.SecurityContext;
-import net.marcloud.mcp.core.security.ToolPolicy;
-import net.marcloud.mcp.core.security.ToolRequest;
+import net.marcloud.mcp.core.se.SeAccessCheck;
+import net.marcloud.mcp.core.se.CapabilityCatalog;
+import net.marcloud.mcp.core.se.CapabilitySid;
+import net.marcloud.mcp.core.se.SeLocalMonitor;
+import net.marcloud.mcp.core.se.IntegrityLevel;
+import net.marcloud.mcp.core.se.SeClearancePolicy;
+import net.marcloud.mcp.core.se.Privilege;
+import net.marcloud.mcp.core.se.PrivilegeToken;
+import net.marcloud.mcp.core.se.Ring;
+import net.marcloud.mcp.core.se.SeToken;
+import net.marcloud.mcp.core.se.SeToolRequirement;
+import net.marcloud.mcp.core.io.IoRequestPacket;
 import org.junit.Test;
 
 /**
@@ -73,11 +73,11 @@ public class SecurityKernelTest {
                 CapabilityCatalog.requiredFor("some_ai_tool", false));
     }
 
-    // ---- ToolPolicy safe defaults ----
+    // ---- SeToolRequirement safe defaults ----
 
     @Test
     public void toolPolicyUnlistedEnforcesOnlyRing() {
-        ToolPolicy tp = ToolPolicy.forTool("recent_packets", true);
+        SeToolRequirement tp = SeToolRequirement.forTool("recent_packets", true);
         assertEquals(Ring.R3, tp.requiredRing());
         assertEquals("no integrity write gate", null, tp.writesResourceAt());
         assertEquals("no privilege gate", null, tp.requiredPrivilege());
@@ -85,7 +85,7 @@ public class SecurityKernelTest {
 
     @Test
     public void toolPolicyRedefineIsFullyGated() {
-        ToolPolicy tp = ToolPolicy.forTool("redefine_class", true);
+        SeToolRequirement tp = SeToolRequirement.forTool("redefine_class", true);
         assertEquals(Ring.R_MINUS_1, tp.requiredRing());
         assertEquals(IntegrityLevel.HIGH, tp.writesResourceAt());
         assertEquals(Privilege.SE_DEBUG_CLASS, tp.requiredPrivilege());
@@ -94,32 +94,32 @@ public class SecurityKernelTest {
 
     // ---- Composition: the in-process engine ----
 
-    private static InProcessPolicyEngine engine(Ring clearance) {
-        return new InProcessPolicyEngine(new PermissionPolicy(clearance, "tok"));
+    private static SeLocalMonitor engine(Ring clearance) {
+        return new SeLocalMonitor(new SeClearancePolicy(clearance, "tok"));
     }
 
-    private static ToolRequest req(String name) {
-        return new ToolRequest(name, Map.of(), true);
+    private static IoRequestPacket req(String name) {
+        return new IoRequestPacket(name, Map.of(), true);
     }
 
     @Test
     public void wideOpenAllowsEverything() {
-        InProcessPolicyEngine e = engine(Ring.R_MINUS_1);
+        SeLocalMonitor e = engine(Ring.R_MINUS_1);
         for (String tool : new String[]{"redefine_class", "eval_java", "create_tool",
                 "send_raw_packet", "capture_screen", "recent_packets"}) {
-            AccessDecision d = e.evaluate(e.currentSubject(), req(tool));
+            SeAccessCheck d = e.evaluate(e.currentSubject(), req(tool));
             assertTrue(tool + " should be allowed at R-1 wide open: " + d.reason(), d.allow());
         }
     }
 
     @Test
     public void loweredClearanceDeniesAtL2() {
-        InProcessPolicyEngine e = engine(Ring.R_MINUS_1);
+        SeLocalMonitor e = engine(Ring.R_MINUS_1);
         e.dropTo(Ring.R2); // self-sandbox to observe-tier
-        AccessDecision eval = e.evaluate(e.currentSubject(), req("eval_java"));
+        SeAccessCheck eval = e.evaluate(e.currentSubject(), req("eval_java"));
         assertFalse("eval_java denied at R2", eval.allow());
         assertEquals("L2 ring", eval.layer());
-        AccessDecision scan = e.evaluate(e.currentSubject(), req("scan_surroundings"));
+        SeAccessCheck scan = e.evaluate(e.currentSubject(), req("scan_surroundings"));
         assertTrue("scan still allowed at R2: " + scan.reason(), scan.allow());
     }
 
@@ -127,11 +127,11 @@ public class SecurityKernelTest {
     public void integrityDeniesWhenSubjectTooLow() {
         // A subject at MEDIUM integrity may not run redefine_class (writes HIGH),
         // even at R-1 clearance with all privileges/caps — L3 catches it.
-        PermissionPolicy p = new PermissionPolicy(Ring.R_MINUS_1, "tok");
-        SecurityContext lowIntegrity = new SecurityContext("t", Ring.R_MINUS_1,
+        SeClearancePolicy p = new SeClearancePolicy(Ring.R_MINUS_1, "tok");
+        SeToken lowIntegrity = new SeToken("t", Ring.R_MINUS_1,
                 IntegrityLevel.MEDIUM, PrivilegeToken.wideOpen(), null);
-        InProcessPolicyEngine e = new InProcessPolicyEngine(p, lowIntegrity);
-        AccessDecision d = e.evaluate(e.currentSubject(), req("redefine_class"));
+        SeLocalMonitor e = new SeLocalMonitor(p, lowIntegrity);
+        SeAccessCheck d = e.evaluate(e.currentSubject(), req("redefine_class"));
         assertFalse(d.allow());
         assertEquals("L3 integrity", d.layer());
     }
@@ -139,13 +139,13 @@ public class SecurityKernelTest {
     @Test
     public void privilegeDeniesWhenDisabled() {
         // SE_DEBUG_CLASS granted but disabled → redefine_class denied at L4.
-        PermissionPolicy p = new PermissionPolicy(Ring.R_MINUS_1, "tok");
+        SeClearancePolicy p = new SeClearancePolicy(Ring.R_MINUS_1, "tok");
         PrivilegeToken tok = new PrivilegeToken(Map.of(
                 Privilege.SE_DEBUG_CLASS, false, Privilege.SE_NET_RAW, true));
-        SecurityContext subj = new SecurityContext("t", Ring.R_MINUS_1,
+        SeToken subj = new SeToken("t", Ring.R_MINUS_1,
                 IntegrityLevel.SYSTEM, tok, null);
-        InProcessPolicyEngine e = new InProcessPolicyEngine(p, subj);
-        AccessDecision d = e.evaluate(e.currentSubject(), req("redefine_class"));
+        SeLocalMonitor e = new SeLocalMonitor(p, subj);
+        SeAccessCheck d = e.evaluate(e.currentSubject(), req("redefine_class"));
         assertFalse(d.allow());
         assertEquals("L4 privilege", d.layer());
     }
@@ -154,14 +154,14 @@ public class SecurityKernelTest {
     public void capabilityDeniesUnderStrictSet() {
         // Strict subject holding only CAP_WORLD_READ: capture_screen (needs
         // CAP_SCREEN_CAP) is denied at L5 even at R-1.
-        PermissionPolicy p = new PermissionPolicy(Ring.R_MINUS_1, "tok");
-        SecurityContext strict = InProcessPolicyEngine.strictSubject(
+        SeClearancePolicy p = new SeClearancePolicy(Ring.R_MINUS_1, "tok");
+        SeToken strict = SeLocalMonitor.strictSubject(
                 Set.of(CapabilitySid.CAP_WORLD_READ));
-        InProcessPolicyEngine e = new InProcessPolicyEngine(p, strict);
-        AccessDecision denied = e.evaluate(e.currentSubject(), req("capture_screen"));
+        SeLocalMonitor e = new SeLocalMonitor(p, strict);
+        SeAccessCheck denied = e.evaluate(e.currentSubject(), req("capture_screen"));
         assertFalse(denied.allow());
         assertEquals("L5 capability", denied.layer());
-        AccessDecision allowed = e.evaluate(e.currentSubject(), req("scan_surroundings"));
+        SeAccessCheck allowed = e.evaluate(e.currentSubject(), req("scan_surroundings"));
         assertTrue("world-read tool allowed under the held cap: " + allowed.reason(),
                 allowed.allow());
     }
@@ -169,7 +169,7 @@ public class SecurityKernelTest {
     @Test
     public void mutatingSeamToolsAreFullyGated() {
         // Regression for the audit finding: seam_netty_uninstall / seam_tick_disable
-        // were missing from ToolPolicy L3/L4, so removing a pipeline handler or a
+        // were missing from SeToolRequirement L3/L4, so removing a pipeline handler or a
         // tick hook (which mutate a HIGH-integrity resource) skipped the integrity
         // and privilege gates. Every mutating seam tool must declare BOTH.
         for (String tool : new String[]{
@@ -178,7 +178,7 @@ public class SecurityKernelTest {
                 "seam_tick_enable", "seam_tick_disable",
                 "install_hook", "uninstall_hook",
                 "write_field", "invoke_method", "open_module"}) {
-            ToolPolicy tp = ToolPolicy.forTool(tool, true);
+            SeToolRequirement tp = SeToolRequirement.forTool(tool, true);
             assertTrue(tool + " must declare an L3 write integrity",
                     tp.writesResourceAt() != null);
             assertTrue(tool + " must declare an L4 privilege",
@@ -190,8 +190,8 @@ public class SecurityKernelTest {
     public void layersAreAndComposedShortCircuitInOrder() {
         // At R2 clearance, redefine_class fails L2 first (ring), not L3/L4 —
         // confirms ordering + short-circuit.
-        InProcessPolicyEngine e = engine(Ring.R2);
-        AccessDecision d = e.evaluate(e.currentSubject(), req("redefine_class"));
+        SeLocalMonitor e = engine(Ring.R2);
+        SeAccessCheck d = e.evaluate(e.currentSubject(), req("redefine_class"));
         assertFalse(d.allow());
         assertEquals("first failing layer is L2", "L2 ring", d.layer());
     }

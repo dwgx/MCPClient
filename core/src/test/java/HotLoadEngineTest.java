@@ -1,13 +1,15 @@
 import static org.junit.Assert.assertEquals;
+
+import net.marcloud.mcp.core.io.Capability;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import java.lang.reflect.Method;
 
-import net.marcloud.mcp.core.hotload.CompileResult;
-import net.marcloud.mcp.core.hotload.HotLoadEngine;
-import net.marcloud.mcp.core.hotload.InMemoryCompiler;
+import net.marcloud.mcp.core.ldr.CompileResult;
+import net.marcloud.mcp.core.ldr.LdrEngine;
+import net.marcloud.mcp.core.ldr.InMemoryCompiler;
 import org.junit.Test;
 
 /**
@@ -21,24 +23,24 @@ public class HotLoadEngineTest {
 
     @Test
     public void compilesAndRunsBrandNewClass() {
-        HotLoadEngine engine = new HotLoadEngine(getClass().getClassLoader());
+        LdrEngine engine = new LdrEngine(getClass().getClassLoader());
         String src = "package gen;\n"
                    + "public class Alpha {\n"
                    + "  public int add(int a, int b) { return a + b; }\n"
                    + "}\n";
-        HotLoadEngine.LoadOutcome out = engine.loadNew("gen.Alpha", src);
+        LdrEngine.LoadOutcome out = engine.loadNew("gen.Alpha", src);
         assertTrue(out.message(), out.success());
         assertNotNull(out.loadedClass());
     }
 
     @Test
     public void loadedClassIsInvokable() throws Exception {
-        HotLoadEngine engine = new HotLoadEngine(getClass().getClassLoader());
+        LdrEngine engine = new LdrEngine(getClass().getClassLoader());
         String src = "package gen;\n"
                    + "public class Beta {\n"
                    + "  public String hello(String who) { return \"hi \" + who; }\n"
                    + "}\n";
-        HotLoadEngine.LoadOutcome out = engine.loadNew("gen.Beta", src);
+        LdrEngine.LoadOutcome out = engine.loadNew("gen.Beta", src);
         assertTrue(out.message(), out.success());
 
         Object inst = out.loadedClass().getDeclaredConstructor().newInstance();
@@ -62,12 +64,12 @@ public class HotLoadEngineTest {
         // AI-authored code should see classes already on the game JVM classpath.
         // guava is on the client's (transitive) classpath; reference it to prove
         // the compiler inherits java.class.path.
-        HotLoadEngine engine = new HotLoadEngine(getClass().getClassLoader());
+        LdrEngine engine = new LdrEngine(getClass().getClassLoader());
         String src = "package gen;\n"
                    + "public class UsesJdk {\n"
                    + "  public int len(java.util.List<String> xs) { return xs.size(); }\n"
                    + "}\n";
-        HotLoadEngine.LoadOutcome out = engine.loadNew("gen.UsesJdk", src);
+        LdrEngine.LoadOutcome out = engine.loadNew("gen.UsesJdk", src);
         assertTrue(out.message(), out.success());
     }
 }

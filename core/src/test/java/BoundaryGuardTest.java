@@ -8,7 +8,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import net.marcloud.mcp.core.registry.BoundaryGuard;
+import net.marcloud.mcp.core.io.IoProbe;
 import org.junit.Test;
 
 /** L7: deep-copy+freeze (TOCTOU capture) + lightweight JSON-schema validation. */
@@ -24,7 +24,7 @@ public class BoundaryGuardTest {
         src.put("list", inner);
         src.put("nested", new HashMap<>(Map.of("k", "v")));
 
-        Map<String, Object> frozen = BoundaryGuard.freezeArgs(src);
+        Map<String, Object> frozen = IoProbe.freezeArgs(src);
 
         // Mutating the ORIGINAL after freezing must not affect the snapshot.
         inner.add("b");
@@ -47,8 +47,8 @@ public class BoundaryGuardTest {
 
     @Test
     public void freezeNullOrEmptyYieldsEmptyMap() {
-        assertTrue(BoundaryGuard.freezeArgs(null).isEmpty());
-        assertTrue(BoundaryGuard.freezeArgs(Map.of()).isEmpty());
+        assertTrue(IoProbe.freezeArgs(null).isEmpty());
+        assertTrue(IoProbe.freezeArgs(Map.of()).isEmpty());
     }
 
     // ---- schema validation ----
@@ -61,7 +61,7 @@ public class BoundaryGuardTest {
     public void requiredMissingFails() {
         Map<String, Object> s = schema(
                 Map.of("name", Map.of("type", "string")), List.of("name"));
-        BoundaryGuard.Result r = BoundaryGuard.validate(s, Map.of());
+        IoProbe.Result r = IoProbe.validate(s, Map.of());
         assertFalse(r.ok());
         assertNotNull(r.message());
         assertTrue(r.message().contains("name"));
@@ -71,7 +71,7 @@ public class BoundaryGuardTest {
     public void wrongTypeFails() {
         Map<String, Object> s = schema(
                 Map.of("count", Map.of("type", "integer")), List.of("count"));
-        BoundaryGuard.Result r = BoundaryGuard.validate(s, Map.of("count", "not-a-number"));
+        IoProbe.Result r = IoProbe.validate(s, Map.of("count", "not-a-number"));
         assertFalse(r.ok());
         assertTrue(r.message().contains("integer"));
     }
@@ -81,8 +81,8 @@ public class BoundaryGuardTest {
         // JSON often decodes 5 as Double 5.0 — must be accepted as integer.
         Map<String, Object> s = schema(
                 Map.of("count", Map.of("type", "integer")), List.of("count"));
-        assertTrue(BoundaryGuard.validate(s, Map.of("count", 5.0)).ok());
-        assertFalse(BoundaryGuard.validate(s, Map.of("count", 5.5)).ok());
+        assertTrue(IoProbe.validate(s, Map.of("count", 5.0)).ok());
+        assertFalse(IoProbe.validate(s, Map.of("count", 5.5)).ok());
     }
 
     @Test
@@ -90,7 +90,7 @@ public class BoundaryGuardTest {
         // additionalProperties defaults true — lets AI-authored empty-schema tools
         // accept any arg map.
         Map<String, Object> s = schema(Map.of(), List.of());
-        assertTrue(BoundaryGuard.validate(s, Map.of("anything", "goes")).ok());
+        assertTrue(IoProbe.validate(s, Map.of("anything", "goes")).ok());
     }
 
     @Test
@@ -98,12 +98,12 @@ public class BoundaryGuardTest {
         Map<String, Object> s = schema(
                 Map.of("target", Map.of("type", "string", "enum", List.of("R2", "R3"))),
                 List.of("target"));
-        assertTrue(BoundaryGuard.validate(s, Map.of("target", "R2")).ok());
-        assertFalse(BoundaryGuard.validate(s, Map.of("target", "R9")).ok());
+        assertTrue(IoProbe.validate(s, Map.of("target", "R2")).ok());
+        assertFalse(IoProbe.validate(s, Map.of("target", "R9")).ok());
     }
 
     @Test
     public void nullSchemaIsPermissive() {
-        assertTrue(BoundaryGuard.validate(null, Map.of("x", 1)).ok());
+        assertTrue(IoProbe.validate(null, Map.of("x", 1)).ok());
     }
 }

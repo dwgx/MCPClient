@@ -8,16 +8,16 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolRequest;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import java.util.Map;
-import net.marcloud.mcp.core.registry.CapabilityRegistry;
-import net.marcloud.mcp.core.registry.SafeToolExecutor;
-import net.marcloud.mcp.core.security.InProcessPolicyEngine;
-import net.marcloud.mcp.core.security.PermissionPolicy;
-import net.marcloud.mcp.core.security.Ring;
+import net.marcloud.mcp.core.io.IoManager;
+import net.marcloud.mcp.core.io.IoSupervisor;
+import net.marcloud.mcp.core.se.SeLocalMonitor;
+import net.marcloud.mcp.core.se.SeClearancePolicy;
+import net.marcloud.mcp.core.se.Ring;
 import org.junit.Test;
 
 /**
  * End-to-end through the SUPERVISED gate: confirms the reference-monitor
- * decision is what actually runs in CapabilityRegistry.supervise() (not just the
+ * decision is what actually runs in IoManager.supervise() (not just the
  * standalone engine), and that the drop/restore clearance path still gates a real
  * tool invocation via registry.invoke(). This is the keystone-migration
  * regression guard.
@@ -37,9 +37,9 @@ public class SupervisedGateIntegrationTest {
 
     @Test
     public void wideOpenClearanceRunsAHypervisorTool() {
-        SafeToolExecutor exec = new SafeToolExecutor(2, 2000L);
-        PermissionPolicy p = new PermissionPolicy(Ring.R_MINUS_1, "tok");
-        CapabilityRegistry reg = new CapabilityRegistry(exec, new InProcessPolicyEngine(p));
+        IoSupervisor exec = new IoSupervisor(2, 2000L);
+        SeClearancePolicy p = new SeClearancePolicy(Ring.R_MINUS_1, "tok");
+        IoManager reg = new IoManager(exec, new SeLocalMonitor(p));
         // Register a tool under the eval_java name (R-1) — must run at R-1 clearance.
         reg.register("eval_java", tool("eval_java", SupervisedGateIntegrationTest::okTool),
                 null, "d", true, Ring.R_MINUS_1);
@@ -50,10 +50,10 @@ public class SupervisedGateIntegrationTest {
 
     @Test
     public void droppedClearanceDeniesThroughSupervisedGate() {
-        SafeToolExecutor exec = new SafeToolExecutor(2, 2000L);
-        PermissionPolicy p = new PermissionPolicy(Ring.R_MINUS_1, "secret");
-        InProcessPolicyEngine engine = new InProcessPolicyEngine(p);
-        CapabilityRegistry reg = new CapabilityRegistry(exec, engine);
+        IoSupervisor exec = new IoSupervisor(2, 2000L);
+        SeClearancePolicy p = new SeClearancePolicy(Ring.R_MINUS_1, "secret");
+        SeLocalMonitor engine = new SeLocalMonitor(p);
+        IoManager reg = new IoManager(exec, engine);
         reg.register("eval_java", tool("eval_java", SupervisedGateIntegrationTest::okTool),
                 null, "d", true, Ring.R_MINUS_1);
         reg.register("scan_surroundings",
@@ -83,9 +83,9 @@ public class SupervisedGateIntegrationTest {
         // Confirms L7 is LIVE end-to-end: the SDK Tool's inputSchema is recovered
         // as a Map and a missing required arg is rejected as a domain error before
         // the handler runs (handler would have returned "ran").
-        SafeToolExecutor exec = new SafeToolExecutor(2, 2000L);
-        CapabilityRegistry reg = new CapabilityRegistry(exec,
-                new InProcessPolicyEngine(new PermissionPolicy(Ring.R_MINUS_1, "tok")));
+        IoSupervisor exec = new IoSupervisor(2, 2000L);
+        IoManager reg = new IoManager(exec,
+                new SeLocalMonitor(new SeClearancePolicy(Ring.R_MINUS_1, "tok")));
         Tool t = Tool.builder().name("needs_name").description("d")
                 .inputSchema(Map.of("type", "object",
                         "properties", Map.of("name", Map.of("type", "string")),
@@ -106,9 +106,9 @@ public class SupervisedGateIntegrationTest {
 
     @Test
     public void isAllowedReflectsFullDecision() {
-        SafeToolExecutor exec = new SafeToolExecutor(2, 2000L);
-        PermissionPolicy p = new PermissionPolicy(Ring.R2, "tok");
-        CapabilityRegistry reg = new CapabilityRegistry(exec, new InProcessPolicyEngine(p));
+        IoSupervisor exec = new IoSupervisor(2, 2000L);
+        SeClearancePolicy p = new SeClearancePolicy(Ring.R2, "tok");
+        IoManager reg = new IoManager(exec, new SeLocalMonitor(p));
         reg.register("eval_java", tool("eval_java", SupervisedGateIntegrationTest::okTool),
                 null, "d", true, Ring.R_MINUS_1);
         reg.register("recent_packets",

@@ -11,14 +11,14 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import net.bytebuddy.agent.builder.ResettableClassFileTransformer;
-import net.marcloud.mcp.core.event.EventBus;
-import net.marcloud.mcp.core.hook.DynamicHookManager;
+import net.marcloud.mcp.core.ke.event.EventBus;
+import net.marcloud.mcp.core.flt.FltDynamicManager;
 import org.junit.Assume;
 import org.junit.Test;
 
 /**
  * Regression tests for two C3 INTERCEPT audit findings on
- * {@link DynamicHookManager}:
+ * {@link FltDynamicManager}:
  *
  * <ul>
  *   <li>MEDIUM#11 — {@code install} used to hand back a hookId for a blank or
@@ -55,7 +55,7 @@ public class HookInstallValidationTest {
     @Test
     public void installNonexistentMethodRejectedAndRecordsNothing() {
         EventBus bus = new EventBus();
-        DynamicHookManager mgr = new DynamicHookManager(null, bus);
+        FltDynamicManager mgr = new FltDynamicManager(null, bus);
 
         try {
             mgr.install("java.lang.String", "definitelyMissing");
@@ -74,7 +74,7 @@ public class HookInstallValidationTest {
     @Test
     public void installBlankMethodRejectedAndRecordsNothing() {
         EventBus bus = new EventBus();
-        DynamicHookManager mgr = new DynamicHookManager(null, bus);
+        FltDynamicManager mgr = new FltDynamicManager(null, bus);
 
         for (String blank : new String[]{"", "   "}) {
             try {
@@ -107,7 +107,7 @@ public class HookInstallValidationTest {
                 inst != null && inst.isRetransformClassesSupported());
 
         EventBus bus = new EventBus();
-        DynamicHookManager mgr = new DynamicHookManager(inst, bus);
+        FltDynamicManager mgr = new FltDynamicManager(inst, bus);
         // Force Sample loaded so Class.forName + isModifiableClass would pass.
         assertEquals("raw", new Sample().probe());
 
@@ -132,17 +132,17 @@ public class HookInstallValidationTest {
     @Test
     public void failedResetRetainsHookForRetry() throws Exception {
         EventBus bus = new EventBus();
-        DynamicHookManager mgr = new DynamicHookManager(null, bus);
+        FltDynamicManager mgr = new FltDynamicManager(null, bus);
 
         AtomicInteger resetCalls = new AtomicInteger(0);
         ResettableClassFileTransformer transformer = failingThenSucceedingTransformer(resetCalls);
 
         String hookId = "java.lang.String#length@999";
-        DynamicHookManager.HookRecord record = new DynamicHookManager.HookRecord(
+        FltDynamicManager.HookRecord record = new FltDynamicManager.HookRecord(
                 hookId, "java.lang.String", "length", 999, transformer, System.nanoTime());
 
         // Seed the private hook map (no public API records a custom transformer).
-        Map<String, DynamicHookManager.HookRecord> map = hookMap(mgr);
+        Map<String, FltDynamicManager.HookRecord> map = hookMap(mgr);
         map.put(hookId, record);
         assertEquals("seeded one hook", 1, mgr.size());
 
@@ -161,11 +161,11 @@ public class HookInstallValidationTest {
     }
 
     @SuppressWarnings("unchecked")
-    private static Map<String, DynamicHookManager.HookRecord> hookMap(DynamicHookManager mgr)
+    private static Map<String, FltDynamicManager.HookRecord> hookMap(FltDynamicManager mgr)
             throws Exception {
-        var f = DynamicHookManager.class.getDeclaredField("hooks");
+        var f = FltDynamicManager.class.getDeclaredField("hooks");
         f.setAccessible(true);
-        return (Map<String, DynamicHookManager.HookRecord>) f.get(mgr);
+        return (Map<String, FltDynamicManager.HookRecord>) f.get(mgr);
     }
 
     /**

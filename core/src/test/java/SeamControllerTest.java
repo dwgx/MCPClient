@@ -1,4 +1,6 @@
 import static org.junit.Assert.assertEquals;
+
+import net.marcloud.mcp.core.flt.seam.InputHook;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
@@ -9,13 +11,13 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelPromise;
 import io.netty.channel.embedded.EmbeddedChannel;
 import net.marcloud.mcp.core.GameAccess;
-import net.marcloud.mcp.core.event.EventBus;
-import net.marcloud.mcp.core.event.events.TickEvent;
-import net.marcloud.mcp.core.seam.NettyTap;
-import net.marcloud.mcp.core.seam.SeamController;
-import net.marcloud.mcp.core.seam.TickBridge;
-import net.marcloud.mcp.core.seam.events.SeamPacketInboundEvent;
-import net.marcloud.mcp.core.seam.events.SeamPacketOutboundEvent;
+import net.marcloud.mcp.core.ke.event.EventBus;
+import net.marcloud.mcp.core.ke.event.events.TickEvent;
+import net.marcloud.mcp.core.flt.seam.NettyTap;
+import net.marcloud.mcp.core.flt.seam.SeamController;
+import net.marcloud.mcp.core.flt.seam.TickBridge;
+import net.marcloud.mcp.core.flt.seam.events.SeamPacketInboundEvent;
+import net.marcloud.mcp.core.flt.seam.events.SeamPacketOutboundEvent;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -136,7 +138,7 @@ public class SeamControllerTest {
         // (real behavioral assertion — the old assertNotNull(Boolean) was a
         // tautology that passed regardless of the result).
         assertFalse("no agent in test JVM → tick injection cannot install",
-                net.marcloud.mcp.core.agent.AgentAccess.isLoaded());
+                net.marcloud.mcp.core.boot.AgentAccess.isLoaded());
         assertFalse("canInstall() reflects the absent agent", controller.canInstall());
     }
 
