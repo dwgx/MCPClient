@@ -19,7 +19,7 @@ import net.marcloud.mcp.core.security.ProtectedClasses;
  *       adding fields/methods to a live class).</li>
  *   <li>Install a startup hook that ignites MCP Core when
  *       {@code Minecraft.startGame()} finishes — so the game boots WITH the
- *       神器 attached, no MC source change.</li>
+ *       Kernel attached, no MC source change.</li>
  * </ul>
  *
  * <p>Preferred load path is {@code -javaagent:core.jar} at JVM startup: it is

@@ -9,7 +9,7 @@ import io.modelcontextprotocol.spec.McpSchema.Tool;
 import net.marcloud.mcp.core.hotload.HotLoadEngine;
 
 /**
- * Turns AI-authored Java source into a live MCP tool (the "神器 grows a new
+ * Turns AI-authored Java source into a live MCP tool (the Kernel "grows a new
  * neuron"). Implements the Voyager/CREATOR pattern: the AI provides the tool as
  * code; we compile it, validate the contract, wrap it as a {@link
  * SyncToolSpecification}, and hand it to the {@link CapabilityRegistry}.

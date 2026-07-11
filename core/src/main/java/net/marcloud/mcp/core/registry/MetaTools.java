@@ -9,7 +9,7 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 
 /**
- * The self-referential tools: they let the AI inspect and extend the神器 itself.
+ * The self-referential tools: they let the AI inspect and extend the Kernel itself.
  * This is what makes the system self-describing and self-modifying —
  * "喂食开放接口代码让他自己可以更改".
  *

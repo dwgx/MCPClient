@@ -1,7 +1,7 @@
 @echo off
 REM ============================================================
 REM  MCPClient - MC 1.8.9 + MCP Core on JetBrains Runtime 25
-REM  Launches the game WITH the神器 attached: the fat agent jar
+REM  Launches the game WITH the Kernel attached: the fat agent jar
 REM  (core-1.8.9-all.jar) is both -javaagent (startup hook +
 REM  Instrumentation) and on -cp (Core + MCP SDK + Byte Buddy).
 REM  MCP server listens on 127.0.0.1:25599 (socket transport).

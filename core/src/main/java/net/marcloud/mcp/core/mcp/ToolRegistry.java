@@ -23,7 +23,7 @@ import net.minecraft.network.Packet;
  *   <li>{@code read_player_state} — observe player pos/health/etc.</li>
  *   <li>{@code recent_packets} — the packet-log ring (for "why kicked").</li>
  *   <li>{@code send_chat} — send a chat message / command.</li>
- *   <li>{@code eval_java} — compile + load + run arbitrary Java (the神器 REPL).</li>
+ *   <li>{@code eval_java} — compile + load + run arbitrary Java (the Kernel's REPL).</li>
  * </ul>
  * Arbitrary raw-packet send is exposed via {@code send_chat}'s sibling once
  * packet construction helpers land; the ActionManager already supports it.

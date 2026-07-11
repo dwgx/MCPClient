@@ -6,7 +6,7 @@ import java.util.List;
  * One durable experience the AI chose to remember. Structure follows JARVIS-1's
  * {task, state, plan} experience triple, generalized: a titled, tagged note the
  * AI can search and reuse across sessions. This is the "knowledge" half of the
- *神器's growth (the "capability" half is create_tool'd tools).
+ * Kernel's growth (the "capability" half is create_tool'd tools).
  *
  * @param id        stable id (assigned by the store)
  * @param title     short label / the situation ("kicked by anticheat on server X")

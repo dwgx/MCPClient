@@ -20,14 +20,14 @@ read_if: 每个会话开始都读本文(它很短,是路由器)。细节按 next
 
 ## 这是什么(一句)
 
-MCPClient(神器):把**活着的 Minecraft 1.8.9 客户端**(LWJGL3 / JDK25)通过 **MCP** 暴露给 LLM
+MCPClient(the Kernel):把**活着的 Minecraft 1.8.9 客户端**(LWJGL3 / JDK25)通过 **MCP** 暴露给 LLM
 ——AI 能观察、操作、热改运行中的游戏。核心 = NT 架构 7 层权限内核 + 能力包 C1-C8 + 原生 JVMTI 调试器。
 
 ## 模块(结构,稳定)
 
 | 模块 | 作用 |
 |---|---|
-| `core/` | 神器本体:MCP server、7 层安全内核、能力包、工具 |
+| `core/` | 内核本体(the Kernel):MCP server、7 层安全内核、能力包、工具 |
 | `client/` | MC 1.8.9 客户端(**vanilla 映射**——反射/GUI 字段名以此为准) |
 | `lwjgl2-shim/` | LWJGL2→LWJGL3 兼容层 |
 

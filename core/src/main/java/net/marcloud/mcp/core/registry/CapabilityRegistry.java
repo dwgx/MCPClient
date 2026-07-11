@@ -18,7 +18,7 @@ import net.marcloud.mcp.core.security.Ring;
 import net.marcloud.mcp.core.security.ToolRequest;
 
 /**
- * The living catalog of the神器's capabilities — the neural-network-like core.
+ * The living catalog of the Kernel's capabilities — the neural-network-like core.
  *
  * <p>Each tool is a "neuron" that can be added at runtime (grow the network);
  * every invocation is supervised by {@link SafeToolExecutor} so a misfiring
