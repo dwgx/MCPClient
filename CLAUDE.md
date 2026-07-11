@@ -59,6 +59,45 @@ scripts\run-mcp.bat                           # 启动游戏 + MCP Core(Windows;
 | 已知问题 | `.ai-notes/docs/project/known-issues.md` |
 | 接手 / 交接 | `.ai-notes/docs/project/handoff/README.md` |
 | 文档模板(交接/会话总结/任务记录) | `.ai-notes/_templates/` |
+| 怎么高效干活(速通/技巧/提示策略/环境坑/skill 闭环) | `.ai-notes/docs/reference/cc-workflow-guide.md` |
+| 和 dwgx 对齐(指纹/标准) | `.ai-notes/docs/project/owner-profile.md` |
+
+## 工作方式(授权 + 思维方式,适用所有会话)
+
+这一节是**怎么干活的纲**:思维方式在前,授权在中,红线在后。具体操作(速通/技巧清单/环境坑/可跑 skill)见
+`.ai-notes/docs/reference/cc-workflow-guide.md` —— 本节立"怎么想 + 允许你做什么",手册讲"具体怎么做"。
+
+**思维方式(先想再动):**
+- **先规划再确认**:动手前摊开假设、给详细大纲、并发研究;有岔路先 grill 到决策树见底再写。命名/架构取舍/动骨架**必须问 dwgx**,不许替他发明品味。
+- **外科手术式改动**:每一行都能追溯到需求;不顺手 refactor;匹配现有风格。简约优先——但**安全内核的防御性代码是必需的**,不套"删掉不可能情况的处理"。
+- **目标驱动**:把命令式任务转成可验证目标(tests-first),循环到达标。
+- **诚实报边界**:别把"减速带当城墙"吹;真机/live 才能验的别假装 headless 测过;拍马屁("你绝对正确")不说。
+- **失败两次就换路**:同一approach 失败两次,退一步找根因,换根本不同的路,别递增打补丁。
+
+**授权(judge 权在你,质量优先,无需逐次请示;何时用哪个、边界、技法全在 guide):**
+- `ultrathink`(深想/定架构)· `workflow`(并行拆解,探索性研究控 token)· `ultracode`(质量优先,token 不是约束)。
+- **subagent 委派**:广泛调研派它,定向查已知符号自己 Grep;判断留主 agent。
+- **Review 是常态**:改完对抗性复查;安全类有罪推定。可跑 skill:`grill`(逼问)`code-review`(双轴)`diagnose`(bug闭环)`research`(调研),闭环链见 guide。
+
+**红线(授权不覆盖这些):**
+- 无 emoji(文档/注释/代码内一律禁,技术箭头除外)。
+- 先编译再测才提交;每个 fix/feature 配非空转回归测试。
+- client 纯 vanilla;`_*` 目录不进 target;安全类不可动。
+- 改本文件需 3 次确认;改固定治理文档要留痕(见 `governance-log/`)。
+
+## 接手启动序列(会话开始时,先走这套)
+
+分两层:**必读层每会话都走**;**深挖层**只在大改动/定架构/现有文档解释不了时才升级。别一上来把深挖层全跑一遍烧上下文。
+
+**必读层(每会话,<5min):**
+1. **读现状骨架**:本文 → `.ai-notes/README.md`(机关地图)→ `.ai-notes/STATUS.md`(单一真相)。
+2. **看提交栈**:`git log --oneline -30`,与 STATUS 提交栈对上。**对不上就 reconcile**:代码比 STATUS 新 → 先补 STATUS;STATUS 描述的功能代码里没有 → flag 给 dwgx(别默认 STATUS 是真相,代码+测试才是)。
+3. **认 skill**:任务是定方向/设计 → `grill`;写 fix/feature → 写完 `code-review`;查 bug → `diagnose`;调研外部 → `research`。
+
+**深挖层(大改动 / 定架构 / 拿不准来由时才升级):**
+4. **读北极星 + 最新交接**:`00-META.md`(本质/四关注点)+ STATUS §最新交接**明确指向的那篇**(即使磁盘有更新日期的文件,以 STATUS 指针为准;指针 stale 就 flag)。
+5. **判断骨架边界**:结合 `ARCHITECTURE-LOCK.md`,想清楚动的东西碰不碰冻结骨架(动骨架走 ADR)。
+6. **考古历史对话(学"为什么")**:多数时候 STATUS+交接+00-META+LOCK 已够;**只有**"这段代码为什么设计得这么怪"且现有文档无解时,才用 `session-search.py`(`python -X utf8`;先 `list` 再 `search`/`show`)定点考古。只读考古,别把旧决定当现状。
 
 ## 会话交接协议(上下文快满时)
 
