@@ -6,6 +6,7 @@ import java.util.Map;
 import io.modelcontextprotocol.server.McpServerFeatures.SyncToolSpecification;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
+import io.modelcontextprotocol.spec.McpSchema.ToolAnnotations;
 import net.marcloud.mcp.core.io.IoManager;
 
 /**
@@ -55,9 +56,17 @@ public final class NarrativeTools {
     private SyncToolSpecification setGoal() {
         Tool tool = Tool.builder()
                 .name("set_goal")
+                .title("Set top-level goal")
                 .description("Set your top-level objective (replaces the whole goal stack). "
                         + "Everything you do should serve the current goal.")
                 .inputSchema(schema(Map.of("goal", str("the objective")), List.of("goal")))
+                .annotations(ToolAnnotations.builder()
+                        .title("Set top-level goal")
+                        .readOnlyHint(false)
+                        .destructiveHint(false)
+                        .idempotentHint(true)
+                        .openWorldHint(false)
+                        .build())
                 .build();
         return new SyncToolSpecification(tool, (exchange, request) -> {
             String g = arg(request.arguments(), "goal");
@@ -72,9 +81,17 @@ public final class NarrativeTools {
     private SyncToolSpecification pushSubgoal() {
         Tool tool = Tool.builder()
                 .name("push_subgoal")
+                .title("Push sub-goal")
                 .description("Refine the current goal by pushing a sub-goal onto the stack "
                         + "(work on this next; complete_goal returns to the parent).")
                 .inputSchema(schema(Map.of("subgoal", str("the sub-goal")), List.of("subgoal")))
+                .annotations(ToolAnnotations.builder()
+                        .title("Push sub-goal")
+                        .readOnlyHint(false)
+                        .destructiveHint(false)
+                        .idempotentHint(false)
+                        .openWorldHint(false)
+                        .build())
                 .build();
         return new SyncToolSpecification(tool, (exchange, request) -> {
             String g = arg(request.arguments(), "subgoal");
@@ -89,9 +106,17 @@ public final class NarrativeTools {
     private SyncToolSpecification completeGoal() {
         Tool tool = Tool.builder()
                 .name("complete_goal")
+                .title("Complete current goal")
                 .description("Mark the current (top) goal done/abandoned and pop back to the "
                         + "parent goal.")
                 .inputSchema(schema(Map.of(), List.of()))
+                .annotations(ToolAnnotations.builder()
+                        .title("Complete current goal")
+                        .readOnlyHint(false)
+                        .destructiveHint(false)
+                        .idempotentHint(false)
+                        .openWorldHint(false)
+                        .build())
                 .build();
         return new SyncToolSpecification(tool, (exchange, request) -> {
             String done = goals.popGoal();
@@ -106,9 +131,17 @@ public final class NarrativeTools {
     private SyncToolSpecification narrate() {
         Tool tool = Tool.builder()
                 .name("narrate")
+                .title("Record story line")
                 .description("Record a line in your story log — what you just did or observed. "
                         + "Builds a continuous narrative of your journey.")
                 .inputSchema(schema(Map.of("line", str("what happened")), List.of("line")))
+                .annotations(ToolAnnotations.builder()
+                        .title("Record story line")
+                        .readOnlyHint(false)
+                        .destructiveHint(false)
+                        .idempotentHint(false)
+                        .openWorldHint(false)
+                        .build())
                 .build();
         return new SyncToolSpecification(tool, (exchange, request) -> {
             String line = arg(request.arguments(), "line");
@@ -123,12 +156,20 @@ public final class NarrativeTools {
     private SyncToolSpecification getStory() {
         Tool tool = Tool.builder()
                 .name("get_story")
+                .title("Read goal stack + story")
                 .description("Read back your current goal stack and recent narration — your "
                         + "intent and the story so far. Use it to reorient.")
                 .inputSchema(schema(Map.of(
                         "lines", Map.of("type", "integer",
                                 "description", "how many recent narration lines (default 20)")),
                         List.of()))
+                .annotations(ToolAnnotations.builder()
+                        .title("Read goal stack + story")
+                        .readOnlyHint(true)
+                        .destructiveHint(false)
+                        .idempotentHint(true)
+                        .openWorldHint(false)
+                        .build())
                 .build();
         return new SyncToolSpecification(tool, (exchange, request) -> {
             int lines = 20;

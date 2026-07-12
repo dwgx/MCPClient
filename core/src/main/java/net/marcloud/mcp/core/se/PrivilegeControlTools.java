@@ -6,6 +6,7 @@ import java.util.Map;
 import io.modelcontextprotocol.server.McpServerFeatures.SyncToolSpecification;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
+import io.modelcontextprotocol.spec.McpSchema.ToolAnnotations;
 import net.marcloud.mcp.core.io.IoManager;
 
 /**
@@ -69,6 +70,7 @@ public final class PrivilegeControlTools {
     private SyncToolSpecification enablePrivilege() {
         Tool tool = Tool.builder()
                 .name("enable_privilege")
+                .title("Enable L4 privilege")
                 .description("Enable a granted L4 privilege on the current subject so tools "
                         + "requiring it are permitted again (e.g. SE_NET_RAW re-enables "
                         + "send_chat / send_raw_packet). Cannot enable a privilege that was "
@@ -77,6 +79,13 @@ public final class PrivilegeControlTools {
                         Map.of("type", "string", "description",
                                 "privilege name, e.g. SE_NET_RAW or bare NET_RAW")),
                         List.of("privilege")))
+                .annotations(ToolAnnotations.builder()
+                        .title("Enable L4 privilege")
+                        .readOnlyHint(false)
+                        .destructiveHint(false)
+                        .idempotentHint(true)
+                        .openWorldHint(false)
+                        .build())
                 .build();
         return new SyncToolSpecification(tool, (exchange, request) -> {
             Privilege p = Privilege.parse(arg(request.arguments(), "privilege"));
@@ -93,6 +102,7 @@ public final class PrivilegeControlTools {
     private SyncToolSpecification disablePrivilege() {
         Tool tool = Tool.builder()
                 .name("disable_privilege")
+                .title("Disable L4 privilege")
                 .description("Disable a granted L4 privilege on the current subject (least "
                         + "privilege in time). Any tool requiring it will then be DENIED at L4 "
                         + "until re-enabled with enable_privilege — the grant is kept, only the "
@@ -101,6 +111,13 @@ public final class PrivilegeControlTools {
                         Map.of("type", "string", "description",
                                 "privilege name, e.g. SE_NET_RAW or bare NET_RAW")),
                         List.of("privilege")))
+                .annotations(ToolAnnotations.builder()
+                        .title("Disable L4 privilege")
+                        .readOnlyHint(false)
+                        .destructiveHint(false)
+                        .idempotentHint(true)
+                        .openWorldHint(false)
+                        .build())
                 .build();
         return new SyncToolSpecification(tool, (exchange, request) -> {
             Privilege p = Privilege.parse(arg(request.arguments(), "privilege"));
@@ -117,6 +134,7 @@ public final class PrivilegeControlTools {
     private SyncToolSpecification grantCapability() {
         Tool tool = Tool.builder()
                 .name("grant_capability")
+                .title("Grant L5 capability")
                 .description("Grant an L5 capability SID to the current subject so tools "
                         + "requiring it are permitted (e.g. CAP_NETWORK_SEND re-allows send_chat). "
                         + "Re-adds a previously revoked SID.")
@@ -124,6 +142,13 @@ public final class PrivilegeControlTools {
                         Map.of("type", "string", "description",
                                 "capability SID, e.g. CAP_NETWORK_SEND or bare NETWORK_SEND")),
                         List.of("capability")))
+                .annotations(ToolAnnotations.builder()
+                        .title("Grant L5 capability")
+                        .readOnlyHint(false)
+                        .destructiveHint(false)
+                        .idempotentHint(true)
+                        .openWorldHint(false)
+                        .build())
                 .build();
         return new SyncToolSpecification(tool, (exchange, request) -> {
             CapabilitySid sid = CapabilitySid.parse(arg(request.arguments(), "capability"));
@@ -139,6 +164,7 @@ public final class PrivilegeControlTools {
     private SyncToolSpecification revokeCapability() {
         Tool tool = Tool.builder()
                 .name("revoke_capability")
+                .title("Revoke L5 capability")
                 .description("Revoke an L5 capability SID from the current subject. Any tool "
                         + "requiring it will then be DENIED at L5 until re-granted. If the "
                         + "subject currently holds the wildcard set, the first revoke materializes "
@@ -147,6 +173,13 @@ public final class PrivilegeControlTools {
                         Map.of("type", "string", "description",
                                 "capability SID, e.g. CAP_NETWORK_SEND or bare NETWORK_SEND")),
                         List.of("capability")))
+                .annotations(ToolAnnotations.builder()
+                        .title("Revoke L5 capability")
+                        .readOnlyHint(false)
+                        .destructiveHint(false)
+                        .idempotentHint(true)
+                        .openWorldHint(false)
+                        .build())
                 .build();
         return new SyncToolSpecification(tool, (exchange, request) -> {
             CapabilitySid sid = CapabilitySid.parse(arg(request.arguments(), "capability"));

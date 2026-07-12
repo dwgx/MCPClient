@@ -7,6 +7,7 @@ import java.util.Map;
 import io.modelcontextprotocol.server.McpServerFeatures.SyncToolSpecification;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
+import io.modelcontextprotocol.spec.McpSchema.ToolAnnotations;
 import net.marcloud.mcp.core.io.IoManager;
 import net.marcloud.mcp.core.se.Ring;
 
@@ -65,6 +66,7 @@ public final class SynthTools {
     private SyncToolSpecification evalEphemeral() {
         Tool tool = Tool.builder()
                 .name("eval_ephemeral")
+                .title("Eval throwaway Java (hidden class)")
                 .description("HYPERVISOR (R-1): compile AI Java and execute it as a throwaway "
                         + "HIDDEN class (GC-able, not registered, invisible to list_capabilities, "
                         + "cannot be redefined). The source must declare "
@@ -83,6 +85,13 @@ public final class SynthTools {
                                 + "and 'public String handle(Map<String,Object> args)'"),
                         "args", obj("arguments passed to handle() (optional, defaults to empty map)")),
                         List.of("className", "source")))
+                .annotations(ToolAnnotations.builder()
+                        .title("Eval throwaway Java (hidden class)")
+                        .readOnlyHint(false)
+                        .destructiveHint(true)
+                        .idempotentHint(false)
+                        .openWorldHint(false)
+                        .build())
                 .build();
         return new SyncToolSpecification(tool, (exchange, request) -> {
             Map<String, Object> a = request.arguments();

@@ -10,6 +10,7 @@ import java.util.Map;
 import io.modelcontextprotocol.server.McpServerFeatures.SyncToolSpecification;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
+import io.modelcontextprotocol.spec.McpSchema.ToolAnnotations;
 import net.marcloud.mcp.core.GameBridge;
 import net.marcloud.mcp.core.io.IoManager;
 import net.marcloud.mcp.core.se.Ring;
@@ -93,6 +94,7 @@ public final class MutateStateTools {
     private SyncToolSpecification readField() {
         Tool tool = Tool.builder()
                 .name("read_field")
+                .title("Read field (deep access)")
                 .description("KERNEL (R0): read a field (including private) from a live object or "
                         + "static class. Provide either 'path' (dotted instance path like "
                         + "\"player.capabilities\") OR 'className' (fully-qualified class for static "
@@ -103,6 +105,13 @@ public final class MutateStateTools {
                         "className", str("fully-qualified class name for static field"),
                         "field", str("field name (required)")),
                         List.of("field")))
+                .annotations(ToolAnnotations.builder()
+                        .title("Read field (deep access)")
+                        .readOnlyHint(true)
+                        .destructiveHint(false)
+                        .idempotentHint(true)
+                        .openWorldHint(false)
+                        .build())
                 .build();
         return new SyncToolSpecification(tool, (exchange, request) -> {
             Map<String, Object> a = request.arguments();
@@ -148,6 +157,7 @@ public final class MutateStateTools {
     private SyncToolSpecification writeField() {
         Tool tool = Tool.builder()
                 .name("write_field")
+                .title("Write field (deep access)")
                 .description("HYPERVISOR (R-1): write a field (including private/final) on a live "
                         + "object or static class. Provide either 'path' (instance) OR 'className' "
                         + "(static). value can be JSON scalar, or {\"$path\":\"...\"} to pass a live "
@@ -161,6 +171,13 @@ public final class MutateStateTools {
                         "value", str("JSON value to write (required)"),
                         "static", bool("true for static field (optional)")),
                         List.of("field", "value")))
+                .annotations(ToolAnnotations.builder()
+                        .title("Write field (deep access)")
+                        .readOnlyHint(false)
+                        .destructiveHint(true)
+                        .idempotentHint(true)
+                        .openWorldHint(false)
+                        .build())
                 .build();
         return new SyncToolSpecification(tool, (exchange, request) -> {
             Map<String, Object> a = request.arguments();
@@ -201,6 +218,7 @@ public final class MutateStateTools {
     private SyncToolSpecification invokeMethod() {
         Tool tool = Tool.builder()
                 .name("invoke_method")
+                .title("Invoke method (deep access)")
                 .description("HYPERVISOR (R-1): invoke a method (including private) on a live object "
                         + "or static class. paramTypes is an array of type names (\"int\", "
                         + "\"java.lang.String\", etc.); omit to match by name+arity. args is an "
@@ -213,6 +231,13 @@ public final class MutateStateTools {
                         "paramTypes", array("array of type names (optional, matches arity if omitted)"),
                         "args", array("array of argument values (optional)")),
                         List.of("method")))
+                .annotations(ToolAnnotations.builder()
+                        .title("Invoke method (deep access)")
+                        .readOnlyHint(false)
+                        .destructiveHint(true)
+                        .idempotentHint(false)
+                        .openWorldHint(false)
+                        .build())
                 .build();
         return new SyncToolSpecification(tool, (exchange, request) -> {
             Map<String, Object> a = request.arguments();
@@ -281,7 +306,8 @@ public final class MutateStateTools {
     private SyncToolSpecification openModule() {
         Tool tool = Tool.builder()
                 .name("open_module")
-                .description("HYPERVISOR (R-1): open a package of a named platform module to Core, "
+                .title("Open module package to Core")
+                .description("[requires: -javaagent] HYPERVISOR (R-1): open a package of a named platform module to Core, "
                         + "via Instrumentation.redefineModule. Enables privateLookupIn / reflection "
                         + "into java.base internals. Provide module name (\"java.base\") and package "
                         + "(\"jdk.internal.misc\").")
@@ -289,6 +315,13 @@ public final class MutateStateTools {
                         "module", str("module name (e.g. \"java.base\")"),
                         "package", str("package to open (e.g. \"jdk.internal.misc\")")),
                         List.of("module", "package")))
+                .annotations(ToolAnnotations.builder()
+                        .title("Open module package to Core")
+                        .readOnlyHint(false)
+                        .destructiveHint(true)
+                        .idempotentHint(true)
+                        .openWorldHint(false)
+                        .build())
                 .build();
         return new SyncToolSpecification(tool, (exchange, request) -> {
             Map<String, Object> a = request.arguments();

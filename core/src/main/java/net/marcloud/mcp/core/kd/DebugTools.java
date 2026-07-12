@@ -13,6 +13,7 @@ import java.util.function.Supplier;
 import io.modelcontextprotocol.server.McpServerFeatures.SyncToolSpecification;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
+import io.modelcontextprotocol.spec.McpSchema.ToolAnnotations;
 import net.marcloud.mcp.core.io.IoManager;
 import net.marcloud.mcp.core.se.AccessGate;
 import net.marcloud.mcp.core.ob.ObAccessMask;
@@ -235,6 +236,13 @@ public final class DebugTools {
                         + "must precede debug_pop_frame / debug_force_return. Requires "
                         + "-agentpath:core-jvmti.dll.")
                 .inputSchema(schema(props, required))
+                .annotations(ToolAnnotations.builder()
+                        .title("Suspend/resume a thread (JVMTI)")
+                        .readOnlyHint(false)
+                        .destructiveHint(true)
+                        .idempotentHint(true)
+                        .openWorldHint(false)
+                        .build())
                 .build();
         return new SyncToolSpecification(tool, (ex, req) -> {
             CallToolResult g = guard();
@@ -277,6 +285,13 @@ public final class DebugTools {
                         + "(re-executes the call on resume). The thread must be suspended first "
                         + "(debug_suspend_thread). Requires the native agent.")
                 .inputSchema(schema(props, required))
+                .annotations(ToolAnnotations.builder()
+                        .title("Pop a stack frame (JVMTI)")
+                        .readOnlyHint(false)
+                        .destructiveHint(true)
+                        .idempotentHint(false)
+                        .openWorldHint(false)
+                        .build())
                 .build();
         return new SyncToolSpecification(tool, (ex, req) -> {
             CallToolResult g = guard();
@@ -319,6 +334,13 @@ public final class DebugTools {
                         + "return early. kind=void|int|object (object forces null — object values "
                         + "can't be marshaled from JSON). Requires the native agent.")
                 .inputSchema(schema(props, required))
+                .annotations(ToolAnnotations.builder()
+                        .title("Force early return (JVMTI)")
+                        .readOnlyHint(false)
+                        .destructiveHint(true)
+                        .idempotentHint(false)
+                        .openWorldHint(false)
+                        .build())
                 .build();
         return new SyncToolSpecification(tool, (ex, req) -> {
             CallToolResult g = guard();
@@ -359,6 +381,13 @@ public final class DebugTools {
                         "signature", str("JVM method descriptor, e.g. ()V"),
                         "location", intp("bytecode index (default 0)")),
                         List.of("className", "method", "signature")))
+                .annotations(ToolAnnotations.builder()
+                        .title("Set a breakpoint (JVMTI)")
+                        .readOnlyHint(false)
+                        .destructiveHint(false)
+                        .idempotentHint(true)
+                        .openWorldHint(false)
+                        .build())
                 .build();
         return new SyncToolSpecification(tool, (ex, req) -> {
             CallToolResult g = guard();
@@ -380,6 +409,13 @@ public final class DebugTools {
                         "signature", str("JVM method descriptor"),
                         "location", intp("bytecode index (default 0)")),
                         List.of("className", "method", "signature")))
+                .annotations(ToolAnnotations.builder()
+                        .title("Clear a breakpoint (JVMTI)")
+                        .readOnlyHint(false)
+                        .destructiveHint(false)
+                        .idempotentHint(true)
+                        .openWorldHint(false)
+                        .build())
                 .build();
         return new SyncToolSpecification(tool, (ex, req) -> {
             CallToolResult g = guard();
@@ -438,6 +474,13 @@ public final class DebugTools {
                         + "thread (fires a DebugEvent per bytecode step — extremely high volume, "
                         + "use briefly). Requires the native agent.")
                 .inputSchema(schema(props, required))
+                .annotations(ToolAnnotations.builder()
+                        .title("Toggle single-step (JVMTI)")
+                        .readOnlyHint(false)
+                        .destructiveHint(false)
+                        .idempotentHint(true)
+                        .openWorldHint(false)
+                        .build())
                 .build();
         return new SyncToolSpecification(tool, (ex, req) -> {
             CallToolResult g = guard();
@@ -483,6 +526,13 @@ public final class DebugTools {
                 .description("HYPERVISOR (R-1): read a local variable of a SUSPENDED thread's "
                         + "frame. type=int|object. Requires the native agent.")
                 .inputSchema(schema(props, required))
+                .annotations(ToolAnnotations.builder()
+                        .title("Read a local variable (JVMTI)")
+                        .readOnlyHint(true)
+                        .destructiveHint(false)
+                        .idempotentHint(true)
+                        .openWorldHint(false)
+                        .build())
                 .build();
         return new SyncToolSpecification(tool, (ex, req) -> {
             CallToolResult g = guard();
@@ -537,6 +587,13 @@ public final class DebugTools {
                         + "thread's frame (int slots only — the verified JVMTI SetLocalInt "
                         + "surface). Requires the native agent.")
                 .inputSchema(schema(props, required))
+                .annotations(ToolAnnotations.builder()
+                        .title("Write a local variable (JVMTI)")
+                        .readOnlyHint(false)
+                        .destructiveHint(true)
+                        .idempotentHint(true)
+                        .openWorldHint(false)
+                        .build())
                 .build();
         return new SyncToolSpecification(tool, (ex, req) -> {
             CallToolResult g = guard();
@@ -620,6 +677,20 @@ public final class DebugTools {
                         + "the op (TOCTOU-safe). Close it with debug_close_handle.")
                 .inputSchema(schema(Map.of("threadName", str("exact live thread name")),
                         List.of("threadName")))
+                .annotations(ToolAnnotations.builder()
+                        .title("Watch field modification (JVMTI)")
+                        .readOnlyHint(false)
+                        .destructiveHint(false)
+                        .idempotentHint(true)
+                        .openWorldHint(false)
+                        .build())
+                .annotations(ToolAnnotations.builder()
+                        .title("Open a frozen thread handle (L6)")
+                        .readOnlyHint(false)
+                        .destructiveHint(false)
+                        .idempotentHint(false)
+                        .openWorldHint(false)
+                        .build())
                 .build();
         return new SyncToolSpecification(tool, (ex, req) -> {
             String name = arg(req.arguments(), "threadName");
@@ -647,6 +718,13 @@ public final class DebugTools {
                         + "debug_open_thread. Idempotent; only the owner can close it.")
                 .inputSchema(schema(Map.of("handle", str("the handle id to close")),
                         List.of("handle")))
+                .annotations(ToolAnnotations.builder()
+                        .title("Close an object handle (L6)")
+                        .readOnlyHint(false)
+                        .destructiveHint(false)
+                        .idempotentHint(true)
+                        .openWorldHint(false)
+                        .build())
                 .build();
         return new SyncToolSpecification(tool, (ex, req) -> {
             String handle = arg(req.arguments(), "handle");

@@ -8,6 +8,7 @@ import java.util.Map;
 import io.modelcontextprotocol.server.McpServerFeatures.SyncToolSpecification;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
+import io.modelcontextprotocol.spec.McpSchema.ToolAnnotations;
 import net.marcloud.mcp.core.io.IoManager;
 
 /**
@@ -56,6 +57,7 @@ public final class MemoryTools {
     private SyncToolSpecification write() {
         Tool tool = Tool.builder()
                 .name("memory_write")
+                .title("Save durable memory")
                 .description("Save a durable experience/lesson/fact you want to recall later "
                         + "(persists across restarts). Use for things like why you got kicked, "
                         + "how a server behaves, a working strategy, a useful location.")
@@ -64,6 +66,13 @@ public final class MemoryTools {
                         "content", str("the lesson, plan, or fact to remember"),
                         "tags", str("comma-separated tags for later filtering (optional)")),
                         List.of("title", "content")))
+                .annotations(ToolAnnotations.builder()
+                        .title("Save durable memory")
+                        .readOnlyHint(false)
+                        .destructiveHint(false)
+                        .idempotentHint(false)
+                        .openWorldHint(false)
+                        .build())
                 .build();
         return new SyncToolSpecification(tool, (exchange, request) -> {
             String title = arg(request.arguments(), "title");
@@ -94,12 +103,20 @@ public final class MemoryTools {
     private SyncToolSpecification search() {
         Tool tool = Tool.builder()
                 .name("memory_search")
+                .title("Recall saved memories")
                 .description("Recall saved experiences matching a query (searches title, "
                         + "content, and tags; empty query lists the most recent). Newest first.")
                 .inputSchema(schema(Map.of(
                         "query", str("text to match (optional; empty = most recent)"),
                         "limit", Map.of("type", "integer", "description", "max results (default 10)")),
                         List.of()))
+                .annotations(ToolAnnotations.builder()
+                        .title("Recall saved memories")
+                        .readOnlyHint(true)
+                        .destructiveHint(false)
+                        .idempotentHint(true)
+                        .openWorldHint(false)
+                        .build())
                 .build();
         return new SyncToolSpecification(tool, (exchange, request) -> {
             String query = arg(request.arguments(), "query");
@@ -123,8 +140,16 @@ public final class MemoryTools {
     private SyncToolSpecification delete() {
         Tool tool = Tool.builder()
                 .name("memory_delete")
+                .title("Delete saved memory")
                 .description("Delete a saved memory by its id (e.g. 'm3').")
                 .inputSchema(schema(Map.of("id", str("memory id to delete")), List.of("id")))
+                .annotations(ToolAnnotations.builder()
+                        .title("Delete saved memory")
+                        .readOnlyHint(false)
+                        .destructiveHint(true)
+                        .idempotentHint(true)
+                        .openWorldHint(false)
+                        .build())
                 .build();
         return new SyncToolSpecification(tool, (exchange, request) -> {
             String id = arg(request.arguments(), "id");

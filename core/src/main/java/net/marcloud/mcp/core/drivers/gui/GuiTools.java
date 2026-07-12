@@ -11,6 +11,7 @@ import io.modelcontextprotocol.server.McpServerFeatures.SyncToolSpecification;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.ImageContent;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
+import io.modelcontextprotocol.spec.McpSchema.ToolAnnotations;
 import net.marcloud.mcp.core.GameAccess;
 import net.marcloud.mcp.core.GameBridge;
 import net.marcloud.mcp.core.io.IoManager;
@@ -118,6 +119,7 @@ public final class GuiTools {
     private SyncToolSpecification guiSnapshot() {
         Tool tool = Tool.builder()
                 .name("gui_snapshot")
+                .title("Snapshot open GUI as elements")
                 .description("Ground yourself in the OPEN GUI: returns every clickable element of "
                         + "the current screen (buttons, inventory/container slots, text fields) as a "
                         + "structured list — each with an id (e.g. 'b0','s13','t0'), label, bounds, "
@@ -129,6 +131,13 @@ public final class GuiTools {
                         "onlyInteractable", prop("boolean",
                                 "only include visible+enabled interactable elements (default true)")),
                         List.of()))
+                .annotations(ToolAnnotations.builder()
+                        .title("Snapshot open GUI as elements")
+                        .readOnlyHint(true)
+                        .destructiveHint(false)
+                        .idempotentHint(true)
+                        .openWorldHint(false)
+                        .build())
                 .build();
         return new SyncToolSpecification(tool, (exchange, request) -> {
             boolean onlyInteractable = boolArg(request.arguments(), "onlyInteractable", true);
@@ -151,7 +160,9 @@ public final class GuiTools {
     private SyncToolSpecification guiSnapshotImage() {
         Tool tool = Tool.builder()
                 .name("gui_snapshot_image")
-                .description("Like gui_snapshot, but ALSO returns a Set-of-Marks annotated PNG of the "
+                .title("Snapshot open GUI with annotated PNG")
+                .description("[requires: GLFW-window] "
+                        + "Like gui_snapshot, but ALSO returns a Set-of-Marks annotated PNG of the "
                         + "current frame: a numbered box on each element (the number IS its id, e.g. "
                         + "'b0'/'s13') so you can cross-reference the JSON element list against the "
                         + "picture. Costs image tokens and drives glReadPixels (requires screen-capture "
@@ -163,6 +174,13 @@ public final class GuiTools {
                         "maxEdge", prop("integer",
                                 "max long-edge pixels of the PNG, 64-1600 (default 1024)")),
                         List.of()))
+                .annotations(ToolAnnotations.builder()
+                        .title("Snapshot open GUI with annotated PNG")
+                        .readOnlyHint(true)
+                        .destructiveHint(false)
+                        .idempotentHint(true)
+                        .openWorldHint(false)
+                        .build())
                 .build();
         return new SyncToolSpecification(tool, (exchange, request) -> {
             Map<String, Object> a = request.arguments();
@@ -230,7 +248,9 @@ public final class GuiTools {
     private SyncToolSpecification guiClickElement() {
         Tool tool = Tool.builder()
                 .name("gui_click_element")
-                .description("Click a GUI element by its id (from gui_snapshot). Drives the REAL "
+                .title("Click a GUI element by id")
+                .description("[requires: GLFW-window] "
+                        + "Click a GUI element by its id (from gui_snapshot). Drives the REAL "
                         + "handler on the game thread — for a slot this sends the click to the server "
                         + "(picks up/moves items); for a button it runs its action. Pass the 'epoch' "
                         + "and 'fingerprint' from the snapshot you decided against; if the screen "
@@ -242,6 +262,13 @@ public final class GuiTools {
                         "elementId", prop("string", "element id from gui_snapshot, e.g. 'b0' or 's13'"),
                         "button", prop("string", "'left' (default) or 'right'")),
                         List.of("epoch", "fingerprint", "elementId")))
+                .annotations(ToolAnnotations.builder()
+                        .title("Click a GUI element by id")
+                        .readOnlyHint(false)
+                        .destructiveHint(true)
+                        .idempotentHint(false)
+                        .openWorldHint(true)
+                        .build())
                 .build();
         return new SyncToolSpecification(tool, (exchange, request) -> {
             Map<String, Object> a = request.arguments();
@@ -264,7 +291,9 @@ public final class GuiTools {
     private SyncToolSpecification guiTypeText() {
         Tool tool = Tool.builder()
                 .name("gui_type_text")
-                .description("Type text into a text-field element by id (from gui_snapshot). Focuses "
+                .title("Type text into a GUI text field")
+                .description("[requires: GLFW-window] "
+                        + "Type text into a text-field element by id (from gui_snapshot). Focuses "
                         + "the field first, then drives its real key handler. Set clearFirst=true to "
                         + "replace existing text. Pass the snapshot 'epoch' and 'fingerprint'; a "
                         + "changed screen is refused.")
@@ -275,6 +304,13 @@ public final class GuiTools {
                         "text", prop("string", "the text to type"),
                         "clearFirst", prop("boolean", "clear the field before typing (default false)")),
                         List.of("epoch", "fingerprint", "elementId", "text")))
+                .annotations(ToolAnnotations.builder()
+                        .title("Type text into a GUI text field")
+                        .readOnlyHint(false)
+                        .destructiveHint(true)
+                        .idempotentHint(false)
+                        .openWorldHint(false)
+                        .build())
                 .build();
         return new SyncToolSpecification(tool, (exchange, request) -> {
             Map<String, Object> a = request.arguments();
@@ -298,7 +334,9 @@ public final class GuiTools {
     private SyncToolSpecification guiPressKey() {
         Tool tool = Tool.builder()
                 .name("gui_press_key")
-                .description("Press a key on the current GUI screen: 'Escape' (close), 'Return'/'Enter' "
+                .title("Press a key on the current GUI screen")
+                .description("[requires: GLFW-window] "
+                        + "Press a key on the current GUI screen: 'Escape' (close), 'Return'/'Enter' "
                         + "(confirm), 'Tab', 'Backspace', or a single character. Drives the real "
                         + "GuiScreen.keyTyped. Pass the snapshot 'epoch' and 'fingerprint'.")
                 .inputSchema(schema(Map.of(
@@ -306,6 +344,13 @@ public final class GuiTools {
                         "fingerprint", prop("string", "the snapshot fingerprint you are acting against"),
                         "key", prop("string", "key name ('Escape','Return','Tab','Backspace') or a single character")),
                         List.of("epoch", "fingerprint", "key")))
+                .annotations(ToolAnnotations.builder()
+                        .title("Press a key on the current GUI screen")
+                        .readOnlyHint(false)
+                        .destructiveHint(true)
+                        .idempotentHint(false)
+                        .openWorldHint(true)
+                        .build())
                 .build();
         return new SyncToolSpecification(tool, (exchange, request) -> {
             Map<String, Object> a = request.arguments();
@@ -331,6 +376,7 @@ public final class GuiTools {
     private SyncToolSpecification guiTrajectory() {
         Tool tool = Tool.builder()
                 .name("gui_trajectory")
+                .title("Review recent GUI actions")
                 .description("Review your recent GUI actions as a screen-before -> action -> "
                         + "screen-after log. Returns the most recent entries (default all in the "
                         + "buffer), each with the action kind (click/type/press), the element id or "
@@ -341,6 +387,13 @@ public final class GuiTools {
                 .inputSchema(schema(Map.of(
                         "n", prop("integer", "max number of most-recent entries to return (default all)")),
                         List.of()))
+                .annotations(ToolAnnotations.builder()
+                        .title("Review recent GUI actions")
+                        .readOnlyHint(true)
+                        .destructiveHint(false)
+                        .idempotentHint(true)
+                        .openWorldHint(false)
+                        .build())
                 .build();
         return new SyncToolSpecification(tool, (exchange, request) -> {
             Map<String, Object> a = request.arguments();

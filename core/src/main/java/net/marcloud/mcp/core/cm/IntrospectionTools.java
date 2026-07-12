@@ -9,6 +9,7 @@ import java.util.Map;
 import io.modelcontextprotocol.server.McpServerFeatures.SyncToolSpecification;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
+import io.modelcontextprotocol.spec.McpSchema.ToolAnnotations;
 import net.marcloud.mcp.core.flt.HookInfo;
 import net.marcloud.mcp.core.io.IoManager;
 import net.marcloud.mcp.core.se.Ring;
@@ -39,6 +40,7 @@ public final class IntrospectionTools {
     private SyncToolSpecification listClasses() {
         Tool tool = Tool.builder()
                 .name("list_classes")
+                .title("List loaded classes")
                 .description("List loaded classes, optionally filtered by package prefix and "
                         + "name substring. Returns total, matched count, and a capped list "
                         + "(default 200, hard cap 2000). Shows whether each class is "
@@ -49,6 +51,13 @@ public final class IntrospectionTools {
                         "limit", Map.of("type", "integer", "description",
                                 "max classes to return, default 200, hard cap 2000")),
                         List.of()))
+                .annotations(ToolAnnotations.builder()
+                        .title("List loaded classes")
+                        .readOnlyHint(true)
+                        .destructiveHint(false)
+                        .idempotentHint(true)
+                        .openWorldHint(false)
+                        .build())
                 .build();
         return new SyncToolSpecification(tool, (exchange, request) -> {
             Map<String, Object> a = request.arguments();
@@ -73,6 +82,7 @@ public final class IntrospectionTools {
     private SyncToolSpecification describeClass() {
         Tool tool = Tool.builder()
                 .name("describe_class")
+                .title("Describe class structure")
                 .description("Describe a class's structure via reflection: kind (class/interface/"
                         + "enum/annotation/abstract-class), modifiers, superclass, interfaces, "
                         + "fields, methods, constructors, and flags (loaded, jvmModifiable, "
@@ -82,6 +92,13 @@ public final class IntrospectionTools {
                         "className", str("fully-qualified class name, e.g. net.minecraft.client.Minecraft"),
                         "members", str("all|fields|methods|summary (default all)")),
                         List.of("className")))
+                .annotations(ToolAnnotations.builder()
+                        .title("Describe class structure")
+                        .readOnlyHint(true)
+                        .destructiveHint(false)
+                        .idempotentHint(true)
+                        .openWorldHint(false)
+                        .build())
                 .build();
         return new SyncToolSpecification(tool, (exchange, request) -> {
             Map<String, Object> a = request.arguments();
@@ -139,10 +156,14 @@ public final class IntrospectionTools {
     private SyncToolSpecification findMethod() {
         Tool tool = Tool.builder()
                 .name("find_method")
-                .description("Find methods across loaded classes by name (case-insensitive "
+                .title("Find methods by name")
+                .description("[requires: -javaagent] Find methods across loaded classes by name (case-insensitive "
                         + "substring), optionally filtering by owner class name and parameter "
                         + "signature (simple types like 'int,int' or JVM descriptor like '(II)'). "
-                        + "Returns up to limit results (default 100, cap 1000).")
+                        + "Returns up to limit results (default 100, cap 1000). Without -javaagent "
+                        + "Instrumentation only a tiny seed class set is searchable, so an empty "
+                        + "result is not authoritative and the tool reports an error rather than "
+                        + "'(no matches)'.")
                 .inputSchema(schema(Map.of(
                         "method", str("case-insensitive substring of the method name"),
                         "owner", str("restrict to classes whose FQN contains this (optional)"),
@@ -150,6 +171,13 @@ public final class IntrospectionTools {
                         "limit", Map.of("type", "integer", "description",
                                 "max results, default 100, cap 1000")),
                         List.of("method")))
+                .annotations(ToolAnnotations.builder()
+                        .title("Find methods by name")
+                        .readOnlyHint(true)
+                        .destructiveHint(false)
+                        .idempotentHint(true)
+                        .openWorldHint(false)
+                        .build())
                 .build();
         return new SyncToolSpecification(tool, (exchange, request) -> {
             Map<String, Object> a = request.arguments();
@@ -180,11 +208,19 @@ public final class IntrospectionTools {
     private SyncToolSpecification listHooks() {
         Tool tool = Tool.builder()
                 .name("list_hooks")
+                .title("List runtime hooks")
                 .description("List all runtime hooks: the target class/method, the advice class, "
                         + "the hook kind (e.g. bytebuddy-advice-retransform), and whether "
                         + "installed. Aggregates from all hook sources (FltManager, and future "
                         + "FltDynamicManager).")
                 .inputSchema(schema(Map.of(), List.of()))
+                .annotations(ToolAnnotations.builder()
+                        .title("List runtime hooks")
+                        .readOnlyHint(true)
+                        .destructiveHint(false)
+                        .idempotentHint(true)
+                        .openWorldHint(false)
+                        .build())
                 .build();
         return new SyncToolSpecification(tool, (exchange, request) -> {
             List<HookInfo> hooks = svc.listHooks();

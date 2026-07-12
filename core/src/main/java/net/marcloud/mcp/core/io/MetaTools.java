@@ -9,6 +9,7 @@ import java.util.Map;
 import io.modelcontextprotocol.server.McpServerFeatures.SyncToolSpecification;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
+import io.modelcontextprotocol.spec.McpSchema.ToolAnnotations;
 
 /**
  * The self-referential tools: they let the AI inspect and extend the Kernel itself.
@@ -83,10 +84,18 @@ public final class MetaTools {
     private SyncToolSpecification listCapabilities() {
         Tool tool = Tool.builder()
                 .name("list_capabilities")
+                .title("List capabilities")
                 .description("List every capability (tool) the system currently has: name, "
                         + "description, version, whether built-in, and health (circuit state, "
                         + "call/failure counts). The system describing itself to you.")
                 .inputSchema(schema(Map.of(), List.of()))
+                .annotations(ToolAnnotations.builder()
+                        .title("List capabilities")
+                        .readOnlyHint(true)
+                        .destructiveHint(false)
+                        .idempotentHint(true)
+                        .openWorldHint(false)
+                        .build())
                 .build();
         return new SyncToolSpecification(tool, (exchange, request) -> {
             StringBuilder sb = new StringBuilder();
@@ -102,9 +111,17 @@ public final class MetaTools {
     private SyncToolSpecification getToolSource() {
         Tool tool = Tool.builder()
                 .name("get_tool_source")
+                .title("Get tool source")
                 .description("Return the Java source of an AI-authored tool (null for built-ins). "
                         + "Read this before modifying a tool with create_tool.")
                 .inputSchema(schema(Map.of("name", str("tool name")), List.of("name")))
+                .annotations(ToolAnnotations.builder()
+                        .title("Get tool source")
+                        .readOnlyHint(true)
+                        .destructiveHint(false)
+                        .idempotentHint(true)
+                        .openWorldHint(false)
+                        .build())
                 .build();
         return new SyncToolSpecification(tool, (exchange, request) -> {
             String name = arg(request.arguments(), "name");
@@ -122,6 +139,7 @@ public final class MetaTools {
     private SyncToolSpecification createTool() {
         Tool tool = Tool.builder()
                 .name("create_tool")
+                .title("Create tool (compile live)")
                 .description("Create (or replace) a live MCP tool from Java source. The source "
                         + "must declare 'public class <className>' with a method "
                         + "'public String handle(java.util.Map<String,Object> args)'. On success "
@@ -137,6 +155,13 @@ public final class MetaTools {
                         "description", str("what the tool does (shown to the model)"),
                         "source", str("full Java source with a 'public String handle(Map<String,Object>)' method")),
                         List.of("toolName", "className", "source")))
+                .annotations(ToolAnnotations.builder()
+                        .title("Create tool (compile live)")
+                        .readOnlyHint(false)
+                        .destructiveHint(true)
+                        .idempotentHint(false)
+                        .openWorldHint(false)
+                        .build())
                 .build();
         return new SyncToolSpecification(tool, (exchange, request) -> {
             Map<String, Object> a = request.arguments();
@@ -178,9 +203,17 @@ public final class MetaTools {
     private SyncToolSpecification rollbackTool() {
         Tool tool = Tool.builder()
                 .name("rollback_tool")
+                .title("Rollback tool version")
                 .description("Revert a tool to its previous version (undo the last create_tool "
                         + "on that name). Safety net for a self-modification that made things worse.")
                 .inputSchema(schema(Map.of("name", str("tool name")), List.of("name")))
+                .annotations(ToolAnnotations.builder()
+                        .title("Rollback tool version")
+                        .readOnlyHint(false)
+                        .destructiveHint(true)
+                        .idempotentHint(false)
+                        .openWorldHint(false)
+                        .build())
                 .build();
         return new SyncToolSpecification(tool, (exchange, request) -> {
             String name = arg(request.arguments(), "name");
@@ -196,7 +229,8 @@ public final class MetaTools {
     private SyncToolSpecification redefineClass() {
         Tool tool = Tool.builder()
                 .name("redefine_class")
-                .description("HYPERVISOR (R-1): replace the bytecode of an ALREADY-LOADED class "
+                .title("Redefine loaded class (hot-swap)")
+                .description("[requires: -javaagent] HYPERVISOR (R-1): replace the bytecode of an ALREADY-LOADED class "
                         + "in the running game — including net.minecraft.* game classes — without "
                         + "a restart. Provide the fully-qualified class name and the FULL new Java "
                         + "source for that same class; it is compiled and hot-swapped in place. On "
@@ -210,6 +244,13 @@ public final class MetaTools {
                         "source", str("full Java source of the SAME class (same package + name), "
                                 + "with the modified method bodies / members")),
                         List.of("className", "source")))
+                .annotations(ToolAnnotations.builder()
+                        .title("Redefine loaded class (hot-swap)")
+                        .readOnlyHint(false)
+                        .destructiveHint(true)
+                        .idempotentHint(false)
+                        .openWorldHint(false)
+                        .build())
                 .build();
         return new SyncToolSpecification(tool, (exchange, request) -> {
             String className = arg(request.arguments(), "className");

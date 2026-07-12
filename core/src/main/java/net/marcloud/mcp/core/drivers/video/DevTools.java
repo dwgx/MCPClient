@@ -5,6 +5,7 @@ import java.util.Map;
 
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
+import io.modelcontextprotocol.spec.McpSchema.ToolAnnotations;
 import io.modelcontextprotocol.server.McpServerFeatures.SyncToolSpecification;
 
 import net.marcloud.mcp.core.GameAccess;
@@ -48,6 +49,7 @@ public final class DevTools {
     private SyncToolSpecification devProbe() {
         Tool tool = Tool.builder()
                 .name("dev_probe")
+                .title("Probe live game + GL context")
                 .description("DEV DIAGNOSTIC (read-only): one call returns a structured JSON "
                         + "snapshot of the LIVE game right now — game liveness/connection/world "
                         + "presence, and the OpenGL context (version, vendor, renderer, profile "
@@ -57,6 +59,13 @@ public final class DevTools {
                         + "what the running client actually is (not what a headless test asserts) "
                         + "and to read the GL context for the KI-1 mipmap investigation.")
                 .inputSchema(Map.of("type", "object", "properties", Map.of(), "required", List.of()))
+                .annotations(ToolAnnotations.builder()
+                        .title("Probe live game + GL context")
+                        .readOnlyHint(true)
+                        .destructiveHint(false)
+                        .idempotentHint(true)
+                        .openWorldHint(false)
+                        .build())
                 .build();
         return new SyncToolSpecification(tool, (exchange, request) -> {
             try {

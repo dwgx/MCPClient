@@ -6,6 +6,7 @@ import java.util.Map;
 import io.modelcontextprotocol.server.McpServerFeatures.SyncToolSpecification;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
+import io.modelcontextprotocol.spec.McpSchema.ToolAnnotations;
 import net.marcloud.mcp.core.io.Capability;
 import net.marcloud.mcp.core.io.IoManager;
 
@@ -75,12 +76,20 @@ public final class PermissionTools {
     private SyncToolSpecification listPermissions() {
         Tool tool = Tool.builder()
                 .name("list_permissions")
+                .title("List privilege rings & permissions")
                 .description("Show the privilege system: current clearance ring, whether "
                         + "privilege can be restored, and every tool's ring + whether it is "
                         + "currently permitted. Rings: R-1 HYPERVISOR (arbitrary code / redefine) "
                         + "> R0 KERNEL (self-modify tools) > R1 SYSTEM (game/network effects) > "
                         + "R2 OBSERVE (live game reads) > R3 USER (local read-only).")
                 .inputSchema(schema(Map.of(), List.of()))
+                .annotations(ToolAnnotations.builder()
+                        .title("List privilege rings & permissions")
+                        .readOnlyHint(true)
+                        .destructiveHint(false)
+                        .idempotentHint(true)
+                        .openWorldHint(false)
+                        .build())
                 .build();
         return new SyncToolSpecification(tool, (exchange, request) -> {
             StringBuilder sb = new StringBuilder();
@@ -99,6 +108,7 @@ public final class PermissionTools {
     private SyncToolSpecification dropPrivilege() {
         Tool tool = Tool.builder()
                 .name("drop_privilege")
+                .title("Drop privilege (self-sandbox)")
                 .description("Voluntarily LOWER clearance to a less-privileged ring "
                         + "(self-sandbox). e.g. target 'R2' locks out send/create/eval/redefine, "
                         + "leaving only observation + local tools. Cannot raise privilege. "
@@ -107,6 +117,13 @@ public final class PermissionTools {
                         Map.of("type", "string", "description",
                                 "target ring: R-1, R0, R1, R2, or R3 (or label like OBSERVE)")),
                         List.of("target")))
+                .annotations(ToolAnnotations.builder()
+                        .title("Drop privilege (self-sandbox)")
+                        .readOnlyHint(false)
+                        .destructiveHint(false)
+                        .idempotentHint(true)
+                        .openWorldHint(false)
+                        .build())
                 .build();
         return new SyncToolSpecification(tool, (exchange, request) -> {
             Ring target = parseRing(arg(request.arguments(), "target"));
@@ -131,6 +148,7 @@ public final class PermissionTools {
     private SyncToolSpecification restorePrivilege() {
         Tool tool = Tool.builder()
                 .name("restore_privilege")
+                .title("Restore privilege (token-gated)")
                 .description("RAISE clearance back up, gated by the restore token set at startup "
                         + "(prevents a sandboxed agent from re-escalating itself). Supply the "
                         + "token and the target ring.")
@@ -139,6 +157,13 @@ public final class PermissionTools {
                         "target", Map.of("type", "string", "description",
                                 "target ring to restore to (default R-1)")),
                         List.of("token")))
+                .annotations(ToolAnnotations.builder()
+                        .title("Restore privilege (token-gated)")
+                        .readOnlyHint(false)
+                        .destructiveHint(false)
+                        .idempotentHint(true)
+                        .openWorldHint(false)
+                        .build())
                 .build();
         return new SyncToolSpecification(tool, (exchange, request) -> {
             if (!engine.restorable()) {

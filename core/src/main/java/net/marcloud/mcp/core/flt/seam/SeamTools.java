@@ -14,6 +14,7 @@ import java.util.Map;
 import io.modelcontextprotocol.server.McpServerFeatures.SyncToolSpecification;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
+import io.modelcontextprotocol.spec.McpSchema.ToolAnnotations;
 import net.marcloud.mcp.core.io.IoManager;
 import net.marcloud.mcp.core.se.Ring;
 
@@ -97,11 +98,17 @@ public final class SeamTools {
     private SyncToolSpecification seamNettyInstall() {
         Tool tool = Tool.builder()
                 .name("seam_netty_install")
-                .description("Install the built-in Netty packet observer on the live game channel. "
+                .title("Install packet observer (Netty tap)")
+                .description("[requires: connected-to-server, -javaagent] Install the built-in Netty "
+                        + "packet observer on the live game channel. "
                         + "Publishes SeamPacketInboundEvent and SeamPacketOutboundEvent to the "
                         + "EventBus. Wire bytes are frozen: the handler observes but never mutates. "
                         + "Can only be installed when connected to a server. Idempotent.")
                 .inputSchema(schema(Map.of(), List.of()))
+                .annotations(ToolAnnotations.builder()
+                        .title("Install packet observer (Netty tap)")
+                        .readOnlyHint(false).destructiveHint(false)
+                        .idempotentHint(true).openWorldHint(true).build())
                 .build();
         return new SyncToolSpecification(tool, (exchange, request) -> {
             if (!controller.canInstall()) {
@@ -116,8 +123,13 @@ public final class SeamTools {
     private SyncToolSpecification seamNettyUninstall() {
         Tool tool = Tool.builder()
                 .name("seam_netty_uninstall")
+                .title("Remove packet observer (Netty tap)")
                 .description("Remove the built-in Netty packet observer from the channel pipeline.")
                 .inputSchema(schema(Map.of(), List.of()))
+                .annotations(ToolAnnotations.builder()
+                        .title("Remove packet observer (Netty tap)")
+                        .readOnlyHint(false).destructiveHint(false)
+                        .idempotentHint(true).openWorldHint(true).build())
                 .build();
         return new SyncToolSpecification(tool, (exchange, request) -> {
             boolean done = controller.uninstallNettyTap();
@@ -129,13 +141,19 @@ public final class SeamTools {
     private SyncToolSpecification seamGlfwKeyHook() {
         Tool tool = Tool.builder()
                 .name("seam_glfw_key_hook")
-                .description("Install or uninstall the GLFW key callback observer. When enabled, "
+                .title("Toggle GLFW key observer")
+                .description("[requires: GLFW-window] Install or uninstall the GLFW key callback "
+                        + "observer. When enabled, "
                         + "publishes SeamKeyEvent (key, scancode, action, mods) to the EventBus. "
                         + "Chains before the game's original callback so input still works. "
                         + "Requires a live GLFW window (not available in headless tests).")
                 .inputSchema(schema(Map.of(
                         "enabled", bool("true to install, false to uninstall")),
                         List.of("enabled")))
+                .annotations(ToolAnnotations.builder()
+                        .title("Toggle GLFW key observer")
+                        .readOnlyHint(false).destructiveHint(false)
+                        .idempotentHint(true).openWorldHint(false).build())
                 .build();
         return new SyncToolSpecification(tool, (exchange, request) -> {
             boolean enable = boolArg(request.arguments(), "enabled", true);
@@ -154,13 +172,19 @@ public final class SeamTools {
     private SyncToolSpecification seamGlfwMouseHook() {
         Tool tool = Tool.builder()
                 .name("seam_glfw_mouse_hook")
-                .description("Install or uninstall the GLFW mouse button callback observer. When "
+                .title("Toggle GLFW mouse observer")
+                .description("[requires: GLFW-window] Install or uninstall the GLFW mouse button "
+                        + "callback observer. When "
                         + "enabled, publishes SeamMouseEvent (button, action, mods) to the EventBus. "
                         + "Chains before the game's original callback so input still works. "
                         + "Requires a live GLFW window (not available in headless tests).")
                 .inputSchema(schema(Map.of(
                         "enabled", bool("true to install, false to uninstall")),
                         List.of("enabled")))
+                .annotations(ToolAnnotations.builder()
+                        .title("Toggle GLFW mouse observer")
+                        .readOnlyHint(false).destructiveHint(false)
+                        .idempotentHint(true).openWorldHint(false).build())
                 .build();
         return new SyncToolSpecification(tool, (exchange, request) -> {
             boolean enable = boolArg(request.arguments(), "enabled", true);
@@ -179,12 +203,18 @@ public final class SeamTools {
     private SyncToolSpecification seamTickEnable() {
         Tool tool = Tool.builder()
                 .name("seam_tick_enable")
-                .description("Install the tick event injector. Retransforms Minecraft.runTick to "
+                .title("Enable tick event injector")
+                .description("[requires: -javaagent] Install the tick event injector. Retransforms "
+                        + "Minecraft.runTick to "
                         + "publish TickEvent on every game tick (20 ticks/sec). Requires "
                         + "Instrumentation. TickEvent is already declared but unwired; this seam "
                         + "fires it. EventBus subscribers must be cheap (offload heavy work to "
                         + "executor). Idempotent.")
                 .inputSchema(schema(Map.of(), List.of()))
+                .annotations(ToolAnnotations.builder()
+                        .title("Enable tick event injector")
+                        .readOnlyHint(false).destructiveHint(false)
+                        .idempotentHint(true).openWorldHint(false).build())
                 .build();
         return new SyncToolSpecification(tool, (exchange, request) -> {
             if (!controller.canInstall()) {
@@ -203,10 +233,15 @@ public final class SeamTools {
     private SyncToolSpecification seamTickDisable() {
         Tool tool = Tool.builder()
                 .name("seam_tick_disable")
+                .title("Disable tick event injector")
                 .description("Disable the tick event injector: resets the ByteBuddy retransform "
                         + "so TickEvent stops firing and Minecraft.runTick reverts to its original "
-                        + "bytecode. Genuinely reversible — no restart needed.")
+                        + "bytecode. Genuinely reversible - no restart needed.")
                 .inputSchema(schema(Map.of(), List.of()))
+                .annotations(ToolAnnotations.builder()
+                        .title("Disable tick event injector")
+                        .readOnlyHint(false).destructiveHint(false)
+                        .idempotentHint(true).openWorldHint(false).build())
                 .build();
         return new SyncToolSpecification(tool, (exchange, request) -> {
             boolean reverted = controller.uninstallTickInjector();

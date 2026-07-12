@@ -11,6 +11,7 @@ import java.util.Map;
 import io.modelcontextprotocol.server.McpServerFeatures.SyncToolSpecification;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
+import io.modelcontextprotocol.spec.McpSchema.ToolAnnotations;
 import net.marcloud.mcp.core.io.IoManager;
 import net.marcloud.mcp.core.drivers.world.PlayerState;
 import net.marcloud.mcp.core.drivers.world.Surroundings;
@@ -96,9 +97,17 @@ public final class ToolRegistry {
     private SyncToolSpecification readPlayerState() {
         Tool tool = Tool.builder()
                 .name("read_player_state")
-                .description("Read the local player's live state: name, position "
+                .title("Read player state")
+                .description("[requires: in-world] Read the local player's live state: name, position "
                         + "(x,y,z), yaw/pitch, health, onGround. Returns 'not in world' "
                         + "if the player isn't spawned.")
+                .annotations(ToolAnnotations.builder()
+                        .title("Read player state")
+                        .readOnlyHint(true)
+                        .destructiveHint(false)
+                        .idempotentHint(true)
+                        .openWorldHint(false)
+                        .build())
                 .inputSchema(objectSchema(Map.of(), List.of()))
                 .build();
         return new SyncToolSpecification(tool, (exchange, request) -> {
@@ -123,9 +132,17 @@ public final class ToolRegistry {
     private SyncToolSpecification recentPackets() {
         Tool tool = Tool.builder()
                 .name("recent_packets")
-                .description("List recently observed packets (inbound <- / outbound ->), "
+                .title("List recent packets")
+                .description("[requires: -javaagent] List recently observed packets (inbound <- / outbound ->), "
                         + "oldest first. Useful to see what happened right before a "
                         + "disconnect/kick.")
+                .annotations(ToolAnnotations.builder()
+                        .title("List recent packets")
+                        .readOnlyHint(true)
+                        .destructiveHint(false)
+                        .idempotentHint(true)
+                        .openWorldHint(true)
+                        .build())
                 .inputSchema(objectSchema(Map.of(
                         "count", Map.of("type", "integer",
                                 "description", "max entries to return (default 50)")),
@@ -163,8 +180,16 @@ public final class ToolRegistry {
     private SyncToolSpecification sendChat() {
         Tool tool = Tool.builder()
                 .name("send_chat")
-                .description("Send a chat message as the player. If it starts with '/', "
+                .title("Send chat message")
+                .description("[requires: in-world, connected-to-server] Send a chat message as the player. If it starts with '/', "
                         + "it runs as a command. Requires being in a world.")
+                .annotations(ToolAnnotations.builder()
+                        .title("Send chat message")
+                        .readOnlyHint(false)
+                        .destructiveHint(true)
+                        .idempotentHint(false)
+                        .openWorldHint(true)
+                        .build())
                 .inputSchema(objectSchema(Map.of(
                         "message", stringProp("the chat text or /command")),
                         List.of("message")))
@@ -187,6 +212,7 @@ public final class ToolRegistry {
     private SyncToolSpecification evalJava() {
         Tool tool = Tool.builder()
                 .name("eval_java")
+                .title("Evaluate Java (live REPL)")
                 .description("Compile and load a Java class into the running game, then "
                         + "instantiate it and call its no-arg 'run' method; returns the "
                         + "result's toString. The source must declare a public class with "
@@ -197,6 +223,13 @@ public final class ToolRegistry {
                         + "net.marcloud.mcp.core.GameBridge.onGameThread(() -> { "
                         + "return net.marcloud.mcp.core.GameBridge.game().player().posX; }). "
                         + "Touching game state directly off-thread can crash the game.")
+                .annotations(ToolAnnotations.builder()
+                        .title("Evaluate Java (live REPL)")
+                        .readOnlyHint(false)
+                        .destructiveHint(true)
+                        .idempotentHint(false)
+                        .openWorldHint(false)
+                        .build())
                 .inputSchema(objectSchema(Map.of(
                         "className", stringProp("fully-qualified class name, e.g. gen.Probe"),
                         "source", stringProp("full Java source declaring that class with "
@@ -229,12 +262,20 @@ public final class ToolRegistry {
     private SyncToolSpecification sendRawPacket() {
         Tool tool = Tool.builder()
                 .name("send_raw_packet")
-                .description("Send an ARBITRARY protocol packet down the current connection. "
+                .title("Send raw protocol packet")
+                .description("[requires: connected-to-server] Send an ARBITRARY protocol packet down the current connection. "
                         + "Provide Java source for a class with a 'public Object run()' method "
                         + "that constructs and RETURNS a net.minecraft.network.Packet (e.g. "
                         + "'return new net.minecraft.network.play.client.C03PacketPlayer(true);'). "
                         + "The packet is compiled, then dispatched on the game thread. Raw "
                         + "protocol experiment primitive — no filtering. Requires being connected.")
+                .annotations(ToolAnnotations.builder()
+                        .title("Send raw protocol packet")
+                        .readOnlyHint(false)
+                        .destructiveHint(true)
+                        .idempotentHint(false)
+                        .openWorldHint(true)
+                        .build())
                 .inputSchema(objectSchema(Map.of(
                         "className", stringProp("fully-qualified class name, e.g. gen.MakePacket"),
                         "source", stringProp("Java source with 'public Object run()' returning a Packet")),
@@ -271,8 +312,16 @@ public final class ToolRegistry {
     private SyncToolSpecification disconnectReport() {
         Tool tool = Tool.builder()
                 .name("disconnect_report")
-                .description("Explain the last disconnect/kick: the reason text plus the "
+                .title("Explain last disconnect")
+                .description("[requires: -javaagent] Explain the last disconnect/kick: the reason text plus the "
                         + "packets observed right before it. Answers 'why was I kicked?'.")
+                .annotations(ToolAnnotations.builder()
+                        .title("Explain last disconnect")
+                        .readOnlyHint(true)
+                        .destructiveHint(false)
+                        .idempotentHint(true)
+                        .openWorldHint(true)
+                        .build())
                 .inputSchema(objectSchema(Map.of(
                         "recentPackets", Map.of("type", "integer",
                                 "description", "how many recent packets to include (default 20)")),
@@ -305,12 +354,20 @@ public final class ToolRegistry {
     private SyncToolSpecification scanSurroundings() {
         Tool tool = Tool.builder()
                 .name("scan_surroundings")
-                .description("The primary observation: a symbolic snapshot of the player's "
+                .title("Scan surroundings")
+                .description("[requires: in-world] The primary observation: a symbolic snapshot of the player's "
                         + "situation — position, health/hunger, biome/dimension/time, inventory, "
                         + "the block column (below/legs/head), dedup'd nearby block types with "
                         + "counts, and nearby entities sorted by distance. Cheap and precise; "
                         + "use this as your main sense of the world (use capture_screen only when "
                         + "you specifically need to SEE the scene).")
+                .annotations(ToolAnnotations.builder()
+                        .title("Scan surroundings")
+                        .readOnlyHint(true)
+                        .destructiveHint(false)
+                        .idempotentHint(true)
+                        .openWorldHint(false)
+                        .build())
                 .inputSchema(objectSchema(Map.of(
                         "radius", Map.of("type", "integer",
                                 "description", "scan cube half-size in blocks, 1-32 (default 16)")),
@@ -336,11 +393,19 @@ public final class ToolRegistry {
     private SyncToolSpecification captureScreen() {
         Tool tool = Tool.builder()
                 .name("capture_screen")
-                .description("SEE the game: capture the current rendered frame as a PNG image "
+                .title("Capture screen (PNG)")
+                .description("[requires: GLFW-window] SEE the game: capture the current rendered frame as a PNG image "
                         + "and return it for you to look at. Use this when you need visual "
                         + "understanding the symbolic scan can't give (scenery, builds, GUI, "
                         + "terrain, rendering issues). Costs image tokens — prefer "
                         + "scan_surroundings for routine sensing. Downscaled to ~1024px long edge.")
+                .annotations(ToolAnnotations.builder()
+                        .title("Capture screen (PNG)")
+                        .readOnlyHint(true)
+                        .destructiveHint(false)
+                        .idempotentHint(true)
+                        .openWorldHint(false)
+                        .build())
                 .inputSchema(objectSchema(Map.of(
                         "maxEdge", Map.of("type", "integer",
                                 "description", "max long-edge pixels, 64-1600 (default 1024)")),
