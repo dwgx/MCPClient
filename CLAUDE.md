@@ -47,6 +47,9 @@ scripts\run-mcp.bat                           # 启动游戏 + MCP Core(Windows;
 4. **参考代码不进目标**:`_*` 目录(如 `_tools`)是 gitignored 工作区,绝不污染 `core/client/shim`。
 5. **本文件(CLAUDE.md)是定死骨架**:agent **不许自行修改**。只有影响所有会话的永久事实/铁律才值得改,
    且**必须经用户明确确认 3 次**方可动笔——否则一律拒绝修改本文件。
+6. **读代码必须用 codegraph**:理解/查找/改前看代码,一律先走 codegraph(`codegraph_explore` 等 MCP 工具或 `codegraph` CLI),
+   而非 Grep/Read 兜圈。codegraph 是被授权的默认读码路径。且 **agent 自己负责让索引可用**:动过代码后自行判断是否需 `codegraph sync`(守护进程通常已自动同步,拿不准就 sync 一次),
+   让**下一个 AI 一进来就能用 codegraph 预览当前代码**。索引陈旧 = 骨架漂移,按 doc_lint 同等严肃对待。
 
 ## 去哪找(路由表)
 
@@ -76,7 +79,7 @@ scripts\run-mcp.bat                           # 启动游戏 + MCP Core(Windows;
 
 **授权(judge 权在你,质量优先,无需逐次请示;何时用哪个、边界、技法全在 guide):**
 - `ultrathink`(深想/定架构)· `workflow`(并行拆解,探索性研究控 token)· `ultracode`(质量优先,token 不是约束)。
-- **subagent 委派**:广泛调研派它,定向查已知符号自己 Grep;判断留主 agent。
+- **subagent 委派**:广泛调研派它;判断留主 agent。**读代码走 codegraph**(铁律⑥)——定向查已知符号用 `codegraph_node`,探索用 `codegraph_explore`,Grep/Read 仅当 codegraph 查不到时兜底。
 - **Review 是常态**:改完对抗性复查;安全类有罪推定。可跑 skill:`grill`(逼问)`code-review`(双轴)`diagnose`(bug闭环)`research`(调研),闭环链见 guide。
 
 **红线(授权不覆盖这些):**
