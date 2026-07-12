@@ -15,6 +15,7 @@
         <module>client</module>
         <module>core</module>
         <module>board</module>
+        <module>pg</module>
     </modules>
 
     <properties>

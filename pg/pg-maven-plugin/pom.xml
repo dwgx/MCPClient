@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>net.marcloud.mcp.189</groupId>
+        <artifactId>pg</artifactId>
+        <version>1.8.9</version>
+    </parent>
+
+    <artifactId>pg-maven-plugin</artifactId>
+    <packaging>maven-plugin</packaging>
+    <description>
+        pg-maven-plugin — the build-time Mojo. Binds after compile, scans the
+        module's output classes for @Guarded, runs pg-engine over the matched
+        classes, and atomically replaces the .class files in target/classes so the
+        packaged jar is hardened. Zero source pollution: business code only writes
+        @Guarded. Fail-safe: an engine failure on one class is logged and leaves
+        that class untouched; the build does not emit unloadable bytecode.
+    </description>
+
+    <properties>
+        <maven.compiler.release>17</maven.compiler.release>
+        <maven.version>3.9.9</maven.version>
+        <maven.plugin.tools.version>3.13.1</maven.plugin.tools.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>net.marcloud.mcp.189</groupId>
+            <artifactId>pg-engine</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.maven</groupId>
+            <artifactId>maven-plugin-api</artifactId>
+            <version>${maven.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.maven</groupId>
+            <artifactId>maven-core</artifactId>
+            <version>${maven.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.maven.plugin-tools</groupId>
+            <artifactId>maven-plugin-annotations</artifactId>
+            <version>${maven.plugin.tools.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <version>4.13.2</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-plugin-plugin</artifactId>
+                <version>${maven.plugin.tools.version}</version>
+            </plugin>
+        </plugins>
+    </build>
+</project>

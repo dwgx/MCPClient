@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>net.marcloud.mcp.189</groupId>
+        <artifactId>mcpclient-parent</artifactId>
+        <version>1.8.9</version>
+    </parent>
+
+    <artifactId>pg</artifactId>
+    <packaging>pom</packaging>
+    <description>
+        PatchGuard (pg) — a standalone, annotation-driven code-hardening library.
+        NT-motif name after Windows kernel PatchGuard (anti-tamper of kernel code):
+        business code marks a class with @Guarded and the build applies bytecode
+        hardening passes automatically, emitting a hardened jar with zero source
+        pollution. Three artifacts with distinct lifecycles:
+          - pg-api    : the @Guarded annotation contract (Java 8, zero deps). The
+                        ONLY thing business modules import.
+          - pg-engine : the transform engine — a HardenPass SPI + concrete passes
+                        (ASM), fail-safe (re-verifies output, keeps original on any
+                        failure).
+          - pg-maven-plugin : a build-time Mojo that scans @Guarded, runs the
+                        engine, atomically replaces .class files in the output.
+        Designed to be extractable into its own repository later: zero dependency
+        on core/board, clean API boundary. A leaf in the reactor so every module
+        can depend on pg-api and apply pg-maven-plugin.
+    </description>
+
+    <modules>
+        <module>pg-api</module>
+        <module>pg-engine</module>
+        <module>pg-maven-plugin</module>
+    </modules>
+
+    <properties>
+        <asm.version>9.8</asm.version>
+    </properties>
+</project>

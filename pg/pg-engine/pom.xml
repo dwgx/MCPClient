@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>net.marcloud.mcp.189</groupId>
+        <artifactId>pg</artifactId>
+        <version>1.8.9</version>
+    </parent>
+
+    <artifactId>pg-engine</artifactId>
+    <packaging>jar</packaging>
+    <description>
+        pg-engine — the transform engine. A HardenPass SPI plus concrete ASM-based
+        passes; fail-safe by contract (re-verifies every output class with
+        CheckClassAdapter, and on ANY pass failure keeps the original class rather
+        than emitting bytecode that will not load). Depends on pg-api (to read the
+        @Guarded contract) and ASM only. No dependency on core/board — this is a
+        general-purpose hardener.
+    </description>
+
+    <properties>
+        <!-- Runs at build time on the build JDK; 17 is a safe floor for the plugin
+             toolchain and ASM 9.8. -->
+        <maven.compiler.release>17</maven.compiler.release>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>net.marcloud.mcp.189</groupId>
+            <artifactId>pg-api</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.ow2.asm</groupId>
+            <artifactId>asm</artifactId>
+            <version>${asm.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.ow2.asm</groupId>
+            <artifactId>asm-tree</artifactId>
+            <version>${asm.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.ow2.asm</groupId>
+            <artifactId>asm-util</artifactId>
+            <version>${asm.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <version>4.13.2</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>

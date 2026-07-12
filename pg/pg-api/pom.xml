@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>net.marcloud.mcp.189</groupId>
+        <artifactId>pg</artifactId>
+        <version>1.8.9</version>
+    </parent>
+
+    <artifactId>pg-api</artifactId>
+    <packaging>jar</packaging>
+    <description>
+        pg-api — the @Guarded annotation contract. The ONLY pg artifact business
+        code imports. Zero dependencies; compiled to Java 8 bytecode (inherited
+        release=8) so every module (incl. the Java-8 board and client) can use it.
+        The annotation is SOURCE/CLASS-retained metadata read by the build; it has
+        no runtime behavior of its own.
+    </description>
+
+    <properties>
+        <maven.compiler.release>8</maven.compiler.release>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <version>4.13.2</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>
