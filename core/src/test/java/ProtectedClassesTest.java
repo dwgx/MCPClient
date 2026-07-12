@@ -52,6 +52,10 @@ public class ProtectedClassesTest {
         assertTrue(SeProtectedObjects.isProtected("net.marcloud.mcp.core.boot.AgentAccess"));
         assertTrue(SeProtectedObjects.isProtected("net.marcloud.mcp.core.io.IoManager"));
         assertTrue(SeProtectedObjects.isProtected("net.marcloud.mcp.core.io.IoSupervisor"));
+        // Regression (review finding): the L7 boundary IoProbe (deep-freeze +
+        // schema validate, run by supervise() after every decision) must be
+        // protected too, else redefine_class could neutralize L7. Was missing.
+        assertTrue(SeProtectedObjects.isProtected("net.marcloud.mcp.core.io.IoProbe"));
         assertTrue(SeProtectedObjects.isProtected("net.marcloud.mcp.core.ldr.LdrRedefiner"));
         assertTrue(SeProtectedObjects.isProtected("net.marcloud.mcp.core.flt.FltManager"));
     }

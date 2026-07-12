@@ -77,16 +77,27 @@ public final class KeGameDispatcher {
                 throw new ExecutionException(e);
             }
         }
-        ListenableFuture<V> future = mc.addScheduledTask(task);
+        return awaitOrCancel(mc.addScheduledTask(task), timeoutMillis);
+    }
+
+    /**
+     * Block on {@code future} up to {@code timeoutMillis}, cancelling the queued
+     * task on ANY non-normal exit (timeout OR interrupt) so it doesn't run on a
+     * later frame after the caller was already told it failed. A not-yet-started
+     * {@link ListenableFuture} no-ops once cancelled; one already draining cannot
+     * be stopped — game-thread work should be kept bounded.
+     *
+     * <p>Package-visible and Minecraft-free so the cancel-on-failure contract is
+     * unit-testable without a live game (the bug this guards, finding H7, was that
+     * only TimeoutException triggered cancel — an interrupt leaked the task).
+     */
+    static <V> V awaitOrCancel(ListenableFuture<V> future, long timeoutMillis)
+            throws InterruptedException, ExecutionException, TimeoutException {
         try {
             return future.get(timeoutMillis, TimeUnit.MILLISECONDS);
-        } catch (TimeoutException te) {
-            // Drop the queued task so it doesn't run on a later frame after the
-            // caller was already told it timed out (a not-yet-started
-            // ListenableFutureTask no-ops once cancelled; one already draining
-            // cannot be stopped — game-thread work should be kept bounded).
+        } catch (TimeoutException | InterruptedException e) {
             future.cancel(false);
-            throw te;
+            throw e;
         }
     }
 }

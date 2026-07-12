@@ -59,6 +59,10 @@ public final class SeProtectedObjects {
             "net.marcloud.mcp.core.io.IoManager",
             "net.marcloud.mcp.core.io.IoSupervisor",
             "net.marcloud.mcp.core.io.ToolStats",
+            // L7 boundary: deep-freeze (TOCTOU guard) + schema validation. Redefining
+            // it would neutralize the L7 layer the supervised gate runs after every
+            // decision (IoManager.supervise -> IoProbe.validate/freezeArgs).
+            "net.marcloud.mcp.core.io.IoProbe",
             "net.marcloud.mcp.core.io.Capability",
             "net.marcloud.mcp.core.io.MetaTools",
             "net.marcloud.mcp.core.io.DynamicToolFactory",

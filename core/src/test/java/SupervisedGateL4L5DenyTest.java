@@ -77,6 +77,34 @@ public class SupervisedGateL4L5DenyTest {
     }
 
     /**
+     * L5 (regression, finding H1): the three GUI action tools drive real
+     * click/type/key handlers = server-visible world mutation, so they MUST carry
+     * an L5 capability. Before the fix they were absent from CapabilityCatalog, so
+     * requiredFor returned Set.of() and holdsAll short-circuited true — a strict
+     * subject holding only CAP_WORLD_READ would run gui_click_element, bypassing
+     * caps=strict default-deny. This test FAILS on the pre-fix code (call runs =>
+     * isError false). GUI tools are R1 (clearance R-1 clears it), SYSTEM integrity
+     * clears L3 HIGH, wideOpen privileges clear L4 SE_GUI_INTERACT — so ONLY L5 can
+     * deny, isolating the fix.
+     */
+    @Test
+    public void l5GuiActionToolsRequireWorldWriteCapability() {
+        IoSupervisor exec = new IoSupervisor(2, 2000L);
+        SeClearancePolicy p = new SeClearancePolicy(Ring.R_MINUS_1, "tok");
+        SeToken strict = SeLocalMonitor.strictSubject(
+                java.util.Set.of(CapabilitySid.CAP_WORLD_READ)); // NOT CAP_WORLD_WRITE
+        IoManager reg = new IoManager(exec, new SeLocalMonitor(p, strict));
+        reg.register("gui_click_element", tool("gui_click_element"), null, "d", true, Ring.R1);
+
+        CallToolResult denied = reg.invoke("gui_click_element", Map.of());
+        assertTrue("gui_click_element denied at L5 (missing CAP_WORLD_WRITE)",
+                Boolean.TRUE.equals(denied.isError()));
+        assertTrue("deny names the capability layer",
+                denied.content().toString().contains("L5 capability"));
+        exec.shutdown();
+    }
+
+    /**
      * L4: a subject with wildcard capabilities and SYSTEM integrity but the
      * SE_SCREEN_CAP privilege GRANTED-yet-DISABLED is denied capture_screen at L4.
      * Isolates the privilege layer from L5 (caps wildcard) and L3 (SYSTEM writes

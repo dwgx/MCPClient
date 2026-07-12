@@ -37,6 +37,12 @@ public final class CapabilityCatalog {
             // outward network effects
             Map.entry("send_chat", Set.of(CAP_NETWORK_SEND)),
             Map.entry("send_raw_packet", Set.of(CAP_NETWORK_SEND)),
+            // GUI action tools drive real click/type/key handlers = world/UI mutation
+            // (server-visible effects). Without an L5 entry a builtin needs no capability,
+            // so caps=strict default-deny would be bypassed. See CAP_WORLD_WRITE.
+            Map.entry("gui_click_element", Set.of(CapabilitySid.CAP_WORLD_WRITE)),
+            Map.entry("gui_type_text", Set.of(CapabilitySid.CAP_WORLD_WRITE)),
+            Map.entry("gui_press_key", Set.of(CapabilitySid.CAP_WORLD_WRITE)),
             // synthesize / redefine
             Map.entry("eval_java", Set.of(CAP_TOOL_CREATE)),
             Map.entry("create_tool", Set.of(CAP_TOOL_CREATE)),

@@ -24,6 +24,33 @@ final class ValueCodec {
      * @return coerced value, assignable to {@code target}
      * @throws MmAccessException if coercion fails
      */
+    /**
+     * Return {@code n} as a long, verifying it fits in [{@code min},{@code max}]
+     * with NO loss — otherwise throw. Prevents the silent narrowing-truncation bug
+     * (review finding): {@code Number.intValue()/shortValue()/byteValue()} wrap
+     * out-of-range values (e.g. long 300 -> byte 44), so a field write the AI
+     * requested as 300 would silently store 44. Floating inputs must be integral
+     * (no fractional part) and in range; a fractional value to an integer field is
+     * rejected rather than truncated.
+     */
+    private static long requireInRange(Number n, long min, long max, String targetName) {
+        boolean floating = (n instanceof Double) || (n instanceof Float);
+        if (floating) {
+            double d = n.doubleValue();
+            if (d != Math.rint(d) || Double.isNaN(d) || Double.isInfinite(d)) {
+                throw new MmAccessException(
+                        "cannot coerce non-integral " + d + " to " + targetName);
+            }
+        }
+        long v = n.longValue();
+        if (v < min || v > max) {
+            throw new MmAccessException(
+                    "value " + n + " out of range for " + targetName
+                            + " [" + min + ", " + max + "]");
+        }
+        return v;
+    }
+
     static Object coerce(Class<?> target, Object json, RootResolver roots) {
         if (json == null) {
             if (target.isPrimitive()) {
@@ -35,7 +62,7 @@ final class ValueCodec {
         // primitives
         if (target == int.class || target == Integer.class) {
             if (json instanceof Number n) {
-                return n.intValue();
+                return (int) requireInRange(n, Integer.MIN_VALUE, Integer.MAX_VALUE, "int");
             }
             throw new MmAccessException("cannot coerce " + json.getClass().getName() + " to int");
         }
@@ -59,13 +86,13 @@ final class ValueCodec {
         }
         if (target == short.class || target == Short.class) {
             if (json instanceof Number n) {
-                return n.shortValue();
+                return (short) requireInRange(n, Short.MIN_VALUE, Short.MAX_VALUE, "short");
             }
             throw new MmAccessException("cannot coerce " + json.getClass().getName() + " to short");
         }
         if (target == byte.class || target == Byte.class) {
             if (json instanceof Number n) {
-                return n.byteValue();
+                return (byte) requireInRange(n, Byte.MIN_VALUE, Byte.MAX_VALUE, "byte");
             }
             throw new MmAccessException("cannot coerce " + json.getClass().getName() + " to byte");
         }
