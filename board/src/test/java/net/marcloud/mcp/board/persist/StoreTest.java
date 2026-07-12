@@ -110,6 +110,45 @@ public class StoreTest {
     }
 
     @Test
+    public void pathologicallyDeepFileIsQuarantinedNotFatal() throws IOException {
+        Path f = file();
+        // A legal-looking envelope whose 'data' nests arrays tens of thousands
+        // deep. It is well-formed by grammar, but the recursive-descent parser
+        // recurses once per level and blows the stack (StackOverflowError, an
+        // Error, NOT a RuntimeException). load() must treat that as corruption:
+        // quarantine and run on defaults, never propagate.
+        int depth = 100000;
+        StringBuilder sb = new StringBuilder(depth * 2 + 64);
+        sb.append("{\"version\":1,\"data\":");
+        for (int i = 0; i < depth; i++) {
+            sb.append('[');
+        }
+        for (int i = 0; i < depth; i++) {
+            sb.append(']');
+        }
+        sb.append('}');
+        Files.write(f, sb.toString().getBytes(Charset.forName("UTF-8")));
+
+        Settings s = new Settings();
+        s.enabled = true;   // dirty pre-load state
+        s.speed = 42.0;
+        s.label = "stale";
+
+        Store store = new Store(f).register("nav", s);
+        store.load(); // must NOT throw (StackOverflowError must be caught)
+
+        // reset-before-load defaults survive the quarantined file
+        assertEquals(Settings.DEF_ENABLED, s.enabled);
+        assertEquals(Settings.DEF_SPEED, s.speed, 0.0);
+        assertEquals(Settings.DEF_LABEL, s.label);
+        assertTrue("deep-nesting corruption must be flagged", store.lastLoadRecovered());
+
+        Path backup = findBackup(f);
+        assertNotNull("a .backup of the pathological file must exist", backup);
+        assertFalse("pathological primary must have been moved aside", Files.exists(f));
+    }
+
+    @Test
     public void renamedDisplayNameButStableIdStillLoads() throws IOException {
         Path f = file();
         Settings a = new Settings();

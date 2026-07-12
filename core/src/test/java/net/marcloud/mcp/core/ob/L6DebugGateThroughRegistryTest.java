@@ -4,6 +4,9 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
+import io.modelcontextprotocol.server.McpServerFeatures.SyncToolSpecification;
+
+import java.util.List;
 import java.util.Map;
 
 import net.marcloud.mcp.core.kd.DebugTools;
@@ -117,6 +120,101 @@ public class L6DebugGateThroughRegistryTest {
             assertNotNull(r);
             assertTrue("handle-less call unaffected by L6 (reaches handler)",
                     r.content().toString().contains("-agentpath:core-jvmti.dll"));
+        } finally {
+            exec.shutdown();
+        }
+    }
+
+    /** The six HANDLE_OPS tools: each MUST advertise an optional 'handle' property when L6 is wired. */
+    private static final List<String> HANDLE_OP_TOOLS = List.of(
+            "debug_read_local", "debug_write_local", "debug_force_return",
+            "debug_suspend_thread", "debug_pop_frame", "debug_single_step");
+
+    /** The 'handle' property declared in a wired tool's inputSchema, or null if absent. */
+    @SuppressWarnings("unchecked")
+    private static Object handlePropOf(IoManager reg, String tool) {
+        SyncToolSpecification spec = reg.get(tool).spec();
+        Object schema = spec.tool().inputSchema();
+        if (!(schema instanceof Map)) {
+            return null;
+        }
+        Object props = ((Map<String, Object>) schema).get("properties");
+        return (props instanceof Map) ? ((Map<String, Object>) props).get("handle") : null;
+    }
+
+    /**
+     * H3/H4 regression: every one of the six handle-op tools must EXPOSE the optional
+     * {@code handle} property in its advertised inputSchema once L6 is wired. On the
+     * pre-fix code four of them (pop_frame / force_return / single_step / write_local)
+     * declared no handle property, so an LLM following the schema could never supply
+     * one — this loop fails for those four before the fix.
+     */
+    @Test
+    public void allSixHandleOpToolsAdvertiseOptionalHandleProperty() {
+        IoSupervisor exec = new IoSupervisor(4, 2000L);
+        try {
+            ObManager om = new ObManager(ref -> new Object(), 8, 60_000L);
+            IoManager reg = wired(exec, om);
+            for (String tool : HANDLE_OP_TOOLS) {
+                assertNotNull(tool + " must declare an optional 'handle' schema property",
+                        handlePropOf(reg, tool));
+            }
+        } finally {
+            exec.shutdown();
+        }
+    }
+
+    /** As {@link #wired} but with the strict-handle (hardened) posture on the ObManager. */
+    private static IoManager wiredStrict(IoSupervisor exec, ObManager om) {
+        SeLocalMonitor engine = new SeLocalMonitor(
+                new SeClearancePolicy(Ring.R_MINUS_1, "tok"), SeToken.wideOpen(), om);
+        IoManager reg = new IoManager(exec, engine);
+        new DebugTools(new AllowAllGate(), om, engine::currentSubject).registerAll(reg);
+        return reg;
+    }
+
+    /**
+     * H4 regression: under strictHandles the four previously-broken handle-ops
+     * (pop_frame / force_return / single_step / write_local) are in HANDLE_OPS, so a
+     * handle-LESS call is denied — but they must be SATISFIABLE when a handle is
+     * supplied. Pre-fix these four re-resolved by name and (worse) advertised no
+     * handle property; here we prove that supplying a frozen RWE handle now reaches
+     * the handler (honest agent-absent error), i.e. the op is no longer deny-always.
+     */
+    @Test
+    public void previouslyBrokenOpsAreSatisfiableWithHandleUnderStrictHandles() {
+        IoSupervisor exec = new IoSupervisor(4, 2000L);
+        try {
+            Object frozen = Thread.currentThread();
+            ObManager om = new ObManager(ref -> frozen, 8, 60_000L, true); // strictHandles
+            IoManager reg = wiredStrict(exec, om);
+
+            SeToken s = SeToken.wideOpen();
+            int rwe = ObAccessMask.mask(
+                    ObAccessMask.READ, ObAccessMask.WRITE, ObAccessMask.EXECUTE);
+            ObHandle h = om.open(s, ObRef.parse("thread:probe"), rwe);
+            String hid = Long.toString(h.id());
+
+            for (String tool : List.of(
+                    "debug_pop_frame", "debug_force_return",
+                    "debug_single_step", "debug_write_local")) {
+                // Handle-less: strict posture DENIES at the L6 handle layer.
+                var denied = reg.invoke(tool, Map.of("threadName", "probe",
+                        "enabled", true, "slot", 0, "intValue", 0));
+                assertTrue(tool + " handle-less must be L6-denied under strictHandles: "
+                        + denied.content(), denied.content().toString().contains("L6 handle"));
+
+                // With the frozen RWE handle: L6 allows, the call reaches the handler
+                // (agent-absent), proving the op is satisfiable per its advertised schema.
+                var withHandle = reg.invoke(tool, Map.of("handle", hid,
+                        "enabled", true, "slot", 0, "intValue", 0));
+                assertNotNull(withHandle);
+                assertFalse(tool + " with a handle must NOT be L6-denied: " + withHandle.content(),
+                        withHandle.content().toString().contains("L6 handle"));
+                assertTrue(tool + " with a handle must reach the handler (agent-absent): "
+                        + withHandle.content(),
+                        withHandle.content().toString().contains("-agentpath:core-jvmti.dll"));
+            }
         } finally {
             exec.shutdown();
         }

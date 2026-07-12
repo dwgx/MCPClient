@@ -15,15 +15,18 @@ import net.marcloud.mcp.core.io.IoRequestPacket;
 import org.junit.Test;
 
 /**
- * GAP-5 (honesty): the L4 "granted but disabled" deny message must NOT tell an
- * operator to run {@code enable_privilege} — no such tool is wired anywhere in
- * the project (only drop_privilege / restore_privilege exist, and those drive L2
- * clearance, not L4). Pointing at a nonexistent tool is impossible remediation
- * advice. The message must still be informative (name the privilege, say it is
- * granted-but-disabled, and give a real remediation).
+ * Honesty: the L4 "granted but disabled" deny message must point the operator at
+ * the REAL in-session lever. {@code enable_privilege} is a live R0 built-in
+ * (see {@link net.marcloud.mcp.core.se.PrivilegeControlTools#enablePrivilege})
+ * that flips a granted-but-disabled privilege back on. An earlier message
+ * misdirected the operator by claiming "no in-session tool can re-enable it;
+ * relaunch..." — false remediation advice. The message must name
+ * {@code enable_privilege}, must NOT deny that an in-session tool exists, and
+ * must stay informative (name the privilege, say it is granted-but-disabled).
  *
  * <p>This is a message-content regression: it FAILS against the old text, which
- * literally read "(granted but disabled — enable_privilege first).".
+ * read "(granted but disabled — no in-session tool can re-enable it; relaunch
+ * with the subject configured to enable this privilege).".
  */
 public class L4DenyMessageHonestyTest {
 
@@ -47,12 +50,12 @@ public class L4DenyMessageHonestyTest {
     }
 
     @Test
-    public void l4DisabledDenyDoesNotCiteNonexistentEnableTool() {
+    public void l4DisabledDenyPointsAtRealEnableTool() {
         String msg = l4Denial().reason();
-        assertFalse("L4 deny must not point at a nonexistent enable_privilege tool: " + msg,
+        assertTrue("L4 deny must name the real in-session lever enable_privilege: " + msg,
                 msg.contains("enable_privilege"));
-        assertFalse("L4 deny must not point at a nonexistent disable_privilege tool: " + msg,
-                msg.contains("disable_privilege"));
+        assertFalse("L4 deny must NOT claim no in-session tool can re-enable it: " + msg,
+                msg.contains("no in-session tool can re-enable"));
     }
 
     @Test

@@ -146,8 +146,8 @@ public final class SeLocalMonitor implements SeReferenceMonitor {
                     "tool '" + request.toolName() + "' requires privilege "
                     + tp.requiredPrivilege().name() + " to be enabled"
                     + (subject.privileges().isGranted(tp.requiredPrivilege())
-                        ? " (granted but disabled — no in-session tool can re-enable it;"
-                          + " relaunch with the subject configured to enable this privilege)."
+                        ? " (granted but disabled — enable it in-session with enable_privilege("
+                          + tp.requiredPrivilege().name() + "), or relaunch with it enabled)."
                         : " (not granted to this subject)."));
         }
 

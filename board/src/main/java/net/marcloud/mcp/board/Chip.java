@@ -123,11 +123,16 @@ public abstract class Chip {
             if (enabled) {
                 onEnable();
             } else {
-                onDisable();
                 // Auto-cancel every tracked subscription so enabled == subscribed
-                // holds even when onDisable forgot to cancel. Still inside the
+                // holds even when onDisable forgot to cancel — or THREW. The finally
+                // guarantees cancelTracked runs even on an onDisable fault, so a bad
+                // onDisable cannot leak the bag. Still inside the outer
                 // fault-isolation guard: a throwing cancel cannot corrupt state.
-                cancelTracked();
+                try {
+                    onDisable();
+                } finally {
+                    cancelTracked();
+                }
             }
         } catch (Throwable e) {
             System.err.println("[Chip] " + id() + (enabled ? " onEnable" : " onDisable")

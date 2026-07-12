@@ -11,6 +11,7 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -119,7 +120,7 @@ public final class AlpcServer {
                 return;
             }
             Object presented = Json.readObject(authLine).get(AlpcProtocol.K_AUTH);
-            if (!authToken.equals(presented)) {
+            if (!tokenMatches(presented)) {
                 System.err.println("[P-SECURE] auth rejected from " + c.getRemoteSocketAddress());
                 return; // close without acknowledging
             }
@@ -141,6 +142,22 @@ public final class AlpcServer {
                 }
             }
         }
+    }
+
+    /**
+     * Constant-time comparison of the presented auth value against the shared
+     * secret. Mirrors {@link net.marcloud.mcp.core.se.SeClearancePolicy}'s token
+     * check: {@link MessageDigest#isEqual} over UTF-8 bytes, so a rejection does
+     * not leak the secret's length or first-diff position through timing. A
+     * non-String or {@code null} presented value never matches.
+     */
+    private boolean tokenMatches(Object presented) {
+        if (!(presented instanceof String)) {
+            return false;
+        }
+        return MessageDigest.isEqual(
+                authToken.getBytes(StandardCharsets.UTF_8),
+                ((String) presented).getBytes(StandardCharsets.UTF_8));
     }
 
     private static String readLine(BufferedReader in) throws IOException {

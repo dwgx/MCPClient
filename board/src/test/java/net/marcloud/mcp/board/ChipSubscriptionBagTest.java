@@ -147,6 +147,43 @@ public class ChipSubscriptionBagTest {
     }
 
     @Test
+    public void throwingOnDisableStillCancelsTrackedSubscriptions() {
+        // A chip whose onDisable() throws must NOT leak its tracked subscriptions:
+        // cancelTracked runs in a finally, so enabled == subscribed holds even when
+        // the author's onDisable faults. On the pre-fix code cancelTracked was the
+        // last statement in the try, so a throwing onDisable skipped it and left the
+        // bag live — this asserts leak == 0.
+        final Trace trace = new Trace();
+        Chip chip = new Chip() {
+            @Override
+            protected void onEnable() {
+                track(trace.subscribe(TickSignal.class, new Trace.Listener<TickSignal>() {
+                    @Override
+                    public void on(TickSignal s) {
+                    }
+                }));
+            }
+
+            @Override
+            protected void onDisable() {
+                throw new RuntimeException("author's onDisable blew up");
+            }
+        };
+
+        chip.setEnabled(true);
+        assertEquals(1, trace.subscriberCount());
+
+        // onDisable throws; the outer guard swallows it, but the tracked
+        // subscription must still be cancelled — zero live subscriptions.
+        chip.setEnabled(false);
+        assertEquals("throwing onDisable must not leak tracked subscriptions",
+                0, trace.subscriberCount());
+        assertFalse(chip.isEnabled());
+        // handler stays silent after disable
+        trace.publish(new TickSignal());
+    }
+
+    @Test
     public void authorWhoAlsoCancelsInOnDisableDoesNotDoubleCancel() {
         // Belt-and-suspenders: a diligent author cancels in onDisable AND the bag
         // cancels too. cancel() is idempotent, so this must not blow up and must

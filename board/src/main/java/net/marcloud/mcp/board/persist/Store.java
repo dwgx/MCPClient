@@ -205,7 +205,11 @@ public final class Store {
         Map<String, Object> envelope;
         try {
             envelope = Json.parse(text);
-        } catch (RuntimeException malformed) {
+        } catch (RuntimeException | StackOverflowError malformed) {
+            // A malformed document throws JsonException (a RuntimeException); a
+            // pathologically deep one blows the recursive-descent parser's stack
+            // (StackOverflowError, an Error). Both are corruption — quarantine
+            // and run on defaults rather than letting the parser abort startup.
             quarantine();
             return;
         }

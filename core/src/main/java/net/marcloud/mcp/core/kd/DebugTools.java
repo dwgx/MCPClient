@@ -260,27 +260,36 @@ public final class DebugTools {
     }
 
     private SyncToolSpecification popFrame() {
+        Map<String, Object> props;
+        List<String> required;
+        if (objects != null) {
+            props = Map.of(
+                    "threadName", str("suspended thread name (or use handle)"),
+                    "handle", handleProp());
+            required = List.of();
+        } else {
+            props = Map.of("threadName", str("suspended thread name"));
+            required = List.of("threadName");
+        }
         Tool tool = Tool.builder()
                 .name("debug_pop_frame")
                 .description("HYPERVISOR (R-1): pop the top stack frame of a SUSPENDED thread "
                         + "(re-executes the call on resume). The thread must be suspended first "
                         + "(debug_suspend_thread). Requires the native agent.")
-                .inputSchema(schema(Map.of("threadName", str("suspended thread name")),
-                        List.of("threadName")))
+                .inputSchema(schema(props, required))
                 .build();
         return new SyncToolSpecification(tool, (ex, req) -> {
             CallToolResult g = guard();
             if (g != null) {
                 return g;
             }
-            String name = arg(req.arguments(), "threadName");
-            Thread t = (name == null) ? null : findThread(name);
+            Thread t = resolveThread(req.arguments());
             if (t == null) {
-                return err("no live thread named '" + name + "'");
+                return err("no live thread for " + threadDesc(req.arguments()));
             }
             try {
                 KdBridge.popFrame(t);
-                return ok("popped top frame of '" + name + "'");
+                return ok("popped top frame of " + threadDesc(req.arguments()));
             } catch (DebuggerException | DebuggerUnavailableException e) {
                 return err(e.getMessage());
             }
@@ -288,26 +297,37 @@ public final class DebugTools {
     }
 
     private SyncToolSpecification forceReturn() {
+        Map<String, Object> props;
+        List<String> required;
+        if (objects != null) {
+            props = Map.of(
+                    "threadName", str("suspended thread name (or use handle)"),
+                    "handle", handleProp(),
+                    "kind", str("void | int | object (default void)"),
+                    "intValue", intp("return value when kind=int (default 0)"));
+            required = List.of();
+        } else {
+            props = Map.of(
+                    "threadName", str("suspended thread name"),
+                    "kind", str("void | int | object (default void)"),
+                    "intValue", intp("return value when kind=int (default 0)"));
+            required = List.of("threadName");
+        }
         Tool tool = Tool.builder()
                 .name("debug_force_return")
                 .description("HYPERVISOR (R-1): force the current method of a SUSPENDED thread to "
                         + "return early. kind=void|int|object (object forces null — object values "
                         + "can't be marshaled from JSON). Requires the native agent.")
-                .inputSchema(schema(Map.of(
-                        "threadName", str("suspended thread name"),
-                        "kind", str("void | int | object (default void)"),
-                        "intValue", intp("return value when kind=int (default 0)")),
-                        List.of("threadName")))
+                .inputSchema(schema(props, required))
                 .build();
         return new SyncToolSpecification(tool, (ex, req) -> {
             CallToolResult g = guard();
             if (g != null) {
                 return g;
             }
-            String name = arg(req.arguments(), "threadName");
-            Thread t = (name == null) ? null : findThread(name);
+            Thread t = resolveThread(req.arguments());
             if (t == null) {
-                return err("no live thread named '" + name + "'");
+                return err("no live thread for " + threadDesc(req.arguments()));
             }
             String kind = arg(req.arguments(), "kind");
             if (kind == null) {
@@ -319,7 +339,7 @@ public final class DebugTools {
                     case "object" -> KdBridge.forceReturnObject(t, null);
                     default -> KdBridge.forceReturnVoid(t);
                 }
-                return ok("forced early return (" + kind + ") on '" + name + "'");
+                return ok("forced early return (" + kind + ") on " + threadDesc(req.arguments()));
             } catch (DebuggerException | DebuggerUnavailableException e) {
                 return err(e.getMessage());
             }
@@ -398,30 +418,41 @@ public final class DebugTools {
     }
 
     private SyncToolSpecification singleStep() {
+        Map<String, Object> props;
+        List<String> required;
+        if (objects != null) {
+            props = Map.of(
+                    "threadName", str("thread name (or use handle)"),
+                    "handle", handleProp(),
+                    "enabled", boolp("true to enable stepping, false to disable"));
+            required = List.of("enabled");
+        } else {
+            props = Map.of(
+                    "threadName", str("thread name"),
+                    "enabled", boolp("true to enable stepping, false to disable"));
+            required = List.of("threadName", "enabled");
+        }
         Tool tool = Tool.builder()
                 .name("debug_single_step")
                 .description("HYPERVISOR (R-1): enable/disable JVMTI single-step events on a "
                         + "thread (fires a DebugEvent per bytecode step — extremely high volume, "
                         + "use briefly). Requires the native agent.")
-                .inputSchema(schema(Map.of(
-                        "threadName", str("thread name"),
-                        "enabled", boolp("true to enable stepping, false to disable")),
-                        List.of("threadName", "enabled")))
+                .inputSchema(schema(props, required))
                 .build();
         return new SyncToolSpecification(tool, (ex, req) -> {
             CallToolResult g = guard();
             if (g != null) {
                 return g;
             }
-            String name = arg(req.arguments(), "threadName");
-            Thread t = (name == null) ? null : findThread(name);
+            Thread t = resolveThread(req.arguments());
             if (t == null) {
-                return err("no live thread named '" + name + "'");
+                return err("no live thread for " + threadDesc(req.arguments()));
             }
             boolean enabled = boolArg(req.arguments(), "enabled", false);
             try {
                 KdBridge.setSingleStep(t, enabled);
-                return ok("single-step " + (enabled ? "enabled" : "disabled") + " on '" + name + "'");
+                return ok("single-step " + (enabled ? "enabled" : "disabled") + " on "
+                        + threadDesc(req.arguments()));
             } catch (DebuggerException | DebuggerUnavailableException e) {
                 return err(e.getMessage());
             }
@@ -482,27 +513,39 @@ public final class DebugTools {
     }
 
     private SyncToolSpecification writeLocal() {
+        Map<String, Object> props;
+        List<String> required;
+        if (objects != null) {
+            props = Map.of(
+                    "threadName", str("suspended thread name (or use handle)"),
+                    "handle", handleProp(),
+                    "depth", intp("frame depth, 0 = top (default 0)"),
+                    "slot", intp("local variable slot index"),
+                    "intValue", intp("the int value to write"));
+            required = List.of("slot", "intValue");
+        } else {
+            props = Map.of(
+                    "threadName", str("suspended thread name"),
+                    "depth", intp("frame depth, 0 = top (default 0)"),
+                    "slot", intp("local variable slot index"),
+                    "intValue", intp("the int value to write"));
+            required = List.of("threadName", "slot", "intValue");
+        }
         Tool tool = Tool.builder()
                 .name("debug_write_local")
                 .description("HYPERVISOR (R-1): write an INT local variable of a SUSPENDED "
                         + "thread's frame (int slots only — the verified JVMTI SetLocalInt "
                         + "surface). Requires the native agent.")
-                .inputSchema(schema(Map.of(
-                        "threadName", str("suspended thread name"),
-                        "depth", intp("frame depth, 0 = top (default 0)"),
-                        "slot", intp("local variable slot index"),
-                        "intValue", intp("the int value to write")),
-                        List.of("threadName", "slot", "intValue")))
+                .inputSchema(schema(props, required))
                 .build();
         return new SyncToolSpecification(tool, (ex, req) -> {
             CallToolResult g = guard();
             if (g != null) {
                 return g;
             }
-            String name = arg(req.arguments(), "threadName");
-            Thread t = (name == null) ? null : findThread(name);
+            Thread t = resolveThread(req.arguments());
             if (t == null) {
-                return err("no live thread named '" + name + "'");
+                return err("no live thread for " + threadDesc(req.arguments()));
             }
             int depth = intArg(req.arguments(), "depth", 0);
             int slot = intArg(req.arguments(), "slot", -1);
