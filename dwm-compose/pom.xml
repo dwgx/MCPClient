@@ -136,6 +136,25 @@
             <version>${kotlin.version}</version>
         </dependency>
 
+        <!-- The DWM SPI this module's ComposeSkiaGlBackend implements (ContentBackend,
+             BackendHost, ...). provided: dwm is already on the live classpath, don't
+             re-bundle it into the fat jar. -->
+        <dependency>
+            <groupId>net.marcloud.mcp.189</groupId>
+            <artifactId>dwm</artifactId>
+            <version>${project.version}</version>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- The game: GLFW window handle + GlStateManager (reached reflectively at
+             runtime). provided: client jar is already on the live -cp. -->
+        <dependency>
+            <groupId>net.marcloud.mcp.189</groupId>
+            <artifactId>client</artifactId>
+            <version>${project.version}</version>
+            <scope>provided</scope>
+        </dependency>
+
         <!-- LWJGL3 GLFW + OpenGL for the Phase-1 offscreen GL harness: it creates its
              OWN hidden GLFW window + GL context (no MC needed) to stand Skia up on a
              real current context. API jars + natives-windows classifier, from the
@@ -224,6 +243,41 @@
                         <version>${kotlin.version}</version>
                     </dependency>
                 </dependencies>
+            </plugin>
+
+            <!-- Fat jar (dwm-compose-*-all.jar): bundles Compose + Skiko + kotlin-stdlib
+                 so the game JVM can load the Compose backend by just adding this ONE jar
+                 to -cp. provided deps (dwm/client — already on the live classpath) are
+                 excluded automatically. core stays Compose-free and discovers the backend
+                 reflectively; deleting this module leaves the reactor green. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <version>3.5.1</version>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals><goal>shade</goal></goals>
+                        <configuration>
+                            <shadedArtifactAttached>true</shadedArtifactAttached>
+                            <shadedClassifierName>all</shadedClassifierName>
+                            <createDependencyReducedPom>false</createDependencyReducedPom>
+                            <transformers>
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
+                            </transformers>
+                            <filters>
+                                <filter>
+                                    <artifact>*:*</artifact>
+                                    <excludes>
+                                        <exclude>META-INF/*.SF</exclude>
+                                        <exclude>META-INF/*.DSA</exclude>
+                                        <exclude>META-INF/*.RSA</exclude>
+                                    </excludes>
+                                </filter>
+                            </filters>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>
