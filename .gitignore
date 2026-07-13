@@ -52,3 +52,5 @@ core-jvmti.dll
 # Live overlay smoke logs (run-mcp-overlay.bat > overlay.log): scratch, not products.
 overlay.log
 */overlay.log
+# capture-overlay.sh output (live PNGs + launch logs): scratch verification artifacts.
+scripts/_capture/

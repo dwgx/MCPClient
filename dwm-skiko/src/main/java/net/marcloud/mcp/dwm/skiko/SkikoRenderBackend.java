@@ -96,9 +96,35 @@ public final class SkikoRenderBackend implements RenderBackend {
     /** Load the platform default typeface at the MD3 label size (14dp). */
     private static Font defaultFont() {
         try {
-            Typeface tf = FontMgr.Companion.getDefault().matchFamilyStyle(null, FontStyle.Companion.getNORMAL());
+            FontMgr mgr = FontMgr.Companion.getDefault();
+            FontStyle normal = FontStyle.Companion.getNORMAL();
+            // matchFamilyStyle(null,...) returned null on the live system, so a Font with
+            // no typeface no-ops in drawString (container renders, text does not). Resolve
+            // a REAL typeface: try common Windows families, then legacyMakeTypeface, then
+            // the FontMgr's own first enumerated family. Only fall back to the empty Font
+            // (still no text) if none resolve.
+            String[] families = {"Segoe UI", "Arial", "Tahoma", "Verdana", "sans-serif"};
+            Typeface tf = null;
+            for (String fam : families) {
+                tf = mgr.matchFamilyStyle(fam, normal);
+                if (tf != null) {
+                    break;
+                }
+            }
+            if (tf == null) {
+                try {
+                    tf = mgr.legacyMakeTypeface("Segoe UI", normal);
+                } catch (Throwable ignored) {
+                }
+            }
+            if (tf == null && mgr.getFamiliesCount() > 0) {
+                tf = mgr.matchFamilyStyle(mgr.getFamilyName(0), normal);
+            }
+            System.err.println("[SkikoRenderBackend] typeface resolved=" + (tf != null)
+                    + " (fontMgr families=" + mgr.getFamiliesCount() + ")");
             return tf != null ? new Font(tf, 14f) : new Font();
         } catch (Throwable t) {
+            System.err.println("[SkikoRenderBackend] defaultFont faulted: " + t);
             return new Font();
         }
     }
