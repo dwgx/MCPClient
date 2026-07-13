@@ -1,6 +1,7 @@
 package net.marcloud.pg.engine.pass;
 
 import net.marcloud.pg.Guarded;
+import net.marcloud.pg.engine.FrameSafeClassWriter;
 import net.marcloud.pg.engine.HardenContext;
 import net.marcloud.pg.engine.HardenPass;
 import org.objectweb.asm.ClassReader;
@@ -59,6 +60,16 @@ public final class StringConstantPass implements HardenPass {
             return classBytes;
         }
 
+        // Idempotence (KI-6): if a prior run already injected the decoder, this
+        // class is already hardened. Re-encoding its (already-ciphered) LDCs and
+        // adding a SECOND pg$dec would yield a duplicate-method ClassFormatError
+        // at load. Return the bytes UNCHANGED so a rebuild-without-clean is safe.
+        for (MethodNode mn : cn.methods) {
+            if (DECODE_NAME.equals(mn.name) && DECODE_DESC.equals(mn.desc)) {
+                return classBytes;
+            }
+        }
+
         int key = deriveKey(ctx.classSeed());
         boolean anyEncoded = false;
 
@@ -95,7 +106,10 @@ public final class StringConstantPass implements HardenPass {
 
         injectDecoder(cn, key);
 
-        ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_MAXS | ClassWriter.COMPUTE_FRAMES);
+        // KI-7: FrameSafeClassWriter so COMPUTE_FRAMES never Class.forName-s a
+        // project type through the (wrong) plugin classloader during a reference-
+        // type frame merge. Object is a safe common supertype for any merge.
+        ClassWriter cw = new FrameSafeClassWriter(ClassWriter.COMPUTE_MAXS | ClassWriter.COMPUTE_FRAMES);
         cn.accept(cw);
         return cw.toByteArray();
     }

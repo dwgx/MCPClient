@@ -5,8 +5,6 @@ import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.util.CheckClassAdapter;
 
-import java.io.PrintWriter;
-import java.io.StringWriter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
@@ -106,24 +104,40 @@ public final class HardenEngine {
     }
 
     /**
-     * Re-verify transformed bytes with ASM's {@link CheckClassAdapter} (frame +
-     * structural checks). Returns null if valid, else a diagnostic string.
+     * Re-verify transformed bytes: recompute stack-map frames and run ASM's
+     * {@link CheckClassAdapter} structural checks. Returns null if valid, else a
+     * diagnostic string. Does not resolve reference types through a classloader
+     * (see the KI-7 note in the body).
      */
     private static String verify(byte[] classBytes) {
         try {
             ClassReader cr = new ClassReader(classBytes);
-            StringWriter sw = new StringWriter();
-            // COMPUTE_FRAMES via a ClassWriter the checker can lean on; the check
-            // adapter reports structural/frame problems into sw.
-            ClassWriter cw = new ClassWriter(cr, ClassWriter.COMPUTE_FRAMES);
-            CheckClassAdapter.verify(cr, false, new PrintWriter(sw));
-            String out = sw.toString();
-            // touch cw so COMPUTE_FRAMES actually runs a pass over the class,
-            // surfacing frame errors that CheckClassAdapter.verify alone may miss.
-            cr.accept(cw, 0);
-            return out.isEmpty() ? null : out.trim();
+            // KI-7: verify WITHOUT resolving reference types through a classloader
+            // that cannot see the project classes being hardened. Two changes work
+            // together, because verify() had two independent type-loading paths:
+            //
+            //  1. FrameSafeClassWriter(COMPUTE_FRAMES) recomputes the stack-map
+            //     frames, merging reference types to java/lang/Object instead of
+            //     Class.forName-ing them (the stock ClassWriter threw
+            //     TypeNotPresentException on a reference-type frame merge).
+            //  2. CheckClassAdapter with checkDataFlow=FALSE runs STRUCTURAL checks
+            //     only. The data-flow path (dataFlow=true) drives ASM's
+            //     SimpleVerifier, which Class.forName-s the merged reference types
+            //     and, for any type not on the build classloader, records an
+            //     AnalyzerException — making verify() return non-null and forcing
+            //     the engine to falsely revert a valid transform (shipping the
+            //     class with its plaintext strings intact).
+            //
+            // The frame recomputation IS the meaningful "will this class load"
+            // check here; structural checks catch malformed bytecode. Any real
+            // structural or frame problem surfaces as an exception, caught below.
+            ClassWriter cw = new FrameSafeClassWriter(cr, ClassWriter.COMPUTE_FRAMES);
+            CheckClassAdapter cca = new CheckClassAdapter(cw, false);
+            cr.accept(cca, 0);
+            cw.toByteArray(); // force frame computation + serialization to surface errors
+            return null;
         } catch (RuntimeException | Error e) {
-            return "verification threw: " + e;
+            return "verification failed: " + e;
         }
     }
 
