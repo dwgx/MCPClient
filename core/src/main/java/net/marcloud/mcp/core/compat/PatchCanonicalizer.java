@@ -20,11 +20,25 @@ import java.nio.charset.StandardCharsets;
  *
  * <p>Covered fields, in fixed order: {@code targetClass}, {@code contentHash},
  * {@code keyId}. These bind the signature to WHAT the patch rewrites
- * ({@code targetClass}) and to the EXACT transform content ({@code contentHash}, which
- * is {@code sha256(raw transform bytes)}), under a specific signing key
- * ({@code keyId}). Note this is deliberately NOT the pipe-delimited {@code
- * derivePatchId} string — that is a content-address for identity, not a signed,
- * unambiguous byte layout.
+ * ({@code targetClass}) and to the manifest's declared {@code contentHash}, under a
+ * specific signing key ({@code keyId}). Note this is deliberately NOT the
+ * pipe-delimited {@code derivePatchId} string — that is a content-address for
+ * identity, not a signed, unambiguous byte layout.
+ *
+ * <p><b>HONEST BOUNDARY (do not oversell — red-team finding #1):</b> {@code
+ * contentHash} is the value the manifest carries, supplied by the patch author via
+ * {@link PatchManifest#withTransform}; nothing in the current code recomputes it from
+ * the actual bytes {@link CompatPatch#transform} emits. So the signature authenticates
+ * a <em>manifest label</em>, NOT the executable transform. This is safe TODAY only
+ * because patches are registered <em>in-code</em> (classpath {@link CompatPatch}
+ * objects): an attacker who can supply a malicious {@code transform()} body already has
+ * core code-execution, so the signature adds no defense against them. It is NOT safe
+ * once patches are delivered as DATA (the TUF endgame): then {@code verify()} would
+ * pass on the triple while the transform payload is unbound. Before any data-channel
+ * patch delivery ships, {@code contentHash} MUST be recomputed as {@code sha256(the
+ * exact transform/payload bytes)} and re-derived + compared at load time (see
+ * known-issues). Until then, integrity rests on in-code registration, not this
+ * signature.
  */
 public final class PatchCanonicalizer {
 
