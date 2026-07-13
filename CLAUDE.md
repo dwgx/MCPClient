@@ -25,11 +25,15 @@ MCPClient(the Kernel):把**活着的 Minecraft 1.8.9 客户端**(LWJGL3 / JDK25)
 
 ## 模块(结构,稳定)
 
-| 模块 | 作用 |
-|---|---|
-| `core/` | 内核本体(the Kernel):MCP server、7 层安全内核、能力包、工具 |
-| `client/` | MC 1.8.9 客户端(**vanilla 映射**——反射/GUI 字段名以此为准) |
-| `lwjgl2-shim/` | LWJGL2→LWJGL3 兼容层 |
+> 三层:平台地基 / 设计骨架(恒为3)/ 可拆卸辅助。判据=删了它其余骨架能否独立编译。详见 `ARCHITECTURE-LOCK.md` §L0(ADR-0002)。
+
+| 层 | 模块 | 作用 |
+|---|---|---|
+| 平台地基 | `lwjgl2-shim/` | LWJGL2→LWJGL3 兼容层(ABI 垫片,与 client 共生;删它 client 编不了) |
+| 设计骨架 | `core/` | 内核本体(the Kernel):MCP server、7 层安全内核、能力包、工具 |
+| 设计骨架 | `board/` | 客户端功能框架(PCB 隐喻),与 core 零硬依赖 |
+| 设计骨架 | `client/` | MC 1.8.9 客户端(**vanilla 映射**——反射/GUI 字段名以此为准) |
+| 可拆卸辅助 | `pg/` `dwm/` `dwm-compose/` | 挂骨架外,零安全权,删了 3 骨架照跑(见 LOCK §L0 辅助列表) |
 
 ## 命令(稳定;易变数字不写在这,看 `.ai-notes/STATUS.md`)
 
