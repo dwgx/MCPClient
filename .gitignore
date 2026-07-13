@@ -49,3 +49,6 @@ core-jvmti.dll
 # the session-status reconcile isn't noisy. Narrow patterns, NOT a blanket *.txt.
 /conversation-*
 /123.txt
+# Live overlay smoke logs (run-mcp-overlay.bat > overlay.log): scratch, not products.
+overlay.log
+*/overlay.log

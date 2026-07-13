@@ -195,12 +195,13 @@ public final class McpCore {
         seams = new SeamController(bus, game);
         new SeamTools(seams).registerAll(registry);
 
-        // DWM Compose overlay (Phase 2, OPT-IN via -Dmcp.core.overlay=true). Reflectively
-        // discovers the optional dwm-compose backend on the game classpath; if present,
-        // installs the render-frame seam (EntityRenderer.updateCameraAndRender exit) and
-        // drives one Compose overlay frame per game frame. Absent jar / off flag / any
-        // fault => silent no-op, game unaffected (detachable-auxiliary contract). The
-        // overlay resolves its own GLFW window handle, so 0 is passed here.
+        // DWM overlay (OPT-IN via -Dmcp.core.overlay=true). Reflectively discovers
+        // whichever optional overlay backend jar is on the game classpath (pure-Java
+        // dwm-gl, or imgui); if present, installs the render-frame seam
+        // (EntityRenderer.updateCameraAndRender exit) and drives one overlay frame per
+        // game frame. Absent jar / off flag / any fault => silent no-op, game unaffected
+        // (detachable-auxiliary contract). The overlay resolves its own GLFW window
+        // handle, so 0 is passed here.
         net.marcloud.mcp.core.flt.seam.RenderOverlayCoordinator.tryInstall(
                 net.marcloud.mcp.core.boot.AgentAccess.instrumentation(), 0L);
 

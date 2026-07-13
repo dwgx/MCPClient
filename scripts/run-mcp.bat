@@ -19,22 +19,23 @@ set "GAME_JAR=%~dp0..\client\target\MCP-1.8.9.jar"
 set "CORE_JAR=%~dp0..\core\target\core-1.8.9-all.jar"
 set "ARGS=%~dp0jvm-args-mcp.txt"
 
-REM --- DWM Compose backend fat jar (Kotlin+Compose+Skiko), OPTIONAL. If built,
-REM     it is added to -cp so the game JVM can load the Compose overlay backend
-REM     (core discovers it reflectively; absent = no overlay, game runs normally —
-REM     the detachable-auxiliary contract). Build via scripts\build-jars.bat. ---
-set "DWM_JAR=%~dp0..\dwm-compose\target\dwm-compose-1.8.9-all.jar"
+REM --- DWM GL backend fat jar (pure Java, no native/Kotlin), OPTIONAL. If built,
+REM     it is added to -cp so the game JVM can load the overlay backend (core
+REM     discovers it reflectively; absent = no overlay, game runs normally — the
+REM     detachable-auxiliary contract). This plain run does NOT arm the overlay
+REM     (-Dmcp.core.overlay is unset); use run-mcp-overlay.bat to arm it. Build via
+REM     scripts\build-jars.bat. ---
+set "DWM_JAR=%~dp0..\dwm-gl\target\dwm-gl-1.8.9-all.jar"
 set "CP=%GAME_JAR%;%CORE_JAR%"
 if exist "%DWM_JAR%" (
   set "CP=%GAME_JAR%;%CORE_JAR%;%DWM_JAR%"
-  echo [run-mcp] DWM Compose backend present — added to classpath.
+  echo [run-mcp] DWM GL backend present — added to classpath (overlay NOT armed).
 )
 
 REM --- Working dir must be the game dir (assets, saves). ---
 cd /d "%~dp0..\test_run"
 
 "%JAVA%" "@%ARGS%" ^
-  -Dskiko.renderApi=OPENGL ^
   -javaagent:"%CORE_JAR%" ^
   -cp "%CP%" ^
   net.minecraft.client.main.Main ^
