@@ -155,25 +155,26 @@
             <scope>provided</scope>
         </dependency>
 
-        <!-- LWJGL3 GLFW + OpenGL for the Phase-1 offscreen GL harness: it creates its
-             OWN hidden GLFW window + GL context (no MC needed) to stand Skia up on a
-             real current context. API jars + natives-windows classifier, from the
-             parent lwjgl-bom (3.3.6). test scope: only the harness needs them; the
-             real backend reaches GL via the game's context at runtime, not these. -->
+        <!-- LWJGL3 GLFW + OpenGL API jars (from parent lwjgl-bom 3.3.6). PROVIDED:
+             the live backend's GlStateGuard/GL calls compile against these, and at
+             runtime LWJGL is supplied by the game (client jar) — so NOT bundled into
+             the fat jar. (The natives-windows classifier deps below stay test-scope:
+             only the standalone offscreen harness creates its own GLFW context and
+             needs its own natives; the live overlay uses the game's context.) -->
         <dependency>
             <groupId>org.lwjgl</groupId>
             <artifactId>lwjgl</artifactId>
-            <scope>test</scope>
+            <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>org.lwjgl</groupId>
             <artifactId>lwjgl-glfw</artifactId>
-            <scope>test</scope>
+            <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>org.lwjgl</groupId>
             <artifactId>lwjgl-opengl</artifactId>
-            <scope>test</scope>
+            <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>org.lwjgl</groupId>
