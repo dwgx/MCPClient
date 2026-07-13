@@ -59,6 +59,17 @@ public final class Compat {
     }
 
     /**
+     * The shipped default trust anchors — deliberately EMPTY, so the real
+     * {@link Ed25519PatchSigner} verifies zero patches (the fail-safe posture the old
+     * {@link UnsignedPatchSigner} had: "no signer key" means "apply nothing"). Kept as
+     * a factory so a genuine kernel keyring can be injected here once real keys exist,
+     * without touching the boot path.
+     */
+    public static TrustAnchors defaultTrustAnchors() {
+        return TrustAnchors.empty();
+    }
+
+    /**
      * Build the default database + fail-safe signer, install the engine's transformer
      * on {@code inst}, and stash both. Called once from {@code CoreAgent.premain}.
      * Never throws — a compat failure must never take down agent startup.
@@ -67,7 +78,11 @@ public final class Compat {
         try {
             CompatDatabase db = defaultDatabase();
             Set<String> online = resolveOnlineAuthorizedIds(db);
-            CompatEngine e = CompatEngine.installFrom(inst, db, new UnsignedPatchSigner(), online);
+            // The shipped default signer is a real Ed25519 integrity verifier with an
+            // EMPTY keyring — same fail-safe posture as the old UnsignedPatchSigner
+            // (trusts nothing, arms nothing), but on the real crypto path. A genuine
+            // TrustAnchors keyring is injected only when kernel keys exist.
+            CompatEngine e = CompatEngine.build(db, new Ed25519PatchSigner(defaultTrustAnchors()), online);
             // BLUE-1: when online authorization is in force, do NOT let the premain
             // snapshot be the final word (a ~seconds ticket would otherwise arm a
             // patch for the whole JVM lifetime, and de-list could never reach us).
@@ -78,9 +93,18 @@ public final class Compat {
                 // Seed the lease with the first authorization; a short TTL so it must
                 // be renewed by the heartbeat or it fails closed on its own.
                 live.renew(online, 1L, ONLINE_LEASE_TTL_MILLIS);
+                // F3: attach the lease BEFORE the transformer is registered, so no
+                // net.minecraft.* class loading in the premain window can hit apply()
+                // with a null lease and apply un-leased. A fresh PatchLease is already
+                // EMPTY+EXPIRED (fail-closed), so even a class loaded the instant after
+                // install() but before the seed authorizes nothing rather than applying.
                 e.setLease(live);
                 lease = live;
-                startHeartbeat(db, live);
+            }
+            // Register the transformer LAST (F3): the lease, if any, is already attached.
+            e.install(inst);
+            if (lease != null) {
+                startHeartbeat(db, lease);
             }
             database = db;
             engine = e;
