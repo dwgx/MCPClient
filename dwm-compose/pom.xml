@@ -137,13 +137,15 @@
         </dependency>
 
         <!-- The DWM SPI this module's ComposeSkiaGlBackend implements (ContentBackend,
-             BackendHost, ...). provided: dwm is already on the live classpath, don't
-             re-bundle it into the fat jar. -->
+             BackendHost, ComposeCompositor, ...). compile scope: dwm is NOT on the live
+             game classpath (only game + core-all + this fat jar are), so its SPI classes
+             MUST be bundled INTO this fat jar — otherwise the reflective entry point
+             fails with NoClassDefFoundError: BackendHost at runtime (caught live). dwm
+             is tiny and this module is its only live consumer. -->
         <dependency>
             <groupId>net.marcloud.mcp.189</groupId>
             <artifactId>dwm</artifactId>
             <version>${project.version}</version>
-            <scope>provided</scope>
         </dependency>
 
         <!-- The game: GLFW window handle + GlStateManager (reached reflectively at
