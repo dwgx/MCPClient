@@ -36,6 +36,8 @@
              so it is deliberately omitted from this toolchain smoke. -->
         <compose.version>1.11.1</compose.version>
         <skiko.version>0.144.6</skiko.version>
+        <!-- material3 has no stable 1.11.x; align on the same 1.11 minor as core. -->
+        <material3.version>1.11.0-alpha07</material3.version>
         <!-- Modern aux layer, like dwm/core: JBR25 runtime bytecode, not Java-8. -->
         <maven.compiler.release>25</maven.compiler.release>
     </properties>
@@ -60,10 +62,33 @@
         </repository>
     </repositories>
 
+    <dependencyManagement>
+        <!-- Pin the core Compose artifacts to 1.11.1 so material3-desktop:alpha07's
+             transitive 1.11.0-alpha07 core can NEVER win — material3 resolves AGAINST
+             our 1.11.1 core, never the reverse. -->
+        <dependencies>
+            <dependency>
+                <groupId>org.jetbrains.compose.runtime</groupId>
+                <artifactId>runtime-desktop</artifactId>
+                <version>${compose.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.jetbrains.compose.ui</groupId>
+                <artifactId>ui-desktop</artifactId>
+                <version>${compose.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.jetbrains.compose.foundation</groupId>
+                <artifactId>foundation-desktop</artifactId>
+                <version>${compose.version}</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
     <dependencies>
         <!-- Compose Multiplatform desktop (compile). runtime/ui/foundation pull
-             Skiko + kotlinx-coroutines transitively. material3 omitted (no stable
-             1.11.x) — the Phase-0 smoke uses base Compose only. -->
+             Skiko + kotlinx-coroutines transitively. material3-desktop added at the
+             1.11 minor (alpha07) for the M3 smoke; core pinned to 1.11.1 above. -->
         <dependency>
             <groupId>org.jetbrains.compose.runtime</groupId>
             <artifactId>runtime-desktop</artifactId>
@@ -87,6 +112,21 @@
             <groupId>org.jetbrains.skiko</groupId>
             <artifactId>skiko-awt-runtime-windows-x64</artifactId>
             <version>${skiko.version}</version>
+        </dependency>
+
+        <!-- Material 3 (desktop). No stable 1.11.x exists; align on the SAME 1.11
+             minor as the core (alpha07) rather than the last stable 1.9.0 — a
+             same-minor patch step, not a two-minor ABI jump. Button/Text are the
+             oldest, most-settled M3 surface, so 'alpha' churn does not bite a smoke.
+             dependencyManagement below pins the core to 1.11.1 so it wins over
+             alpha07's transitive 1.11.0-alpha07 core. If this mismatches at
+             compile/run (NoSuchMethodError/AbstractMethodError on internal symbols),
+             fall back to dropping material3 — foundation alone already proves the
+             renderer works. -->
+        <dependency>
+            <groupId>org.jetbrains.compose.material3</groupId>
+            <artifactId>material3-desktop</artifactId>
+            <version>${material3.version}</version>
         </dependency>
 
         <!-- Kotlin stdlib, pinned to the compiler version. -->
