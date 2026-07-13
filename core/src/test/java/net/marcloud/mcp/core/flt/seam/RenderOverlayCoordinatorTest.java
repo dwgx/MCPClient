@@ -43,8 +43,29 @@ public class RenderOverlayCoordinatorTest {
     }
 
     @Test
+    public void explicitGlUiSelectionDegradesToNullWhenAbsent() {
+        // The MD3-UI backend id (DrawContext axis, drives the MaterialButton tree).
+        System.setProperty(BACKEND_PROP, "gl-ui");
+        assertNull(RenderOverlayCoordinator.resolveDriver(0L));
+    }
+
+    @Test
+    public void explicitSkikoUiSelectionDegradesToNullWhenAbsent() {
+        // The Skiko MD3-UI backend id (highest-fidelity DrawContext axis).
+        System.setProperty(BACKEND_PROP, "skiko-ui");
+        assertNull(RenderOverlayCoordinator.resolveDriver(0L));
+    }
+
+    @Test
     public void explicitImguiSelectionDegradesToNullWhenAbsent() {
         System.setProperty(BACKEND_PROP, "imgui");
+        assertNull(RenderOverlayCoordinator.resolveDriver(0L));
+    }
+
+    @Test
+    public void explicitImguiUiSelectionDegradesToNullWhenAbsent() {
+        // The imgui MD3-UI backend id (DrawContext axis).
+        System.setProperty(BACKEND_PROP, "imgui-ui");
         assertNull(RenderOverlayCoordinator.resolveDriver(0L));
     }
 

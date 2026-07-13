@@ -34,13 +34,20 @@ public final class RenderOverlayCoordinator {
      * {@code public static java.util.function.LongConsumer frameSink(long windowHandle)}
      * — so core can drive whichever backend jar happens to be on the classpath without a
      * compile-time link to any of them. Insertion order is the default preference when no
-     * explicit backend is requested: the pure-Java handwritten-GL backend first (no
-     * native deps, no Kotlin), then the imgui backend (native Dear ImGui).
+     * explicit backend is requested: the pure-Java MD3-UI GL backend first ({@code gl-ui}:
+     * drives the DWM MaterialButton tree, no native deps, no Kotlin), then the static GL
+     * panel ({@code gl}), then the imgui backend ({@code imgui}, native Dear ImGui).
      */
     private static final java.util.LinkedHashMap<String, String> ENTRY_CLASSES =
             new java.util.LinkedHashMap<>();
 
     static {
+        // MD3 UI backends (DrawContext axis: drive the DWM MaterialButton tree).
+        // skiko first — highest fidelity (true vector + real text); then imgui; then GL.
+        ENTRY_CLASSES.put("skiko-ui", "net.marcloud.mcp.dwm.skiko.SkikoUiEntry");
+        ENTRY_CLASSES.put("gl-ui", "net.marcloud.mcp.dwm.gl.GlUiEntry");
+        ENTRY_CLASSES.put("imgui-ui", "net.marcloud.mcp.dwm.backend.imgui.ImGuiUiEntry");
+        // Static ContentBackend panels (self-rendering, prove the seam paints in-game).
         ENTRY_CLASSES.put("gl", "net.marcloud.mcp.dwm.gl.GlOverlayEntry");
         ENTRY_CLASSES.put("imgui", "net.marcloud.mcp.dwm.backend.imgui.ImGuiOverlayEntry");
     }

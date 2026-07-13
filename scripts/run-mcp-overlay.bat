@@ -9,14 +9,18 @@ REM  (EntityRenderer.updateCameraAndRender exit) and drives an overlay per frame
 REM  through GlStateGuard. If it misbehaves, use plain run-mcp.bat (overlay off)
 REM  and the game runs normally without it.
 REM
-REM  BACKEND SELECTION (-Dmcp.core.overlay.backend):
-REM    gl     pure-Java handwritten immediate-mode GL panel  (DEFAULT; no native/Kotlin)
-REM    imgui  Dear ImGui via imgui-java                       (needs dwm-imgui-all.jar + DLL)
-REM  When unset, core tries whichever backend jars are on -cp in preference order
-REM  (gl, then imgui). Pass the id as the first script argument.
-REM    Usage:  scripts\run-mcp-overlay.bat [gl^|imgui]
+REM  BACKEND SELECTION (-Dmcp.core.overlay.backend). MD3-UI backends drive the real
+REM  DWM MaterialButton tree (DrawContext axis); the plain ids draw a static panel:
+REM    skiko-ui  Skia/Skiko MD3 (true vector + real text, highest fidelity)  (native DLL)
+REM    gl-ui     pure-Java MD3 (immediate-mode GL, placeholder text)          (no native/Kotlin)
+REM    imgui-ui  Dear ImGui MD3 (native rounded rect + real text)            (native DLL)
+REM    gl        pure-Java static GL panel                                    (no native/Kotlin)
+REM    imgui     Dear ImGui static window                                     (native DLL)
+REM  When unset, core tries backends in preference order (skiko-ui, gl-ui, imgui-ui,
+REM  gl, imgui). Pass the id as the first script argument.
+REM    Usage:  scripts\run-mcp-overlay.bat [skiko-ui^|gl-ui^|imgui-ui^|gl^|imgui]
 REM
-REM  Build the jars first:  scripts\build-jars.bat   (client + core + dwm-gl + dwm-imgui)
+REM  Build the jars first:  scripts\build-jars.bat
 REM ============================================================================
 
 setlocal enabledelayedexpansion
@@ -28,6 +32,7 @@ set "GAME_JAR=%~dp0..\client\target\MCP-1.8.9.jar"
 set "CORE_JAR=%~dp0..\core\target\core-1.8.9-all.jar"
 set "GL_JAR=%~dp0..\dwm-gl\target\dwm-gl-1.8.9-all.jar"
 set "IMGUI_JAR=%~dp0..\dwm-imgui\target\dwm-imgui-1.8.9-all.jar"
+set "SKIKO_JAR=%~dp0..\dwm-skiko\target\dwm-skiko-1.8.9-all.jar"
 set "ARGS=%~dp0jvm-args-mcp.txt"
 
 set "BACKEND=%~1"
@@ -37,14 +42,13 @@ set "CP=%GAME_JAR%;%CORE_JAR%"
 set "BACKEND_OPT="
 if not "%BACKEND%"=="" set "BACKEND_OPT=-Dmcp.core.overlay.backend=%BACKEND%"
 
-REM The pure-Java dwm-gl backend is the default: append it if built.
+REM Pure-Java GL backend (gl / gl-ui): no native, append if built.
 if exist "%GL_JAR%" set "CP=%CP%;%GL_JAR%"
 
-REM The imgui backend needs its native imgui-java64.dll. It ships INSIDE the fat
-REM jar at io/imgui/java/native-bin/; pre-extract it to a known dir and point
-REM -Dimgui.library.path there so imgui-java's loader takes the absolute-path
-REM System.load branch (immune to custom-classloader resource visibility inside
-REM the shaded agent jar). Only needed when the imgui jar is present.
+REM imgui backend (imgui / imgui-ui): needs imgui-java64.dll. It ships INSIDE the fat
+REM jar at io/imgui/java/native-bin/; pre-extract + -Dimgui.library.path so the loader
+REM takes the absolute-path System.load branch (immune to shaded-classloader resource
+REM visibility). Only when the imgui jar is present.
 set "IMGUI_OPT="
 if exist "%IMGUI_JAR%" (
   set "CP=!CP!;%IMGUI_JAR%"
@@ -56,12 +60,22 @@ if exist "%IMGUI_JAR%" (
     move /Y "io\imgui\java\native-bin\imgui-java64.dll" "!IMGUI_NATIVE_DIR!\" >nul 2>&1
     rmdir /S /Q "io" >nul 2>&1
   )
-  set "IMGUI_OPT=-Dimgui.library.path=!IMGUI_NATIVE_DIR! --enable-native-access=ALL-UNNAMED"
+  set "IMGUI_OPT=-Dimgui.library.path=!IMGUI_NATIVE_DIR!"
 )
 
-if not exist "%GL_JAR%" if not exist "%IMGUI_JAR%" (
+REM skiko backend (skiko-ui): skiko-windows-x64.dll + icudtl.dat ship in the fat jar and
+REM are extracted at runtime by org.jetbrains.skiko.Library. -Dskiko.renderApi=OPENGL is
+REM REQUIRED (forces the GL backend that wraps MC's context; proven by the prior Compose
+REM backend). Only when the skiko jar is present.
+set "SKIKO_OPT="
+if exist "%SKIKO_JAR%" (
+  set "CP=!CP!;%SKIKO_JAR%"
+  set "SKIKO_OPT=-Dskiko.renderApi=OPENGL"
+)
+
+if not exist "%GL_JAR%" if not exist "%IMGUI_JAR%" if not exist "%SKIKO_JAR%" (
   echo ERROR: no overlay backend jar found.
-  echo Build one first:  scripts\build-jars.bat
+  echo Build them first:  scripts\build-jars.bat
   exit /b 3
 )
 echo [run-mcp-overlay] overlay ARMED (-Dmcp.core.overlay=true) backend=%BACKEND% (empty = auto).
@@ -70,8 +84,10 @@ cd /d "%~dp0..\test_run"
 
 "%JAVA%" "@%ARGS%" ^
   -Dmcp.core.overlay=true ^
+  --enable-native-access=ALL-UNNAMED ^
   %BACKEND_OPT% ^
   %IMGUI_OPT% ^
+  %SKIKO_OPT% ^
   -javaagent:"%CORE_JAR%" ^
   -cp "%CP%" ^
   net.minecraft.client.main.Main ^
