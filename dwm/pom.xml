@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>net.marcloud.mcp.189</groupId>
+        <artifactId>mcpclient-parent</artifactId>
+        <version>1.8.9</version>
+    </parent>
+
+    <artifactId>dwm</artifactId>
+    <packaging>jar</packaging>
+
+    <properties>
+        <!-- Like core: DWM is a modern aux layer (records, pattern matching,
+             imgui-java), compiled to the JBR25 runtime — NOT Java-8 game bytecode.
+             Overrides the parent's release=8. -->
+        <maven.compiler.release>25</maven.compiler.release>
+    </properties>
+    <description>
+        DWM — the UI subsystem, codenamed after Windows' Desktop Window Manager
+        (the NT/hardware metaphor the project already uses: core=NT kernel,
+        board=PCB, compat=AppCompat). A detachable AUXILIARY layer, NOT a skeleton
+        module: it holds no security-decision power, imports no core class, and is
+        discovered/loaded by Board via the reflective Backplane (same idiom Board
+        uses to find mcp-core). Delete dwm and everything still compiles.
+
+        Architecture (see .ai-notes/design-briefs/dwm-material-design.md):
+        UI is written against DWM's own layers ONLY (component API + theme). The
+        render backend (imgui first) sits behind the RenderBackend/DrawContext SPI
+        and is hot-swappable — swapping the backend changes nothing above the SPI
+        line. imgui / OpenGL types appear in exactly ONE backend-adapter package
+        and nowhere else. This skeleton defines the SPI + compositor + component
+        base; the imgui backend adapter and the MDC-parity component set land on
+        top of these interfaces.
+    </description>
+
+    <dependencies>
+        <!-- The game: lets a future backend adapter reach the GLFW window / GL
+             context via the client mappings. 'provided' (loaded by the same
+             classloader at runtime), mirroring board/core. The SPI itself uses
+             ZERO game/imgui types — only the backend adapter will. -->
+        <dependency>
+            <groupId>net.marcloud.mcp.189</groupId>
+            <artifactId>client</artifactId>
+            <version>${project.version}</version>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- Board: dwm hangs off board (loaded via Backplane). 'provided' so dwm
+             does not re-bundle board; discovery stays reflective per the frozen
+             board contract. -->
+        <dependency>
+            <groupId>net.marcloud.mcp.189</groupId>
+            <artifactId>board</artifactId>
+            <version>${project.version}</version>
+            <scope>provided</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <version>4.13.2</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>

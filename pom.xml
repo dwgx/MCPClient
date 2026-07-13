@@ -16,6 +16,7 @@
         <module>core</module>
         <module>board</module>
         <module>pg</module>
+        <module>dwm</module>
     </modules>
 
     <properties>
