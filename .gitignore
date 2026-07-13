@@ -54,3 +54,4 @@ overlay.log
 */overlay.log
 # capture-overlay.sh output (live PNGs + launch logs): scratch verification artifacts.
 scripts/_capture/
+scripts/_review/

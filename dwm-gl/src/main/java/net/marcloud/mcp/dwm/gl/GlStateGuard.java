@@ -65,6 +65,11 @@ public final class GlStateGuard {
     private Field cull_cullFace;     // CullState.cullFace (BooleanState)
     private Field alphaStateField;   // static AlphaState alphaState
     private Field alpha_alphaTest;   // AlphaState.alphaTest (BooleanState)
+    private Field colorMaskField;    // static ColorMask colorMaskState
+    private Field cmask_r;           // ColorMask.red
+    private Field cmask_g;           // ColorMask.green
+    private Field cmask_b;           // ColorMask.blue
+    private Field cmask_a;           // ColorMask.alpha
 
     /** GL_TEXTURE0 (33984): OpenGlHelper.defaultTexUnit is this on the fixed pipeline. */
     private static final int GL_TEXTURE0 = GL13.GL_TEXTURE0;
@@ -84,6 +89,9 @@ public final class GlStateGuard {
     private boolean tex2dWasEnabled = true;
     private boolean cullWasEnabled = true;
     private boolean alphaTestWasEnabled;
+    private boolean stencilWasEnabled;
+    private final boolean[] savedColorMask = {true, true, true, true};
+    private float savedLineWidth = 1f;
 
     public GlStateGuard() {
         try {
@@ -124,6 +132,13 @@ public final class GlStateGuard {
             Class<?> alphaClass = Class.forName("net.minecraft.client.renderer.GlStateManager$AlphaState");
             alphaStateField = declared(gsm, "alphaState");
             alpha_alphaTest = declared(alphaClass, "alphaTest");
+
+            Class<?> colorMaskClass = Class.forName("net.minecraft.client.renderer.GlStateManager$ColorMask");
+            colorMaskField = declared(gsm, "colorMaskState");
+            cmask_r = declared(colorMaskClass, "red");
+            cmask_g = declared(colorMaskClass, "green");
+            cmask_b = declared(colorMaskClass, "blue");
+            cmask_a = declared(colorMaskClass, "alpha");
         } catch (Throwable t) {
             System.err.println("[GlStateGuard] GlStateManager reflection unavailable, raw-GL-only restore: " + t);
         }
@@ -165,9 +180,26 @@ public final class GlStateGuard {
             // and the shadow, or MC's next enableCull()/enableAlpha() no-ops.
             cullWasEnabled = GL11.glIsEnabled(GL11.GL_CULL_FACE);
             alphaTestWasEnabled = GL11.glIsEnabled(GL11.GL_ALPHA_TEST);
+            // Skia clips via the stencil buffer (stencil-8 FBO) and toggles the color
+            // mask for AA/coverage. MC shadows colorMask (colorMask() early-returns on
+            // match), so a stale colorMask shadow is the same no-op-against-stale-shadow
+            // bug class as blend/depth. Stencil enable MC does NOT shadow → raw restore.
+            stencilWasEnabled = GL11.glIsEnabled(GL11.GL_STENCIL_TEST);
+            readColorMask(savedColorMask);
+            savedLineWidth = GL11.glGetFloat(GL11.GL_LINE_WIDTH);
         } catch (Throwable t) {
             System.err.println("[GlStateGuard] enter snapshot faulted: " + t);
         }
+    }
+
+    /** Read the 4-bool GL color write-mask into {@code out} (RGBA). */
+    private static void readColorMask(boolean[] out) {
+        java.nio.ByteBuffer buf = org.lwjgl.BufferUtils.createByteBuffer(4);
+        GL11.glGetBooleanv(GL11.GL_COLOR_WRITEMASK, buf);
+        out[0] = buf.get(0) != 0;
+        out[1] = buf.get(1) != 0;
+        out[2] = buf.get(2) != 0;
+        out[3] = buf.get(3) != 0;
     }
 
     /**
@@ -213,6 +245,17 @@ public final class GlStateGuard {
             } else {
                 GL11.glDisable(GL11.GL_ALPHA_TEST);
             }
+            // Stencil: MC does NOT shadow GL_STENCIL_TEST, so raw restore only (Skia
+            // clips via stencil and can leave it enabled — that would mask MC's draws).
+            if (stencilWasEnabled) {
+                GL11.glEnable(GL11.GL_STENCIL_TEST);
+            } else {
+                GL11.glDisable(GL11.GL_STENCIL_TEST);
+            }
+            // Color write-mask: raw restore (shadow write-through below).
+            GL11.glColorMask(savedColorMask[0], savedColorMask[1], savedColorMask[2], savedColorMask[3]);
+            // Line width: raw-GL leak (MC doesn't shadow it) — restore what MC expects.
+            GL11.glLineWidth(savedLineWidth);
         } catch (Throwable t) {
             System.err.println("[GlStateGuard] leave raw-GL restore faulted: " + t);
         }
@@ -226,7 +269,30 @@ public final class GlStateGuard {
         writeTextureShadow();
         writeBooleanStateShadow(cullStateField, cull_cullFace, cullWasEnabled, "cull");
         writeBooleanStateShadow(alphaStateField, alpha_alphaTest, alphaTestWasEnabled, "alpha");
+        writeColorMaskShadow();
         resetColorShadow();
+    }
+
+    /**
+     * Write MC's colorMaskState booleans to match the restored real color write-mask, so
+     * a later {@code GlStateManager.colorMask(...)} does not no-op against a stale shadow
+     * (Skia toggles the color mask; MC shadows it and early-returns on match).
+     */
+    private void writeColorMaskShadow() {
+        if (colorMaskField == null) {
+            return;
+        }
+        try {
+            Object cm = colorMaskField.get(null);
+            if (cm != null) {
+                cmask_r.setBoolean(cm, savedColorMask[0]);
+                cmask_g.setBoolean(cm, savedColorMask[1]);
+                cmask_b.setBoolean(cm, savedColorMask[2]);
+                cmask_a.setBoolean(cm, savedColorMask[3]);
+            }
+        } catch (Throwable t) {
+            System.err.println("[GlStateGuard] colorMask shadow write-through miss: " + t);
+        }
     }
 
     /**
@@ -386,11 +452,17 @@ public final class GlStateGuard {
         // Cull + alpha-test default to "was enabled" for the test's poison scenario.
         this.cullWasEnabled = true;
         this.alphaTestWasEnabled = true;
+        // Color mask expected all-true (normal rendering) — poison scenario sets it false.
+        this.savedColorMask[0] = true;
+        this.savedColorMask[1] = true;
+        this.savedColorMask[2] = true;
+        this.savedColorMask[3] = true;
         writeBlendShadow();
         writeDepthShadow();
         writeTextureShadow();
         writeBooleanStateShadow(cullStateField, cull_cullFace, cullWasEnabled, "cull");
         writeBooleanStateShadow(alphaStateField, alpha_alphaTest, alphaTestWasEnabled, "alpha");
+        writeColorMaskShadow();
         resetColorShadow();
     }
 }

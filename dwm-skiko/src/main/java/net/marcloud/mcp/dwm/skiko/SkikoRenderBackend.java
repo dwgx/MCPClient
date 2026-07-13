@@ -58,10 +58,13 @@ public final class SkikoRenderBackend implements RenderBackend {
     private Surface surface;
     private Font font;
 
+    private BackendHost host;
     private int fbW = 1;
     private int fbH = 1;
     private int mcFbId;
     private boolean inFrame;
+    private boolean entered;    // guard.enter() done; endFrame must guard.leave()
+    private int saveBaseline = -1; // canvas save count at frame start (for rebalance)
     private boolean loggedFirstFrame;
 
     @Override
@@ -79,6 +82,7 @@ public final class SkikoRenderBackend implements RenderBackend {
     @Override
     public void onAttach(BackendHost host) {
         try {
+            this.host = host;
             fbW = Math.max(1, host.framebufferWidthPx());
             fbH = Math.max(1, host.framebufferHeightPx());
             mcFbId = Math.max(0, host.currentFramebufferId());
@@ -168,6 +172,20 @@ public final class SkikoRenderBackend implements RenderBackend {
     @Override
     public void onDetach() {
         closeSurface();
+        // Close the Font (+ its Typeface) and the DrawContext's Paint — Skiko Managed
+        // objects hold native memory and must be close()'d, or a hot-swap / attach-fault
+        // loop leaks native heap. Each fault-isolated; null-out so a second detach no-ops.
+        try {
+            if (font != null && !font.isClosed()) {
+                font.close();
+            }
+        } catch (Throwable ignored) {
+        }
+        font = null;
+        try {
+            dc.close();
+        } catch (Throwable ignored) {
+        }
         try {
             if (ctx != null) {
                 ctx.close();
@@ -181,9 +199,14 @@ public final class SkikoRenderBackend implements RenderBackend {
     public void beginFrame(FrameInput in, FrameMetrics metrics) {
         int w = Math.max(1, metrics.widthPx());
         int h = Math.max(1, metrics.heightPx());
-        if (w != fbW || h != fbH) {
+        // Re-query the live FBO id each frame: MC can recreate framebufferMc (resize,
+        // display-mode change, resource reload). Rebuild the surface if id OR size moved,
+        // else Skia wraps a stale/free'd FBO (blank overlay or GL errors).
+        int liveFb = Math.max(0, host.currentFramebufferId());
+        if (w != fbW || h != fbH || liveFb != mcFbId) {
             fbW = w;
             fbH = h;
+            mcFbId = liveFb;
             buildSurface();
         }
         if (!loggedFirstFrame) {
@@ -191,13 +214,24 @@ public final class SkikoRenderBackend implements RenderBackend {
             System.err.println("[SkikoRenderBackend] first frame: fb=" + fbW + "x" + fbH
                     + " surface=" + (surface != null) + " (UI drawing)");
         }
+        // ATOMIC begin: guard.enter() first; if setup throws, unwind (guard.leave) and
+        // rethrow so guard.leave() is never orphaned.
         guard.enter();
-        if (ctx != null) {
-            ctx.resetGLAll(); // tell Skia the outside world touched GL
+        entered = true;
+        try {
+            if (ctx != null) {
+                ctx.resetGLAll(); // tell Skia the outside world touched GL
+            }
+            Canvas canvas = surface != null ? surface.getCanvas() : null;
+            // Capture the canvas save baseline so unwind can restore any unbalanced saves
+            // (a component that pushClip without popClip, or throws mid-clip).
+            saveBaseline = canvas != null ? canvas.getSaveCount() : -1;
+            dc.bind(canvas, font);
+            inFrame = true;
+        } catch (Throwable t) {
+            unwind();
+            throw t;
         }
-        Canvas canvas = surface != null ? surface.getCanvas() : null;
-        dc.bind(canvas, font);
-        inFrame = true;
     }
 
     @Override
@@ -207,19 +241,38 @@ public final class SkikoRenderBackend implements RenderBackend {
 
     @Override
     public void endFrame() {
-        if (!inFrame) {
+        // Run whenever begin entered the guard, even if setup faulted before inFrame.
+        if (!entered) {
             return;
         }
+        unwind();
+    }
+
+    /** Rebalance canvas saves, flush Skia, reset Skia+MC GL state. Always guard.leave. */
+    private void unwind() {
         try {
-            if (surface != null && ctx != null) {
-                ctx.flushAndSubmit(surface, false);
-                ctx.resetGLAll(); // Skia touched GL; reset before we hand back to MC
+            if (surface != null) {
+                Canvas canvas = surface.getCanvas();
+                // Restore any saves the component tree left unbalanced (H2) so the next
+                // frame starts from a clean transform/clip stack.
+                if (canvas != null && saveBaseline >= 0) {
+                    try {
+                        canvas.restoreToCount(saveBaseline);
+                    } catch (Throwable ignored) {
+                    }
+                }
+                if (ctx != null) {
+                    ctx.flushAndSubmit(surface, false);
+                    ctx.resetGLAll(); // Skia touched GL; reset before handing back to MC
+                }
             }
         } catch (Throwable t) {
-            System.err.println("[SkikoRenderBackend] endFrame faulted (frame skipped): " + t);
+            System.err.println("[SkikoRenderBackend] unwind faulted: " + t);
         } finally {
+            saveBaseline = -1;
             inFrame = false;
-            guard.leave(); // raw-GL restore + MC shadow write-through
+            entered = false;
+            guard.leave(); // raw-GL restore + MC shadow write-through — ALWAYS
         }
     }
 

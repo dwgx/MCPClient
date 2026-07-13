@@ -129,6 +129,31 @@ public class UiComposerTest {
     }
 
     @Test
+    public void faultingRootStillCallsBackendEndFrame() {
+        // THE C1 REGRESSION: a component throwing mid-tree must STILL run backend.endFrame
+        // (which does guard.leave() + matrix/scissor restore + MC shadow write-through).
+        // The old code had endFrame() inside the try, so a render() throw skipped it and
+        // orphaned the GL guard -> the black/white/invisible desync returned next frame.
+        // This asserts begin/end are paired on the faulting frame.
+        List<String> log = new ArrayList<>();
+        SpyBackend backend = new SpyBackend("spy", log);
+        DefaultBackendRegistry reg = new DefaultBackendRegistry();
+        reg.register(backend);
+        reg.activate("spy");
+
+        Component boom = root((ctx, x, y, w, h) -> {
+            throw new RuntimeException("component blew up mid-frame");
+        });
+        newComposer(reg, boom).driveFrame(FrameInput.none(), 1f, 1f / 60f);
+
+        long begins = log.stream().filter("begin"::equals).count();
+        long ends = log.stream().filter("end"::equals).count();
+        assertEquals("backend.beginFrame ran once", 1L, begins);
+        assertEquals("backend.endFrame MUST run despite the component throwing "
+                + "(else guard.leave/matrix/scissor restore is orphaned)", 1L, ends);
+    }
+
+    @Test
     public void hotSwapDetachesOldAndAttachesNew() {
         List<String> log = new ArrayList<>();
         SpyBackend a = new SpyBackend("a", log);

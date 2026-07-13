@@ -44,6 +44,8 @@ public final class ImGuiRenderBackend implements RenderBackend {
     private volatile int fbW = 1;
     private volatile int fbH = 1;
     private boolean inFrame;
+    private boolean entered;         // guard.enter() done; endFrame must guard.leave()
+    private boolean newFrameStarted; // ImGui.newFrame() ran; must pair with render()
     private boolean loggedFirstFrame;
 
     @Override
@@ -79,13 +81,23 @@ public final class ImGuiRenderBackend implements RenderBackend {
 
     @Override
     public void onDetach() {
+        // Shut the GL3 renderer down (frees its program / VBO-EBO / font texture) BEFORE
+        // destroying the context — the ImGui API contract, and prevents a second set of
+        // device objects leaking on a re-attach (hot-swap off imgui and back). Each step
+        // fault-isolated so one failure cannot skip the rest.
+        try {
+            implGl3.shutdown();
+        } catch (Throwable t) {
+            System.err.println("[ImGuiRenderBackend] implGl3.shutdown faulted: " + t);
+        }
         try {
             if (ctxCreated) {
                 ImGui.destroyContext();
-                ctxCreated = false;
             }
         } catch (Throwable t) {
-            System.err.println("[ImGuiRenderBackend] onDetach faulted: " + t);
+            System.err.println("[ImGuiRenderBackend] destroyContext faulted: " + t);
+        } finally {
+            ctxCreated = false;
         }
     }
 
@@ -100,13 +112,23 @@ public final class ImGuiRenderBackend implements RenderBackend {
             loggedFirstFrame = true;
             System.err.println("[ImGuiRenderBackend] first frame: fb=" + fbW + "x" + fbH + " (UI drawing)");
         }
+        // ATOMIC begin: guard.enter() first; if ImGui setup throws, unwind (guard.leave)
+        // and rethrow so a returned beginFrame always owes an endFrame and a thrown one
+        // is already clean — guard.leave() must never be orphaned.
         guard.enter();
-        ImGuiIO io = ImGui.getIO();
-        io.setDisplaySize(fbW, fbH);
-        implGl3.newFrame();
-        ImGui.newFrame();
-        dc.bind(ImGui.getBackgroundDrawList());
-        inFrame = true;
+        entered = true;
+        try {
+            ImGuiIO io = ImGui.getIO();
+            io.setDisplaySize(fbW, fbH);
+            implGl3.newFrame();
+            ImGui.newFrame();
+            newFrameStarted = true; // ImGui.newFrame ran; endFrame MUST render to pair it
+            dc.bind(ImGui.getBackgroundDrawList());
+            inFrame = true;
+        } catch (Throwable t) {
+            unwind();
+            throw t;
+        }
     }
 
     @Override
@@ -116,19 +138,29 @@ public final class ImGuiRenderBackend implements RenderBackend {
 
     @Override
     public void endFrame() {
-        if (!ctxCreated || !inFrame) {
+        // Run whenever begin entered the guard, even if setup faulted before inFrame.
+        if (!entered) {
             return;
         }
+        unwind();
+    }
+
+    /** Balance beginFrame: render the started ImGui frame (pairs newFrame), guard.leave. */
+    private void unwind() {
         try {
-            dc.endFrameCleanup();
-            ImGui.render();
-            // renderDrawData is the frame's last GL work; guard.leave() then reconciles
-            // MC's shadow before control returns to MC.
-            implGl3.renderDrawData(ImGui.getDrawData());
+            if (newFrameStarted) {
+                dc.endFrameCleanup();
+                // ImGui.newFrame() MUST be paired with a render() or the next newFrame
+                // asserts, so render even on a faulted frame.
+                ImGui.render();
+                implGl3.renderDrawData(ImGui.getDrawData());
+            }
         } catch (Throwable t) {
-            System.err.println("[ImGuiRenderBackend] endFrame faulted (frame skipped): " + t);
+            System.err.println("[ImGuiRenderBackend] unwind/render faulted: " + t);
         } finally {
+            newFrameStarted = false;
             inFrame = false;
+            entered = false;
             guard.leave();
         }
     }

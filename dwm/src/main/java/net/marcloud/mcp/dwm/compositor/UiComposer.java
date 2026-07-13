@@ -102,25 +102,41 @@ public final class UiComposer {
         FrameMetrics metrics = new FrameMetrics(w, h, scale, dtSeconds, compositor.frameId());
 
         // tick-before-draw: advance animation timelines once before geometry is read.
+        // CRITICAL bracketing: once backend.beginFrame() runs it has done guard.enter()
+        // + pushed matrices / bound a canvas, so backend.endFrame() (which runs
+        // guard.leave() + pops + restores MC's shadow) MUST run on EVERY exit path — a
+        // component throwing mid-tree must NOT orphan the guard, or the black/white/
+        // invisible GL-state-desync class returns on the next frame. So endFrame() is in
+        // finally, not the try body. compositor.endFrame() (animation GC) likewise.
         boolean framed = false;
+        boolean backendBegun = false;
         try {
             compositor.beginFrame(dtSeconds);
             framed = true;
 
             backend.beginFrame(input, metrics);
+            backendBegun = true;
             DrawContext draw = backend.draw();
             if (draw != null) {
                 ctx.bind(draw, input, metrics);
                 // Full-viewport root; components lay out within (0,0,w,h) DIP.
                 root.render(ctx, 0f, 0f, w, h);
             }
-            backend.endFrame();
             lastFbW = w;
             lastFbH = h;
         } catch (Throwable t) {
             System.err.println("[DWM UiComposer] UI frame faulted (frame skipped): " + t);
         } finally {
-            // Always close the animation frame so tick/gc pairing is never broken.
+            // Close the backend frame FIRST (guard.leave + matrix/scissor restore + MC
+            // shadow write-through), then the animation frame. Both fault-isolated so
+            // one failing cannot skip the other.
+            if (backendBegun) {
+                try {
+                    backend.endFrame();
+                } catch (Throwable t) {
+                    System.err.println("[DWM UiComposer] backend endFrame faulted: " + t);
+                }
+            }
             if (framed) {
                 try {
                     compositor.endFrame();

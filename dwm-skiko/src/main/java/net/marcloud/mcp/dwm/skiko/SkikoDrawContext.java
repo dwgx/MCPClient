@@ -39,12 +39,24 @@ public final class SkikoDrawContext implements DrawContext {
     private final Paint paint = new Paint();
     private Font font; // default typeface font, set by the backend
     private final Deque<Float> opacity = new ArrayDeque<>();
+    private int clipDepth; // canvas.save() balance; popClip only restores if > 0
 
-    /** Rebind to this frame's canvas + default font; clear the opacity stack. */
+    /** Rebind to this frame's canvas + default font; clear the per-frame stacks. */
     public void bind(Canvas canvas, Font font) {
         this.canvas = canvas;
         this.font = font;
         opacity.clear();
+        clipDepth = 0;
+    }
+
+    /** Close the native Paint. Called by the backend on detach (Managed native memory). */
+    public void close() {
+        try {
+            if (!paint.isClosed()) {
+                paint.close();
+            }
+        } catch (Throwable ignored) {
+        }
     }
 
     private float opacity() {
@@ -177,13 +189,18 @@ public final class SkikoDrawContext implements DrawContext {
             return;
         }
         canvas.save();
+        clipDepth++;
         canvas.clipRect(x, y, x + w, y + h, ClipMode.INTERSECT, true);
     }
 
     @Override
     public void popClip() {
-        if (canvas != null) {
+        // Only restore a save WE made — an unbalanced extra popClip must not restore()
+        // past the frame baseline (that would corrupt the canvas transform/clip). The
+        // backend's unwind() does restoreToCount(baseline) as the final safety net.
+        if (canvas != null && clipDepth > 0) {
             canvas.restore();
+            clipDepth--;
         }
     }
 

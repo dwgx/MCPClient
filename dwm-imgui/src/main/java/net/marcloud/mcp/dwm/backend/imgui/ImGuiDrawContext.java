@@ -137,6 +137,7 @@ public final class ImGuiDrawContext implements DrawContext {
         if (pts.isEmpty()) {
             return;
         }
+        dl.pathClear(); // drop any leftover path points from a prior/aborted path call
         for (float[] p : pts) {
             dl.pathLineTo(p[0], p[1]);
         }

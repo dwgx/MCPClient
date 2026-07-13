@@ -76,6 +76,14 @@ public class GlStateGuardShadowTest {
         setBooleanState(cullState, "cullFace", false);
         setBooleanState(alphaState2, "alphaTest", false);
 
+        // colorMask shadow poisoned to a partial mask (Skia toggles color mask for AA);
+        // a guard that misses it lets MC's next colorMask() no-op against a stale shadow.
+        Object colorMask = staticField("colorMaskState");
+        setBoolean(colorMask, "red", false);
+        setBoolean(colorMask, "green", false);
+        setBoolean(colorMask, "blue", false);
+        setBoolean(colorMask, "alpha", false);
+
         // colorState poisoned to a concrete color (an overlay's glColor4f leaves this;
         // the guard must reset it to the -1 sentinel so MC's next color() re-issues).
         Object colorState = staticField("colorState");
@@ -134,6 +142,14 @@ public class GlStateGuardShadowTest {
                 getBooleanState(cullState, "cullFace"));
         assertTrue("alpha-test enable shadow must be restored to true",
                 getBooleanState(alphaState2, "alphaTest"));
+
+        // 9) COLOR-MASK shadow corrected back to all-true (the subagent's H1: Skia toggles
+        //    color mask; a guard missing it lets MC's colorMask() no-op against a stale
+        //    shadow — same bug class as the black/white screen, just an uncovered field).
+        assertTrue("colorMask red shadow restored", getBoolean(colorMask, "red"));
+        assertTrue("colorMask green shadow restored", getBoolean(colorMask, "green"));
+        assertTrue("colorMask blue shadow restored", getBoolean(colorMask, "blue"));
+        assertTrue("colorMask alpha shadow restored", getBoolean(colorMask, "alpha"));
     }
 
     // ---- reflection helpers ---------------------------------------------------------
