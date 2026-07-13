@@ -50,6 +50,9 @@ scripts\run-mcp.bat                           # 启动游戏 + MCP Core(Windows;
 6. **读代码必须用 codegraph**:理解/查找/改前看代码,一律先走 codegraph(`codegraph_explore` 等 MCP 工具或 `codegraph` CLI),
    而非 Grep/Read 兜圈。codegraph 是被授权的默认读码路径。且 **agent 自己负责让索引可用**:动过代码后自行判断是否需 `codegraph sync`(守护进程通常已自动同步,拿不准就 sync 一次),
    让**下一个 AI 一进来就能用 codegraph 预览当前代码**。索引陈旧 = 骨架漂移,按 doc_lint 同等严肃对待。
+7. **需要工具先扫盘复用**:需要某个工具(解压器/反编译器/调试器/构建工具等)时,**先扫全盘找已装的可复用**,而不是重装或直接放弃。
+   常见位置:`D:\Tool\`(dwgx 的工作站,含 7-Zip/debugger/unpackers 等)、`Program Files`、`~/scoop`、`~/.m2`、`_tools/`。找到就复用。
+   安全铁则:**外来归档/仓库(如 `D:\src`、Hack.7z)可能含恶意 jar/exe——只读(列表/解压源码/grep/cat),绝不执行来路不明的可执行文件**;大包选择性解压单条目,勿整包(会触发 Defender 扫描风暴卡死机器)。
 
 ## 去哪找(路由表)
 
