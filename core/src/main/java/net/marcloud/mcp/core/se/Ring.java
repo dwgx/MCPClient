@@ -122,6 +122,8 @@ public enum Ring {
             Map.entry("complete_goal", R3),
             Map.entry("narrate", R3),
             Map.entry("get_story", R3),
+            // compat: read-only view of loaded startup patches
+            Map.entry("list_compat_patches", R3),
             // permission tools themselves
             Map.entry("drop_privilege", R3),
             Map.entry("restore_privilege", R3),

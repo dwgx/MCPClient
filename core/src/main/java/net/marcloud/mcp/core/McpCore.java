@@ -226,6 +226,16 @@ public final class McpCore {
         // and the carrier for KI-1's GL-context evidence. Degrades to absent headless.
         new net.marcloud.mcp.core.drivers.video.DevTools(game).registerAll(registry);
 
+        // Compat patch observability (R3 read-only): list_compat_patches reports the
+        // startup patches armed by the engine at premain (NT AppCompat analogue).
+        // Application is kernel-automatic at premain; only the read-only state view
+        // passes through the tool gate. The engine/database are null-safe here (a
+        // headless run without -javaagent reports an empty catalog).
+        new net.marcloud.mcp.core.compat.CompatTools(
+                net.marcloud.mcp.core.compat.Compat.database(),
+                net.marcloud.mcp.core.compat.Compat.engine())
+                .registerAll(registry);
+
         // Socket transport (not stdio): the game owns the console, so a stdio
         // MCP server would corrupt the JSON-RPC stream. An AI client connects to
         // the loopback port. The registry binds the live server for runtime

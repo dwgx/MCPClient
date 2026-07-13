@@ -41,10 +41,19 @@ public final class CoreAgent {
     /** Called by the JVM when loaded via {@code -javaagent} at startup. */
     public static void premain(String args, Instrumentation inst) {
         instrumentation = inst;
+        // Compat patches MUST install here (premain), before any net.minecraft.*
+        // class loads — load-time patching, not ldr hot-redefine. Inert by default
+        // (empty database + fail-safe signer), never fatal.
+        net.marcloud.mcp.core.compat.Compat.igniteAtPremain(inst);
         installStartupHook(inst);
     }
 
-    /** Called by the JVM when dynamically attached at runtime. */
+    /**
+     * Called by the JVM when dynamically attached at runtime. Compat is NOT ignited
+     * here: on a self-attach the game classes are already loaded, so load-time
+     * patching cannot take effect (that is what {@code ldr} redefine is for). Only
+     * the {@code -javaagent} premain path arms compat.
+     */
     public static void agentmain(String args, Instrumentation inst) {
         instrumentation = inst;
         installStartupHook(inst);
