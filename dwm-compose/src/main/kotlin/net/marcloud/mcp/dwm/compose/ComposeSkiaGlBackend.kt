@@ -13,6 +13,8 @@ import org.jetbrains.skia.SurfaceColorFormat
 import org.jetbrains.skia.SurfaceOrigin
 import androidx.compose.ui.ImageComposeScene
 import androidx.compose.ui.unit.Density
+import org.lwjgl.opengl.GL11
+import org.lwjgl.opengl.GL30
 
 /**
  * The live Compose Material 3 overlay backend — implements DWM's [ContentBackend] and
@@ -37,13 +39,20 @@ import androidx.compose.ui.unit.Density
 class ComposeSkiaGlBackend : ContentBackend {
 
     private val guard = GlStateGuard()
+    private val compositor = OverlayQuadCompositor()
     private var ctx: DirectContext? = null
     private var rt: BackendRenderTarget? = null
     private var surface: Surface? = null
 
+    // Self-owned offscreen FBO + color texture Compose renders into. Compositing that
+    // texture onto MC's FBO (SrcOver quad) is what keeps the blast radius to one quad
+    // and stops transparent Compose pixels from clobbering MC's frame to black.
+    private var offscreenFbo = 0
+    private var offscreenTex = 0
+
     @Volatile private var fbW = 0
     @Volatile private var fbH = 0
-    @Volatile private var fbId = 0
+    @Volatile private var mcFbId = 0
 
     override fun id(): String = "compose"
 
@@ -53,11 +62,12 @@ class ComposeSkiaGlBackend : ContentBackend {
     override fun onAttach(host: BackendHost) {
         try {
             ctx = DirectContext.makeGL()
-            fbId = host.currentFramebufferId().let { if (it < 0) 0 else it }
+            mcFbId = host.currentFramebufferId().let { if (it < 0) 0 else it }
             fbW = host.framebufferWidthPx().coerceAtLeast(1)
             fbH = host.framebufferHeightPx().coerceAtLeast(1)
             buildSurface()
-            System.err.println("[ComposeBackend] attached: ctx=${ctx != null} fb=${fbW}x${fbH}#$fbId")
+            compositor.init()
+            System.err.println("[ComposeBackend] attached: ctx=${ctx != null} fb=${fbW}x${fbH} mcFbo=$mcFbId offFbo=$offscreenFbo")
         } catch (t: Throwable) {
             System.err.println("[ComposeBackend] onAttach faulted (overlay disabled): $t")
             onDetach()
@@ -68,29 +78,50 @@ class ComposeSkiaGlBackend : ContentBackend {
         runCatching { surface?.close() }; surface = null
         runCatching { rt?.close() }; rt = null
         runCatching { ctx?.close() }; ctx = null
+        runCatching { if (offscreenFbo != 0) GL30.glDeleteFramebuffers(offscreenFbo) }; offscreenFbo = 0
+        runCatching { if (offscreenTex != 0) GL11.glDeleteTextures(offscreenTex) }; offscreenTex = 0
+        runCatching { compositor.dispose() }
     }
 
     override fun resize(fbWidth: Int, fbHeight: Int, fbId: Int, fbFormat: Int) {
         this.fbW = fbWidth.coerceAtLeast(1)
         this.fbH = fbHeight.coerceAtLeast(1)
-        this.fbId = if (fbId < 0) 0 else fbId
+        this.mcFbId = if (fbId < 0) 0 else fbId
         buildSurface()
     }
 
-    /** (Re)build the Skia surface over the current framebuffer. Null-checks the factory. */
+    /**
+     * (Re)build the self-owned offscreen FBO + color texture, and a Skia surface
+     * targeting THAT (never MC's FBO). RGBA8, stencil 8. Compose renders here; the
+     * composite step then blends this texture onto MC's FBO. Null-checks the factory.
+     */
     private fun buildSurface() {
         val c = ctx ?: return
         runCatching { surface?.close() }; surface = null
         runCatching { rt?.close() }; rt = null
-        // stencil 8 matches the harness; GL_RGBA8 = 0x8058.
-        val target = BackendRenderTarget.makeGL(fbW, fbH, 0, 8, fbId, 0x8058)
+        runCatching { if (offscreenFbo != 0) GL30.glDeleteFramebuffers(offscreenFbo) }
+        runCatching { if (offscreenTex != 0) GL11.glDeleteTextures(offscreenTex) }
+
+        // Own offscreen color texture + FBO (GL_RGBA8 = 0x8058, GL_RGBA = 0x1908).
+        offscreenTex = GL11.glGenTextures()
+        GL11.glBindTexture(GL11.GL_TEXTURE_2D, offscreenTex)
+        GL11.glTexImage2D(GL11.GL_TEXTURE_2D, 0, 0x8058, fbW, fbH, 0,
+            0x1908, GL11.GL_UNSIGNED_BYTE, null as java.nio.ByteBuffer?)
+        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR)
+        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR)
+        offscreenFbo = GL30.glGenFramebuffers()
+        GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, offscreenFbo)
+        GL30.glFramebufferTexture2D(GL30.GL_FRAMEBUFFER, GL30.GL_COLOR_ATTACHMENT0,
+            GL11.GL_TEXTURE_2D, offscreenTex, 0)
+
+        val target = BackendRenderTarget.makeGL(fbW, fbH, 0, 8, offscreenFbo, 0x8058)
         rt = target
         surface = Surface.makeFromBackendRenderTarget(
             c, target, SurfaceOrigin.BOTTOM_LEFT, SurfaceColorFormat.RGBA_8888, ColorSpace.sRGB
         )
         if (surface == null) {
             System.err.println("[ComposeBackend] Surface.makeFromBackendRenderTarget returned null " +
-                "(fbFormat/attachment mismatch) — overlay inert this frame.")
+                "(offscreen FBO mismatch) — overlay inert this frame.")
         }
     }
 
@@ -100,21 +131,32 @@ class ComposeSkiaGlBackend : ContentBackend {
 
     override fun renderFrame(m: FrameMetrics, nanoTime: Long) {
         val c = ctx ?: return
+        val surf = surface ?: return
         try {
             guard.enter()
             c.resetGLAll()
-            // Single-frame Compose render of the M3 tree into an image, drawn onto our
-            // GL-backed surface. (First increment: ImageComposeScene, no recomposer.)
+
+            // 1) Render Compose into the OFFSCREEN surface. Clear it fully TRANSPARENT
+            //    first so only the M3 content has alpha — the rest stays 0,0,0,0 and the
+            //    SrcOver composite below leaves MC's frame untouched there.
             val scene = ImageComposeScene(width = fbW, height = fbH, density = Density(1f)) {
                 OverlayContent.Root()
             }
             try {
+                surf.canvas.clear(0x00000000) // transparent
                 val img = scene.render(nanoTime)
-                surface?.canvas?.drawImage(img, 0f, 0f)
-                surface?.flushAndSubmit()
+                surf.canvas.drawImage(img, 0f, 0f)
+                surf.flushAndSubmit()
             } finally {
                 scene.close()
             }
+            // Skia touched GL; tell it the outside world (our composite next) will too.
+            c.resetGLAll()
+
+            // 2) Composite the offscreen texture onto MC's FBO as ONE SrcOver quad.
+            //    Only non-transparent overlay pixels blend over MC's frame. Y-flip is
+            //    handled in the quad UVs (SKIA_TOP_AT_HIGH_GLY, per the Phase-1 harness).
+            compositor.composite(offscreenTex, mcFbId, fbW, fbH)
         } catch (t: Throwable) {
             System.err.println("[ComposeBackend] renderFrame faulted (frame skipped): $t")
         } finally {
