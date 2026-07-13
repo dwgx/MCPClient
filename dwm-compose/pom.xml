@@ -136,6 +136,45 @@
             <version>${kotlin.version}</version>
         </dependency>
 
+        <!-- LWJGL3 GLFW + OpenGL for the Phase-1 offscreen GL harness: it creates its
+             OWN hidden GLFW window + GL context (no MC needed) to stand Skia up on a
+             real current context. API jars + natives-windows classifier, from the
+             parent lwjgl-bom (3.3.6). test scope: only the harness needs them; the
+             real backend reaches GL via the game's context at runtime, not these. -->
+        <dependency>
+            <groupId>org.lwjgl</groupId>
+            <artifactId>lwjgl</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.lwjgl</groupId>
+            <artifactId>lwjgl-glfw</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.lwjgl</groupId>
+            <artifactId>lwjgl-opengl</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.lwjgl</groupId>
+            <artifactId>lwjgl</artifactId>
+            <classifier>natives-windows</classifier>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.lwjgl</groupId>
+            <artifactId>lwjgl-glfw</artifactId>
+            <classifier>natives-windows</classifier>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.lwjgl</groupId>
+            <artifactId>lwjgl-opengl</artifactId>
+            <classifier>natives-windows</classifier>
+            <scope>test</scope>
+        </dependency>
+
         <!-- Test: JUnit 4, matching the other modules. -->
         <dependency>
             <groupId>junit</groupId>
