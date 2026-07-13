@@ -45,6 +45,17 @@
             <artifactId>lwjgl-stb</artifactId>
         </dependency>
         <!-- Note: util.vector/glu math is hand-written (no JOML needed). -->
+
+        <!-- JUnit 4 for headless regression tests over the shim's pure-logic /
+             pure-math surface (Sys clock, GLU/Project perspective math,
+             GLContext capability caching, Display state, value classes).
+             Test scope only: never shaded into the client fat jar. -->
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <version>4.13.2</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <!-- Publish the shim as a PRIVATE versioned library to GitHub Packages.
