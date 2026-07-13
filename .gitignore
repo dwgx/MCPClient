@@ -43,3 +43,9 @@ core-jvmti.dll
 # CodeGraph local code-knowledge-graph index (tree-sitter -> SQLite). Machine-
 # local, rebuildable via `codegraph init`/`sync`; never committed.
 .codegraph/
+
+# Loose conversation / scratch dumps that land in the repo root during AI
+# sessions (e.g. exported transcripts). Not products; keep `git status` clean so
+# the session-status reconcile isn't noisy. Narrow patterns, NOT a blanket *.txt.
+/conversation-*
+/123.txt
