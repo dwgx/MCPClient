@@ -331,10 +331,15 @@ public final class McpCore {
      */
     static SeReferenceMonitor buildEngine(SeClearancePolicy policy,
                                             net.marcloud.mcp.core.ob.ObManager objects) {
-        // L1 VTL: if enabled, defer EVERY decision to the separate P-SECURE
+        // L1 VTL: if enabled, defer L1-L5 decisions to the separate P-SECURE
         // process over a loopback socket (fail-closed). This is the only real
-        // wall — a rogue in-JVM hook cannot reach that address space. (L6 handles
-        // are an in-JVM concept; under P-SECURE the remote authority owns decisions.)
+        // wall for those layers — a rogue in-JVM hook cannot reach that address
+        // space. L6 handles, however, freeze an IN-JVM object snapshot the remote
+        // process cannot resolve (it lives in THIS address space), so L6 must stay
+        // LOCAL: when the object manager is wired we splice a local L6 gate in
+        // FRONT of the remote authority (KI-8 — otherwise the ObManager was silently
+        // dropped and L6 strict-handle TOCTOU protection became a no-op under
+        // psecure).
         if ("true".equalsIgnoreCase(System.getProperty(
                 net.marcloud.mcp.core.alpc.AlpcProtocol.ENABLE_PROPERTY, "false"))) {
             String host = System.getProperty("mcp.core.psecureHost", "127.0.0.1");
@@ -342,9 +347,16 @@ public final class McpCore {
                     net.marcloud.mcp.core.alpc.AlpcProtocol.DEFAULT_PORT);
             String token = System.getProperty(
                     net.marcloud.mcp.core.alpc.AlpcProtocol.TOKEN_PROPERTY, "");
-            System.err.println("[MCP Core] L1 VTL ENABLED: decisions deferred to P-SECURE at "
+            System.err.println("[MCP Core] L1 VTL ENABLED: L1-L5 decisions deferred to P-SECURE at "
                     + host + ":" + port + " (fail-closed).");
-            return new net.marcloud.mcp.core.se.SeRemoteMonitor(host, port, token, 2000);
+            net.marcloud.mcp.core.se.SeRemoteMonitor remote =
+                    new net.marcloud.mcp.core.se.SeRemoteMonitor(host, port, token, 2000);
+            if (objects != null) {
+                System.err.println("[MCP Core] L6 object-handles enforced LOCALLY in front of "
+                        + "P-SECURE (in-JVM handle snapshots cannot cross the wall).");
+                return new net.marcloud.mcp.core.se.SeHandleGatedMonitor(remote, objects);
+            }
+            return remote;
         }
 
         // Hardened opt-in (additive, default OFF): -Dmcp.core.hardened=true wires a
