@@ -180,4 +180,65 @@ public final class Ed25519PatchSignerTest {
             // correct: signing is a build-tool operation
         }
     }
+
+    // ---- red-team F1: mutating a signed-but-formerly-unsigned field breaks verify ----
+
+    @Test
+    public void f1_statusFlipBreaksSignature() {
+        // Sign a VERIFIED manifest, then re-present it as DISABLED (or vice versa).
+        // Before F1 the signature covered only (target, contentHash, keyId), so a
+        // status flip verified. Now status is signed -> mutation must deny.
+        PatchManifest signed = signWith(KP_A, KEY_A); // status defaults VERIFIED
+        Ed25519PatchSigner v = verifierTrusting(KEY_A, KP_A.getPublic());
+        assertTrue(v.verify(signed));
+        // Rebuild the same bound manifest but DISABLED, carrying the same signature.
+        PatchManifest flipped = base().status(PatchManifest.Status.DISABLED).build()
+                .withTransform(PatchManifest.sha256Hex("the-transform-bytes"), signed.signature());
+        assertFalse("status flip must invalidate the signature (F1)", v.verify(flipped));
+    }
+
+    @Test
+    public void f1_publisherRelabelBreaksSignature() {
+        PatchManifest signed = signWith(KP_A, KEY_A);
+        Ed25519PatchSigner v = verifierTrusting(KEY_A, KP_A.getPublic());
+        PatchManifest relabeled = base().publisher("attacker").build()
+                .withTransform(PatchManifest.sha256Hex("the-transform-bytes"), signed.signature());
+        // publisher feeds derivePatchId AND is now signed -> mutation denies.
+        assertFalse("publisher re-label must invalidate the signature (F1)", v.verify(relabeled));
+    }
+
+    @Test
+    public void f1_kiRefRelabelBreaksSignature() {
+        PatchManifest signed = signWith(KP_A, KEY_A);
+        Ed25519PatchSigner v = verifierTrusting(KEY_A, KP_A.getPublic());
+        PatchManifest relabeled = base().kiRef("KI-999").build()
+                .withTransform(PatchManifest.sha256Hex("the-transform-bytes"), signed.signature());
+        assertFalse("kiRef re-label must invalidate the signature (F1)", v.verify(relabeled));
+    }
+
+    // ---- red-team F7/F8: keyId charset + signature length ----
+
+    @Test
+    public void f7_colonInKeyIdRejectedAtSign() {
+        try {
+            new Ed25519PatchSigner(TrustAnchors.empty(), KP_A.getPrivate(), "kernel:primary")
+                    .sign(base().build(), PatchManifest.sha256Hex("x"));
+            fail("a keyId containing ':' must be rejected at sign time (F7)");
+        } catch (IllegalArgumentException expected) {
+            // correct: keyId must be a strict token
+        }
+    }
+
+    @Test
+    public void f8_wrongLengthSignatureRejected() {
+        PatchManifest signed = signWith(KP_A, KEY_A);
+        Ed25519PatchSigner v = verifierTrusting(KEY_A, KP_A.getPublic());
+        // Replace the 64-byte sig body with a short one -> length check denies.
+        String head = signed.signature().substring(0,
+                signed.signature().indexOf(':', Ed25519PatchSigner.SCHEME_PREFIX.length()) + 1);
+        String shortSig = head + java.util.Base64.getUrlEncoder().withoutPadding()
+                .encodeToString(new byte[]{1, 2, 3});
+        assertFalse("a non-64-byte signature must be rejected (F8)",
+                v.verify(signed.withSignature(shortSig)));
+    }
 }

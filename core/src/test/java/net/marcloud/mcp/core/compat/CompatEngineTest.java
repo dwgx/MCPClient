@@ -194,4 +194,18 @@ public final class CompatEngineTest {
         assertTrue("probe arms under a trusting signer", engine.armedInternalNames().contains(internal));
         assertNull("identity probe performs no transform", engine.apply(internal, new byte[]{1, 2, 3}));
     }
+
+    @Test
+    public void f2_installFromRejectsOnlineAuthorizedIds() {
+        // Red-team F2: installFrom(...) with a non-null online set would register the
+        // transformer with NO lease (BLUE-1/F3 regression). It must refuse, forcing
+        // callers onto the explicit build -> setLease -> install path.
+        CompatDatabase db = new CompatDatabase();
+        try {
+            CompatEngine.installFrom(null, db, TRUSTING, java.util.Set.of("cp-anything"));
+            fail("installFrom must reject a non-null authorizedIds (F2)");
+        } catch (IllegalArgumentException expected) {
+            // correct: online path must attach a lease before installing
+        }
+    }
 }

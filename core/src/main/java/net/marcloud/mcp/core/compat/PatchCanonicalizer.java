@@ -19,10 +19,12 @@ import java.nio.charset.StandardCharsets;
  * purpose (a ticket, a transcript) from ever verifying as a patch signature.
  *
  * <p>Covered fields, in fixed order: {@code targetClass}, {@code contentHash},
- * {@code keyId}. These bind the signature to WHAT the patch rewrites
- * ({@code targetClass}) and to the manifest's declared {@code contentHash}, under a
- * specific signing key ({@code keyId}). Note this is deliberately NOT the
- * pipe-delimited {@code derivePatchId} string — that is a content-address for
+ * {@code keyId}, {@code status}, {@code kiRef}, {@code publisher}, {@code version}
+ * (see {@link #signingInput} for why the last four are bound — red-team F1). These
+ * bind the signature to WHAT the patch rewrites ({@code targetClass}), the declared
+ * {@code contentHash}, the signing key ({@code keyId}), the engine-enforced
+ * {@code status}, and the identity/provenance inputs. Note this is deliberately NOT
+ * the pipe-delimited {@code derivePatchId} string — that is a content-address for
  * identity, not a signed, unambiguous byte layout.
  *
  * <p><b>HONEST BOUNDARY (do not oversell — red-team finding #1):</b> {@code
@@ -55,6 +57,17 @@ public final class PatchCanonicalizer {
      * present); {@code keyId} is the identity of the signing key the signature will be
      * verified under.
      *
+     * <p>Covered fields, in fixed order: domain tag, then length-prefixed
+     * {@code targetClass}, {@code contentHash}, {@code keyId}, {@code status},
+     * {@code kiRef}, {@code publisher}, {@code version}. The last four were added to
+     * close red-team finding F1 (canonical input under-binding): before, a valid
+     * signature over the first three left {@code status} (an engine-enforced security
+     * gate) and the {@code patchId}-derive inputs ({@code kiRef}, {@code publisher})
+     * UNSIGNED — so a manifest signed while {@code DISABLED} could be re-presented as
+     * {@code VERIFIED}, and the same integrity triple could mint a different
+     * {@code patchId} for the online ticket channel. Binding them makes the signature
+     * cover every field the engine treats as a decision or that feeds patch identity.
+     *
      * @param m     the bound manifest (targetClass + contentHash)
      * @param keyId the signing key identity (bound into the signature, so a signature
      *              cannot be replayed as if made under a different key)
@@ -71,12 +84,18 @@ public final class PatchCanonicalizer {
         if (keyId == null || keyId.isBlank()) {
             throw new IllegalArgumentException("keyId must not be blank");
         }
-        ByteArrayOutputStream out = new ByteArrayOutputStream(128);
+        ByteArrayOutputStream out = new ByteArrayOutputStream(160);
         out.writeBytes(DOMAIN.getBytes(StandardCharsets.UTF_8));
         out.write(SEP);
         putLenPrefixed(out, m.targetClass());
         putLenPrefixed(out, m.contentHash());
         putLenPrefixed(out, keyId);
+        // F1: bind the engine-enforced status + the patchId-derive inputs so none can
+        // be mutated while keeping a valid signature. status enum name is stable.
+        putLenPrefixed(out, m.status().name());
+        putLenPrefixed(out, m.kiRef());
+        putLenPrefixed(out, m.publisher());
+        putLenPrefixed(out, m.version());
         return out.toByteArray();
     }
 

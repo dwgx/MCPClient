@@ -78,11 +78,24 @@ public final class Ed25519PatchSigner implements PatchSigner {
             String keyId = rest.substring(0, colon);
             String sigB64 = rest.substring(colon + 1);
 
+            // F7: a keyId must be a strict token. sign() joins keyId with ':', and
+            // verify splits on the first ':', so a keyId containing ':' (or other
+            // stray chars) would mis-split. Reject anything outside the safe charset —
+            // fail-closed, and it also forecloses any future scheme-tag confusion.
+            if (!isValidKeyId(keyId)) {
+                return false;
+            }
+
             PublicKey pub = anchors.lookup(keyId);
             if (pub == null) {
                 return false; // unknown/revoked keyId, or empty anchors -> fail-closed
             }
             byte[] sigBytes = Base64.getUrlDecoder().decode(sigB64);
+            // F8: Ed25519 signatures are exactly 64 bytes. Reject any other length
+            // before touching the verifier (defense-in-depth; JCA would reject too).
+            if (sigBytes.length != 64) {
+                return false;
+            }
             byte[] input = PatchCanonicalizer.signingInput(manifest, keyId);
             return CompatCrypto.ed25519Verify(pub, input, sigBytes);
         } catch (Throwable t) {
@@ -101,6 +114,13 @@ public final class Ed25519PatchSigner implements PatchSigner {
         if (manifest == null) {
             throw new IllegalArgumentException("manifest must not be null");
         }
+        // F7: refuse to sign under a keyId that would not round-trip through the
+        // ':'-delimited wire form. Fail loud at sign time (build tool) rather than
+        // emit a signature the client can never parse back.
+        if (!isValidKeyId(signingKeyId)) {
+            throw new IllegalArgumentException(
+                    "signingKeyId must match " + KEY_ID_CHARSET + " (no ':' or stray chars): " + signingKeyId);
+        }
         // Bind the transform first (derives contentHash + patchId), then sign the
         // canonical input under our keyId and attach the formatted signature.
         PatchManifest bound = manifest.withTransform(transformHash, null);
@@ -110,4 +130,13 @@ public final class Ed25519PatchSigner implements PatchSigner {
                 + Base64.getUrlEncoder().withoutPadding().encodeToString(sig);
         return bound.withSignature(formatted);
     }
+
+    /** Safe keyId charset: letters, digits, dot, underscore, dash — never ':'. */
+    static final String KEY_ID_CHARSET = "[A-Za-z0-9._-]+";
+
+    /** True if {@code keyId} is a strict token that round-trips the wire form. */
+    static boolean isValidKeyId(String keyId) {
+        return keyId != null && keyId.matches(KEY_ID_CHARSET);
+    }
 }
+

@@ -157,18 +157,37 @@ public final class CompatEngine {
     }
 
     /**
-     * Convenience: build from the database + signer and install in one call. Used by
-     * the premain boot path.
+     * Convenience: build from the database + signer and install in one call, for the
+     * OFFLINE path only (no online authorization). The premain boot path does NOT use
+     * this — {@code Compat.igniteAtPremain} deliberately does build -&gt; setLease -&gt;
+     * install so the live lease is attached before the transformer is registered (F3).
      */
     public static CompatEngine installFrom(Instrumentation inst, CompatDatabase db, PatchSigner signer) {
         return installFrom(inst, db, signer, null);
     }
 
+    /**
+     * Offline-only build+install. Rejects a non-null {@code authorizedIds}: an
+     * online-filtered engine MUST attach a live {@link PatchLease} BEFORE the
+     * transformer is registered, or de-list/TTL never re-check at apply time (the
+     * BLUE-1 / F3 regression). Callers with online authorization must use
+     * {@link #build(CompatDatabase, PatchSigner, java.util.Set)} then
+     * {@link #setLease} then {@link #install} explicitly (as {@code
+     * Compat.igniteAtPremain} does). This guard closes red-team finding F2.
+     *
+     * @throws IllegalArgumentException if {@code authorizedIds} is non-null
+     */
     public static CompatEngine installFrom(
             Instrumentation inst,
             CompatDatabase db,
             PatchSigner signer,
             java.util.Set<String> authorizedIds) {
+        if (authorizedIds != null) {
+            throw new IllegalArgumentException(
+                    "installFrom must not be used for the online path (authorizedIds != null): "
+                    + "it would register the transformer with no lease (BLUE-1/F3 regression). "
+                    + "Use build(...) -> setLease(seededLease) -> install(inst) explicitly.");
+        }
         CompatEngine engine = build(db, signer, authorizedIds);
         engine.install(inst);
         return engine;
