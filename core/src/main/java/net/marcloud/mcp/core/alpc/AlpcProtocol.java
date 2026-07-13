@@ -63,4 +63,33 @@ public final class AlpcProtocol {
     public static final String M_DROP_TO = "dropTo";
     public static final String M_TRY_RESTORE = "tryRestore";
     public static final String M_RESTORABLE = "restorable";
+
+    // ---- additive compat channel (v2: short-TTL Ed25519 tickets) ----
+    // Methods / keys are purely additive. A compat-unaware authority hits the
+    // server default case and returns {allow:false, reason:"unknown method"};
+    // the client treats missing K_COMPAT_* fields as fail-closed.
+
+    /** Ephemeral X25519 session binding + server identity (Ed25519 over transcript). */
+    public static final String M_COMPAT_HELLO = "compatHello";
+    /** Request short-TTL Ed25519 tickets for candidate patches (v2 authorization root). */
+    public static final String M_COMPAT_TICKET = "compatTicket";
+
+    public static final String K_COMPAT_CLIENT_PUB = "compatClientPub";
+    public static final String K_COMPAT_CLIENT_NONCE = "compatClientNonce";
+    public static final String K_COMPAT_SERVER_PUB = "compatServerPub";
+    public static final String K_COMPAT_SERVER_NONCE = "compatServerNonce";
+    public static final String K_COMPAT_SESSION = "compatSession";
+    public static final String K_COMPAT_TRANSCRIPT_SIG = "compatTranscriptSig";
+    public static final String K_COMPAT_KEY_ID = "compatKeyId";
+    public static final String K_COMPAT_PROTOCOL_VER = "compatProtocolVer";
+    public static final String K_COMPAT_PATCHES = "compatPatches";
+    public static final String K_COMPAT_TICKETS = "compatTickets";
+    public static final String K_COMPAT_REASON = "compatReason";
+    public static final String K_COMPAT_CLIENT_VER = "compatClientVer";
+
+    /** Wire protocol version for hello/ticket frames (pinned into transcript + tickets). */
+    public static final String COMPAT_PROTOCOL_VER = "1";
+
+    /** System property: base64 X.509 SPKI of the authority long-term Ed25519 public key. */
+    public static final String COMPAT_PUBKEY_PROPERTY = "mcp.core.compatAuthorityPub";
 }

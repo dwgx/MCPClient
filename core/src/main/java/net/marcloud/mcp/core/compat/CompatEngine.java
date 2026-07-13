@@ -49,11 +49,24 @@ public final class CompatEngine {
     }
 
     /**
-     * Build the engine from a database, keeping only patches that (1) verify under
-     * {@code signer}, (2) apply to the current runtime, and (3) do not target a
-     * protected Core class. Rejected patches are logged and dropped. Never throws.
+     * Offline-only build: same as {@link #build(CompatDatabase, PatchSigner, java.util.Set)}
+     * with an allow-all online set (every offline-verified patch is eligible). Used when
+     * P-SECURE online tickets are disabled.
      */
     public static CompatEngine build(CompatDatabase db, PatchSigner signer) {
+        return build(db, signer, null);
+    }
+
+    /**
+     * Build the engine from a database, keeping only patches that (1) verify under
+     * {@code signer}, (2) apply to the current runtime, (3) do not target a protected
+     * Core class, and (4) when {@code authorizedIds} is non-null, have a patchId in
+     * that online-authorized set (ALPC ticket channel). Pass {@code null} to skip the
+     * online filter (offline-only path). An empty set arms nothing (fail-closed when
+     * the authority is down). Never throws.
+     */
+    public static CompatEngine build(
+            CompatDatabase db, PatchSigner signer, java.util.Set<String> authorizedIds) {
         Map<String, List<CompatPatch>> index = new LinkedHashMap<>();
         java.util.Set<String> armed = new java.util.LinkedHashSet<>();
         int applied = 0;
@@ -90,6 +103,12 @@ public final class CompatEngine {
                 skipped++;
                 continue;
             }
+            if (authorizedIds != null && !authorizedIds.contains(m.patchId())) {
+                System.err.println("[MCP Compat] SKIP patch " + m.code()
+                        + " — not in online authorized set (ticket channel).");
+                skipped++;
+                continue;
+            }
             index.computeIfAbsent(internal, k -> new ArrayList<>()).add(patch);
             armed.add(m.patchId());
             applied++;
@@ -118,7 +137,15 @@ public final class CompatEngine {
      * the premain boot path.
      */
     public static CompatEngine installFrom(Instrumentation inst, CompatDatabase db, PatchSigner signer) {
-        CompatEngine engine = build(db, signer);
+        return installFrom(inst, db, signer, null);
+    }
+
+    public static CompatEngine installFrom(
+            Instrumentation inst,
+            CompatDatabase db,
+            PatchSigner signer,
+            java.util.Set<String> authorizedIds) {
+        CompatEngine engine = build(db, signer, authorizedIds);
         engine.install(inst);
         return engine;
     }

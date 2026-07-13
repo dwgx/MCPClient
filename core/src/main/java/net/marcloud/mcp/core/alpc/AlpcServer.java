@@ -12,7 +12,9 @@ import java.net.Socket;
 import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 import net.marcloud.mcp.core.io.http.Json;
@@ -41,6 +43,7 @@ public final class AlpcServer {
     private static final int MAX_FRAME_CHARS = 64 * 1024;
 
     private final SeReferenceMonitor authority;
+    private final CompatAuthority compat;
     private final int port;
     private final String authToken;
 
@@ -51,7 +54,18 @@ public final class AlpcServer {
     private Socket activeClient;
 
     public AlpcServer(SeReferenceMonitor authority, int port, String authToken) {
+        this(authority, new DenyAllCompatAuthority(), port, authToken);
+    }
+
+    /**
+     * Additive overload: same L1-L5 authority plus an optional {@link CompatAuthority}
+     * for the online patch-ticket channel. Pass {@link DenyAllCompatAuthority} to keep
+     * the fail-safe default (no tickets issued).
+     */
+    public AlpcServer(
+            SeReferenceMonitor authority, CompatAuthority compat, int port, String authToken) {
         this.authority = authority;
+        this.compat = compat == null ? new DenyAllCompatAuthority() : compat;
         this.port = port;
         this.authToken = authToken == null ? "" : authToken;
     }
@@ -214,12 +228,95 @@ public final class AlpcServer {
             }
             case AlpcProtocol.M_RESTORABLE ->
                     resp.put(AlpcProtocol.K_RESTORABLE, authority.restorable());
+            case AlpcProtocol.M_COMPAT_HELLO -> handleCompatHello(req, resp);
+            case AlpcProtocol.M_COMPAT_TICKET -> handleCompatTicket(req, resp);
             default -> {
                 resp.put(AlpcProtocol.K_ALLOW, false);
                 resp.put(AlpcProtocol.K_REASON, "unknown method: " + method);
             }
         }
         return resp;
+    }
+
+    private void handleCompatHello(Map<String, Object> req, Map<String, Object> resp) {
+        try {
+            byte[] clientPub = CompatCrypto.unb64(String.valueOf(
+                    req.getOrDefault(AlpcProtocol.K_COMPAT_CLIENT_PUB, "")));
+            byte[] clientNonce = CompatCrypto.unb64(String.valueOf(
+                    req.getOrDefault(AlpcProtocol.K_COMPAT_CLIENT_NONCE, "")));
+            CompatHello h = compat.hello(clientPub, clientNonce);
+            if (h == null) {
+                resp.put(AlpcProtocol.K_ALLOW, false);
+                resp.put(AlpcProtocol.K_REASON, "compatHello rejected");
+                return;
+            }
+            resp.put(AlpcProtocol.K_COMPAT_SERVER_PUB, CompatCrypto.b64(h.serverPubSpki()));
+            resp.put(AlpcProtocol.K_COMPAT_SERVER_NONCE, CompatCrypto.b64(h.serverNonce()));
+            resp.put(AlpcProtocol.K_COMPAT_SESSION, h.sessionId());
+            resp.put(AlpcProtocol.K_COMPAT_TRANSCRIPT_SIG, CompatCrypto.b64(h.transcriptSig()));
+            resp.put(AlpcProtocol.K_COMPAT_KEY_ID, h.keyId());
+            resp.put(AlpcProtocol.K_COMPAT_PROTOCOL_VER, AlpcProtocol.COMPAT_PROTOCOL_VER);
+        } catch (Exception e) {
+            resp.put(AlpcProtocol.K_ALLOW, false);
+            resp.put(AlpcProtocol.K_REASON, "compatHello error");
+        }
+    }
+
+    private void handleCompatTicket(Map<String, Object> req, Map<String, Object> resp) {
+        try {
+            String sessionId = String.valueOf(
+                    req.getOrDefault(AlpcProtocol.K_COMPAT_SESSION, ""));
+            String clientVer = String.valueOf(
+                    req.getOrDefault(AlpcProtocol.K_COMPAT_CLIENT_VER, ""));
+            List<CompatCandidate> candidates = parseCandidates(req.get(AlpcProtocol.K_COMPAT_PATCHES));
+            CompatTicketIssue issue = compat.issueTickets(sessionId, candidates, clientVer);
+            resp.put(AlpcProtocol.K_COMPAT_SESSION, sessionId);
+            List<Map<String, Object>> tickets = new ArrayList<>();
+            for (CompatTicket t : issue.tickets()) {
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("sessionId", t.sessionId());
+                row.put("patchId", t.patchId());
+                row.put("contentHash", t.contentHash());
+                row.put("minClientVer", t.minClientVer());
+                row.put("epoch", t.epoch());
+                row.put("expEpochMs", t.expEpochMs());
+                row.put("nonce", CompatCrypto.b64(t.nonce()));
+                row.put("keyId", t.keyId());
+                row.put("sig", CompatCrypto.b64(t.sig()));
+                tickets.add(row);
+            }
+            resp.put(AlpcProtocol.K_COMPAT_TICKETS, tickets);
+            resp.put(AlpcProtocol.K_COMPAT_REASON, issue.reasons());
+        } catch (Exception e) {
+            resp.put(AlpcProtocol.K_COMPAT_SESSION,
+                    String.valueOf(req.getOrDefault(AlpcProtocol.K_COMPAT_SESSION, "")));
+            resp.put(AlpcProtocol.K_COMPAT_TICKETS, List.of());
+            resp.put(AlpcProtocol.K_COMPAT_REASON, Map.of());
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<CompatCandidate> parseCandidates(Object raw) {
+        if (!(raw instanceof List<?> list)) {
+            return List.of();
+        }
+        List<CompatCandidate> out = new ArrayList<>();
+        for (Object o : list) {
+            if (!(o instanceof Map<?, ?> m)) {
+                continue;
+            }
+            Object pid = m.get("patchId");
+            Object ch = m.get("contentHash");
+            if (pid == null || ch == null) {
+                continue;
+            }
+            try {
+                out.add(new CompatCandidate(String.valueOf(pid), String.valueOf(ch)));
+            } catch (IllegalArgumentException ignored) {
+                // skip malformed row
+            }
+        }
+        return out;
     }
 
     private static void writeLine(BufferedWriter out, Map<String, Object> obj) throws IOException {
