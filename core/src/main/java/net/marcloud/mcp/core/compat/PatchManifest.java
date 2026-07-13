@@ -11,9 +11,10 @@ import java.util.Map;
  * shim's {@code .inf} description plus its {@code .cat} catalog hash. Immutable.
  *
  * <p>See {@code .ai-notes/docs/architecture/07-COMPAT-SHIM.md} for the field↔Windows
- * mapping. A patch is trusted only when {@link #signature} is a valid HMAC over its
- * {@link #contentHash} under the kernel key (checked by {@link PatchSigner}); the
- * crypto core itself is a separate, deferred design (see {@link PatchSigner}).
+ * mapping. A patch is trusted only when {@link #signature} is a valid Ed25519
+ * signature over its canonical signing input (target class + {@link #contentHash} +
+ * keyId) under a key pinned in {@link TrustAnchors} (checked by {@link PatchSigner} /
+ * {@link Ed25519PatchSigner}).
  *
  * <p><b>Content addressing.</b> {@link #patchId} is derived deterministically from
  * the target class, the transform's content hash, the KI reference and the
@@ -120,7 +121,11 @@ public final class PatchManifest {
         return contentHash;
     }
 
-    /** HMAC over {@link #contentHash}, or null when unsigned. */
+    /**
+     * The Ed25519 integrity signature in wire form {@code ed25519:v1:<keyId>:<b64url>},
+     * or null when unsigned. Verified by {@link Ed25519PatchSigner} against the
+     * canonical signing input (see {@link PatchCanonicalizer}).
+     */
     public String signature() {
         return signature;
     }
@@ -154,7 +159,8 @@ public final class PatchManifest {
      * @param transformHash a stable hash of the transform's bytecode/logic
      *                       (the patch author computes this over what the transform
      *                       actually does, e.g. sha256 of the emitted class bytes)
-     * @param signature      HMAC over the derived contentHash, or null if unsigned
+     * @param signature      the Ed25519 signature in wire form
+     *                       {@code ed25519:v1:<keyId>:<b64url>}, or null if unsigned
      */
     public PatchManifest withTransform(String transformHash, String signature) {
         String ch = require(transformHash, "transformHash");

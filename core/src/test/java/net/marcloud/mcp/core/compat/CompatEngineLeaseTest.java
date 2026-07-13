@@ -98,4 +98,30 @@ public final class CompatEngineLeaseTest {
         // No lease attached -> offline-only static behavior, applies as before.
         assertArrayEquals(patched, e.apply("com/example/Foo", new byte[]{0}));
     }
+
+    /**
+     * F3 (lease-before-transformer) invariant: when online authorization is in force,
+     * the premain sequence attaches a lease BEFORE registering the transformer. This
+     * test captures the property that makes that reorder safe — a freshly-seeded lease
+     * (attached but not yet renewed) is EMPTY+EXPIRED, so a net.minecraft.* class that
+     * loads in the window between install() and the first renew authorizes NOTHING
+     * rather than applying un-leased. Fails if a fresh lease ever fail-OPEN.
+     */
+    @Test
+    public void freshLeaseAttachedBeforeRenewAuthorizesNothing() {
+        CompatDatabase db = new CompatDatabase();
+        CompatPatch p = patch("com.example.Foo", new byte[]{7});
+        db.register(p);
+        CompatEngine e = CompatEngine.build(db, TRUSTING);
+        FakeClock clock = new FakeClock();
+        // Lease attached FIRST (F3 order), but NOT yet renewed -> empty + expired.
+        PatchLease lease = new PatchLease(clock);
+        e.setLease(lease);
+        // A class loading in the un-renewed window must NOT get the patch applied.
+        assertNull("fresh un-renewed lease authorizes nothing (fail-closed window)",
+                e.apply("com/example/Foo", new byte[]{0}));
+        // Once the authority authorization arrives (renew), the same engine applies.
+        lease.renew(Set.of(p.manifest().patchId()), 1, 10_000);
+        assertArrayEquals(new byte[]{7}, e.apply("com/example/Foo", new byte[]{0}));
+    }
 }
