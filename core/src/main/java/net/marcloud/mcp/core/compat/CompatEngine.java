@@ -39,13 +39,37 @@ public final class CompatEngine {
     /** Applicable, verified patches indexed by JVM internal class name (slashes). */
     private final Map<String, List<CompatPatch>> byInternalName;
 
-    /** Content-addressed ids of the patches actually armed — per-patch, not per-target. */
+    /** Content-addressed ids of the patches that passed the BUILD-time gauntlet
+     *  (offline verify + protected-class + runtime + optional online snapshot).
+     *  This is the set eligible to arm; whether one actually applies at load/redefine
+     *  time is additionally gated by the live {@link #lease} when present. */
     private final java.util.Set<String> armedPatchIds;
+
+    /** OPTIONAL live authorization lease (BLUE-1 fix). When non-null, {@link #apply}
+     *  additionally requires each patch to be authorized RIGHT NOW — so a de-listed
+     *  or lease-expired patch is disarmed at the moment of use, not frozen at build.
+     *  Null = offline-only / static snapshot behavior (unchanged). */
+    private volatile PatchLease lease;
 
     private CompatEngine(Map<String, List<CompatPatch>> byInternalName,
                          java.util.Set<String> armedPatchIds) {
         this.byInternalName = byInternalName;
         this.armedPatchIds = armedPatchIds;
+    }
+
+    /**
+     * Attach a live authorization lease (BLUE-1). With a lease, {@link #apply} checks
+     * {@code lease.isAuthorized(patchId)} at load/redefine time, so authorization is
+     * evaluated at the moment of effect (not frozen at premain) and de-list / lease
+     * expiry disarm an already-built patch. Pass null to detach (static behavior).
+     */
+    public void setLease(PatchLease lease) {
+        this.lease = lease;
+    }
+
+    /** The live lease, or null when running offline-only / static snapshot. */
+    public PatchLease lease() {
+        return lease;
     }
 
     /**
@@ -177,7 +201,16 @@ public final class CompatEngine {
         }
         byte[] current = original;
         boolean changed = false;
+        PatchLease live = lease;
         for (CompatPatch patch : patches) {
+            // BLUE-1: authorization is evaluated at the MOMENT OF USE, not frozen at
+            // build. A live lease that has expired, or that no longer lists this
+            // patchId (authority de-listed it), disarms the patch here — even though
+            // it passed the build-time gauntlet. Null lease = offline-only static
+            // behavior (unchanged).
+            if (live != null && !live.isAuthorized(patch.manifest().patchId())) {
+                continue;
+            }
             try {
                 byte[] out = patch.transform(current);
                 if (out != null && out != current) {

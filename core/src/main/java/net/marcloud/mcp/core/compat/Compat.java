@@ -33,6 +33,18 @@ public final class Compat {
 
     private static volatile CompatEngine engine;
     private static volatile CompatDatabase database;
+    /** Live authorization lease when online (BLUE-1); null offline-only. */
+    private static volatile PatchLease lease;
+
+    /** Lease TTL: the online authorization must be re-confirmed within this window
+     *  by the heartbeat, or it fails closed on its own (no permanent authorization). */
+    private static final long ONLINE_LEASE_TTL_MILLIS =
+            Long.getLong("mcp.core.compatLeaseTtlMs", 60_000L);
+
+    /** Heartbeat re-authorization period (must be < TTL so the lease never lapses
+     *  during healthy operation). */
+    private static final long HEARTBEAT_MILLIS =
+            Long.getLong("mcp.core.compatHeartbeatMs", 20_000L);
 
     private Compat() {
     }
@@ -56,6 +68,20 @@ public final class Compat {
             CompatDatabase db = defaultDatabase();
             Set<String> online = resolveOnlineAuthorizedIds(db);
             CompatEngine e = CompatEngine.installFrom(inst, db, new UnsignedPatchSigner(), online);
+            // BLUE-1: when online authorization is in force, do NOT let the premain
+            // snapshot be the final word (a ~seconds ticket would otherwise arm a
+            // patch for the whole JVM lifetime, and de-list could never reach us).
+            // Attach a LIVE lease seeded from that first authorization; apply() then
+            // gates on it at the moment of use, and a heartbeat can renew/disarm it.
+            if (online != null) {
+                PatchLease live = new PatchLease();
+                // Seed the lease with the first authorization; a short TTL so it must
+                // be renewed by the heartbeat or it fails closed on its own.
+                live.renew(online, 1L, ONLINE_LEASE_TTL_MILLIS);
+                e.setLease(live);
+                lease = live;
+                startHeartbeat(db, live);
+            }
             database = db;
             engine = e;
             return e;
@@ -116,9 +142,51 @@ public final class Compat {
         }
     }
 
+    /**
+     * BLUE-1 heartbeat: a daemon that periodically re-authorizes with the authority
+     * and {@link PatchLease#renew renews} the live lease with a strictly increasing
+     * epoch. This is what makes de-list / revoke actually reach a RUNNING client and
+     * keeps the short lease from lapsing during healthy operation. If a heartbeat
+     * fails (authority unreachable), the lease is NOT renewed and simply expires on
+     * its own TTL — fail-closed, disarming every patch until the authority is back.
+     */
+    private static void startHeartbeat(CompatDatabase db, PatchLease live) {
+        Thread t = new Thread(() -> {
+            long epoch = 2L; // premain seed used epoch 1
+            while (true) {
+                try {
+                    Thread.sleep(HEARTBEAT_MILLIS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+                try {
+                    Set<String> ids = resolveOnlineAuthorizedIds(db);
+                    if (ids != null) {
+                        // Renew with the fresh authorized set; monotonic epoch rejects
+                        // any stale/rolled-back view. A failed handshake returns an
+                        // empty set here -> renew to empty -> everything disarms.
+                        live.renew(ids, epoch++, ONLINE_LEASE_TTL_MILLIS);
+                    }
+                } catch (Throwable ex) {
+                    // Never let the heartbeat die on a transient error; the lease
+                    // will expire on its own if we stop renewing.
+                    System.err.println("[MCP Compat] heartbeat re-auth failed (lease will expire): " + ex);
+                }
+            }
+        }, "mcp-compat-heartbeat");
+        t.setDaemon(true);
+        t.start();
+    }
+
     /** The engine built at premain, or null if the agent never loaded. */
     public static CompatEngine engine() {
         return engine;
+    }
+
+    /** The live authorization lease when online (BLUE-1), or null offline-only. */
+    public static PatchLease lease() {
+        return lease;
     }
 
     /**
