@@ -17,6 +17,7 @@
         <module>board</module>
         <module>pg</module>
         <module>dwm</module>
+        <module>dwm-compose</module>
     </modules>
 
     <properties>

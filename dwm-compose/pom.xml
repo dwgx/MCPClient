@@ -1,0 +1,151 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>net.marcloud.mcp.189</groupId>
+        <artifactId>mcpclient-parent</artifactId>
+        <version>1.8.9</version>
+    </parent>
+
+    <artifactId>dwm-compose</artifactId>
+    <packaging>jar</packaging>
+    <description>
+        DWM Compose backend — the ContentBackend adapter that renders a Compose
+        Multiplatform (desktop/Skiko) @Composable tree as an in-game overlay.
+        Kotlin + Compose + Skiko types live ONLY in this leaf module (the SPI rule:
+        heavy backend types in exactly one adapter). Discovered reflectively; delete
+        this module and the whole build stays green (detachable auxiliary).
+
+        This pom is the Phase-0 toolchain proof: it wires kotlin-maven-plugin +
+        the Compose compiler plugin under Maven (not Gradle) so a @Composable tree
+        compiles and renders to a raster image with NO GL context.
+    </description>
+
+    <properties>
+        <!-- Kotlin 2.4.0 is the floor for jvmTarget=25 (needs >= 2.3.0) and pairs
+             with the standalone compose-compiler-plugin-embeddable of the same
+             version. kotlin-maven-plugin, kotlin-stdlib, and the compiler plugin
+             MUST all be this exact string. -->
+        <kotlin.version>2.4.0</kotlin.version>
+        <!-- Compose Multiplatform desktop line; runtime/ui/foundation verified on
+             Central at 1.11.1 (ui-desktop-1.11.1.pom pulls skiko-awt 0.144.6 +
+             kotlinx-coroutines 1.9.0 transitively). material3 has NO stable 1.11.x
+             so it is deliberately omitted from this toolchain smoke. -->
+        <compose.version>1.11.1</compose.version>
+        <skiko.version>0.144.6</skiko.version>
+        <!-- Modern aux layer, like dwm/core: JBR25 runtime bytecode, not Java-8. -->
+        <maven.compiler.release>25</maven.compiler.release>
+    </properties>
+
+    <repositories>
+        <!-- Google Maven is REQUIRED: Compose desktop pulls transitive androidx.*
+             artifacts (annotation, collection, ...) that are NOT on Central. -->
+        <repository>
+            <id>google-maven</id>
+            <name>Google Maven</name>
+            <url>https://dl.google.com/dl/android/maven2/</url>
+        </repository>
+        <!-- Maven Central explicitly, in case a mirror config shadows the super-POM. -->
+        <repository>
+            <id>central</id>
+            <url>https://repo1.maven.org/maven2/</url>
+        </repository>
+        <!-- Inherit the parent's marcloud repo too (for the sibling modules). -->
+        <repository>
+            <id>marcloud-development-repository</id>
+            <url>https://repo.marcloud.net/</url>
+        </repository>
+    </repositories>
+
+    <dependencies>
+        <!-- Compose Multiplatform desktop (compile). runtime/ui/foundation pull
+             Skiko + kotlinx-coroutines transitively. material3 omitted (no stable
+             1.11.x) — the Phase-0 smoke uses base Compose only. -->
+        <dependency>
+            <groupId>org.jetbrains.compose.runtime</groupId>
+            <artifactId>runtime-desktop</artifactId>
+            <version>${compose.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.jetbrains.compose.ui</groupId>
+            <artifactId>ui-desktop</artifactId>
+            <version>${compose.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.jetbrains.compose.foundation</groupId>
+            <artifactId>foundation-desktop</artifactId>
+            <version>${compose.version}</version>
+        </dependency>
+
+        <!-- Skiko native for this OS: skiko-awt (the API) comes transitively, but the
+             platform .dll is a SEPARATE artifact and is what render()->PNG actually
+             loads. Pinned to the version ui-desktop:1.11.1 resolves (0.144.6). -->
+        <dependency>
+            <groupId>org.jetbrains.skiko</groupId>
+            <artifactId>skiko-awt-runtime-windows-x64</artifactId>
+            <version>${skiko.version}</version>
+        </dependency>
+
+        <!-- Kotlin stdlib, pinned to the compiler version. -->
+        <dependency>
+            <groupId>org.jetbrains.kotlin</groupId>
+            <artifactId>kotlin-stdlib</artifactId>
+            <version>${kotlin.version}</version>
+        </dependency>
+
+        <!-- Test: JUnit 4, matching the other modules. -->
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <version>4.13.2</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <sourceDirectory>src/main/kotlin</sourceDirectory>
+        <testSourceDirectory>src/test/kotlin</testSourceDirectory>
+        <plugins>
+            <plugin>
+                <groupId>org.jetbrains.kotlin</groupId>
+                <artifactId>kotlin-maven-plugin</artifactId>
+                <version>${kotlin.version}</version>
+                <configuration>
+                    <jvmTarget>25</jvmTarget>
+                    <!-- Turn on the Compose compiler plugin via -Xplugin pointing at
+                         the embeddable jar in the local repo. Kotlin 2.x has NO
+                         <compilerPlugins>compose</compilerPlugins> short-id; the
+                         -Xplugin=<jar> form is the authoritative Maven mechanism. -->
+                    <args>
+                        <arg>-Xplugin=${settings.localRepository}/org/jetbrains/kotlin/kotlin-compose-compiler-plugin-embeddable/${kotlin.version}/kotlin-compose-compiler-plugin-embeddable-${kotlin.version}.jar</arg>
+                    </args>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>compile</id>
+                        <phase>compile</phase>
+                        <goals><goal>compile</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>test-compile</id>
+                        <phase>test-compile</phase>
+                        <goals><goal>test-compile</goal></goals>
+                    </execution>
+                </executions>
+                <dependencies>
+                    <!-- Land the compose compiler plugin jar in .m2 so the -Xplugin
+                         path above resolves, without leaking it onto the module
+                         compile/runtime classpath. -->
+                    <dependency>
+                        <groupId>org.jetbrains.kotlin</groupId>
+                        <artifactId>kotlin-compose-compiler-plugin-embeddable</artifactId>
+                        <version>${kotlin.version}</version>
+                    </dependency>
+                </dependencies>
+            </plugin>
+        </plugins>
+    </build>
+</project>
