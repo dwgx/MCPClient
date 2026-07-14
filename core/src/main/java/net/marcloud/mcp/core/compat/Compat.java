@@ -67,6 +67,10 @@ public final class Compat {
         // by the kernel key; arms through the normal signature-verify path against the
         // baked-in kernel anchor (in-code registration grants no trust).
         db.register(new net.marcloud.mcp.core.compat.patches.Ki4LocalServerChannelPatch());
+        // KI-1: uninitialized mipmap levels sample as garbage (blue/white specks) under LWJGL3.
+        // Ships SIGNED by the kernel key; arms through the normal signature-verify path (in-code
+        // registration grants no trust).
+        db.register(new net.marcloud.mcp.core.compat.patches.Ki1MipmapZeroFillPatch());
         return db;
     }
 

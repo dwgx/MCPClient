@@ -103,7 +103,7 @@ public final class Ki4LocalServerChannelPatch implements CompatPatch {
      */
     static final String KERNEL_SIGNATURE =
             "ed25519:v1:mcp-kernel-ed25519-v1:"
-            + "eDNAOlg6byiiNK9IL0s-HCmzrSL9H-zVX4fxHf1G1RPCTq7vo8Tm_Fcm-t_T9JrGH9CpnBz-lRmukbSbFkXTAg";
+            + "JMvFrCpEdyzpnZFtZLAh-RK02zcC-9n7B2Vm71mezf1LcY20msnaEtCItygrSldjXWMIGcnPKOar77XpIZBNBQ";
 
     private final PatchManifest manifest;
 

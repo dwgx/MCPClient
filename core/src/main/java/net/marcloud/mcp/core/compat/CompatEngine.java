@@ -102,6 +102,21 @@ public final class CompatEngine {
         java.util.Set<String> armed = new java.util.LinkedHashSet<>();
         int applied = 0;
         int skipped = 0;
+        // supersedes chain (patches are updatable): a patch whose patchId is claimed by some
+        // OTHER registered patch's manifest.supersedes() is the older version and must not arm —
+        // the newer one wins. Collect every superseded patchId up front, then skip any patch in
+        // that set. This is IN-CODE supersedes ONLY: it resolves the chain among patches already
+        // registered in this database. It is deliberately NOT a TUF version-chain / snapshot /
+        // rollback-protection scheme (no monotonic version enforcement, no signed metadata about
+        // WHICH version is current) — that belongs to the future data-delivery channel + KI-10 and
+        // would be vacuous with no data channel today. See known-issues.md.
+        java.util.Set<String> supersededIds = new java.util.HashSet<>();
+        for (CompatPatch patch : db.all()) {
+            String s = patch.manifest().supersedes();
+            if (s != null && !s.isBlank()) {
+                supersededIds.add(s);
+            }
+        }
         for (CompatPatch patch : db.all()) {
             PatchManifest m = patch.manifest();
             // Canonicalize the target to a JVM internal name (slashes) up front, and
@@ -115,6 +130,14 @@ public final class CompatEngine {
             String internal = internalName(m.targetClass());
             String dotted = internal.replace('/', '.');
             if (m.status() != PatchManifest.Status.VERIFIED) {
+                skipped++;
+                continue;
+            }
+            // Superseded by a newer registered patch -> do not arm the older one (it stays in the
+            // database for the record). Reported as superseded, not armed.
+            if (supersededIds.contains(m.patchId())) {
+                System.err.println("[MCP Compat] SUPERSEDED patch " + m.code() + " (patchId "
+                        + m.patchId() + ") — replaced by a newer registered patch; not arming.");
                 skipped++;
                 continue;
             }
