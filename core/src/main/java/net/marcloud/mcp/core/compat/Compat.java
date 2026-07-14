@@ -85,6 +85,18 @@ public final class Compat {
      * anchors.
      */
     public static TrustAnchors defaultTrustAnchors() {
+        // TUF L2 — verify to root. The patch-verification anchors are no longer the kernel
+        // (targets) key baked in directly; they are DERIVED by verifying the shipped root
+        // metadata up to the baked-in ROOT key (RootTrust -> TufTrust). A patch arms only if
+        // its targets key was authorized by a document signed by the root — so trust chains
+        // all the way to the single baked root. Fail-closed: if the root chain is missing or
+        // the signature threshold is unmet, RootTrust returns empty anchors (arm nothing).
+        // If the L2 root resources are absent (e.g. an older build), fall back to the direct
+        // kernel anchor so the L0/L1 posture still holds rather than disarming everything.
+        TrustAnchors viaRoot = RootTrust.effectiveAnchors();
+        if (!viaRoot.isEmpty()) {
+            return viaRoot;
+        }
         return KernelTrustAnchor.anchors();
     }
 
