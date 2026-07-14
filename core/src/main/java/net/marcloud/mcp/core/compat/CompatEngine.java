@@ -102,18 +102,35 @@ public final class CompatEngine {
         java.util.Set<String> armed = new java.util.LinkedHashSet<>();
         int applied = 0;
         int skipped = 0;
-        // supersedes chain (patches are updatable): a patch whose patchId is claimed by some
-        // OTHER registered patch's manifest.supersedes() is the older version and must not arm —
-        // the newer one wins. Collect every superseded patchId up front, then skip any patch in
-        // that set. This is IN-CODE supersedes ONLY: it resolves the chain among patches already
-        // registered in this database. It is deliberately NOT a TUF version-chain / snapshot /
-        // rollback-protection scheme (no monotonic version enforcement, no signed metadata about
-        // WHICH version is current) — that belongs to the future data-delivery channel + KI-10 and
-        // would be vacuous with no data channel today. See known-issues.md.
+        // TUF L1 — chain structure (承前 + 不可回退). supersedes is a tamper-evident hash pointer:
+        // it names the predecessor by its content-addressed patchId, and PatchChain enforces that
+        // a superseding patch (a) points at a well-formed predecessor and (b) carries a strictly
+        // higher version than the predecessor it replaces when that predecessor is present (rollback
+        // protection). A superseded patch does not arm — the newer chain tip wins. A cyclic
+        // supersedes graph has no defined tip, so the whole cyclic group is refused.
+        // This is the IN-CODE chain (order among registered patches); the signed, delivered
+        // chain-metadata (L2 root/targets, L3 snapshot/timestamp) sign OVER this structure later.
+        List<CompatPatch> all = db.all();
+        String cycle = PatchChain.findCycle(all);
+        if (cycle != null) {
+            System.err.println("[MCP Compat] REFUSING cyclic supersedes graph — " + cycle
+                    + "; no patch in a cycle can arm (no defined chain tip).");
+        }
+        // Only a VALID chain link may suppress its predecessor: an invalid superseding patch
+        // (malformed prev pointer, cross-target, version rollback, or in a cycle) has no
+        // authority to knock out the patch it claims to replace. Collect superseded ids only
+        // from patches whose link passes PatchChain — so a bogus "I supersede A" cannot disarm
+        // A. This closes the ordering hole where a rejected successor still suppressed its
+        // (legitimate, still-armable) predecessor.
         java.util.Set<String> supersededIds = new java.util.HashSet<>();
-        for (CompatPatch patch : db.all()) {
-            String s = patch.manifest().supersedes();
-            if (s != null && !s.isBlank()) {
+        for (CompatPatch patch : all) {
+            PatchManifest m = patch.manifest();
+            String s = m.supersedes();
+            if (s == null || s.isBlank()) {
+                continue;
+            }
+            boolean inCycle = cycle != null;
+            if (!inCycle && PatchChain.rejectionReason(m, all) == null) {
                 supersededIds.add(s);
             }
         }
@@ -138,6 +155,20 @@ public final class CompatEngine {
             if (supersededIds.contains(m.patchId())) {
                 System.err.println("[MCP Compat] SUPERSEDED patch " + m.code() + " (patchId "
                         + m.patchId() + ") — replaced by a newer registered patch; not arming.");
+                skipped++;
+                continue;
+            }
+            // TUF L1: a patch in a supersedes cycle has no defined chain tip -> refuse it.
+            if (cycle != null && m.supersedes() != null && !m.supersedes().isBlank()) {
+                skipped++;
+                continue;
+            }
+            // TUF L1: reject an invalid chain link — a malformed prev pointer, a cross-target
+            // supersede, or a version that does not exceed a PRESENT predecessor (rollback).
+            String chainReason = PatchChain.rejectionReason(m, all);
+            if (chainReason != null) {
+                System.err.println("[MCP Compat] REJECT patch " + m.code()
+                        + ": broken chain link — " + chainReason + ".");
                 skipped++;
                 continue;
             }
