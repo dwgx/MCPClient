@@ -4,7 +4,6 @@ import java.util.function.LongConsumer;
 
 import net.marcloud.mcp.dwm.backend.BackendHost;
 import net.marcloud.mcp.dwm.backend.DefaultBackendRegistry;
-import net.marcloud.mcp.dwm.backend.FrameInput;
 import net.marcloud.mcp.dwm.component.Component;
 import net.marcloud.mcp.dwm.component.ComponentContext;
 import net.marcloud.mcp.dwm.component.FrameComponentContext;
@@ -13,6 +12,7 @@ import net.marcloud.mcp.dwm.compositor.Compositor;
 import net.marcloud.mcp.dwm.compositor.UiComposer;
 import net.marcloud.mcp.dwm.compositor.WidgetId;
 import net.marcloud.mcp.dwm.gl.GameBackendHost;
+import net.marcloud.mcp.dwm.gl.GameInput;
 import net.marcloud.mcp.dwm.theme.MaterialMdcTheme;
 
 /**
@@ -40,8 +40,10 @@ public final class ImGuiUiEntry {
                     MaterialMdcTheme.darkTheme(), compositor.store(), WidgetId.root("overlay"));
             Component root = new DemoRoot();
             UiComposer composer = new UiComposer(host, registry, compositor, ctx, root);
+            GameInput input = new GameInput();
 
-            return frame -> composer.driveFrame(FrameInput.none(), 1f, 1f / 60f);
+            return frame -> composer.driveFrame(
+                    input.read(host.framebufferHeightPx()), 1f, 1f / 60f);
         } catch (Throwable t) {
             System.err.println("[ImGuiUiEntry] arm failed (no-op overlay): " + t);
             return frame -> {

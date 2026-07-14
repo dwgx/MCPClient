@@ -63,6 +63,40 @@ public class UiComposerTest {
     }
 
     @Test
+    public void realButtonClicksFromDrivenPointerInput() {
+        // Input wiring end-to-end: a FrameInput with the pointer over the button + the
+        // primary button down (press frame) then up (release frame) must produce a click,
+        // proving driveFrame threads real input to the component's hit-test. Runs on the
+        // NullBackend floor (DrawContext no-ops; the button's input logic + store still
+        // run). The button lays out at (16,16, measured). Point (40,30) is inside it.
+        DefaultBackendRegistry reg = new DefaultBackendRegistry(); // NullBackend active
+        boolean[] clicked = {false};
+        net.marcloud.mcp.dwm.component.material.MaterialButton btn =
+                new net.marcloud.mcp.dwm.component.material.MaterialButton("Go");
+        Component root = new Component() {
+            @Override public Result render(ComponentContext ctx, float x, float y, float w, float h) {
+                Size s = btn.measure(ctx);
+                Result r = btn.render(ctx, 16f, 16f, s.width(), s.height());
+                if (r.clicked()) {
+                    clicked[0] = true;
+                }
+                return r;
+            }
+            @Override public Size measure(ComponentContext ctx) { return btn.measure(ctx); }
+        };
+        UiComposer composer = newComposer(reg, root);
+
+        // Frame 1: pointer inside, primary down -> press (ripple holds, not yet clicked).
+        composer.driveFrame(new FrameInput(40f, 30f, 1, 0f, 0f, java.util.List.of(), java.util.List.of()),
+                1f, 1f / 60f);
+        // Frame 2: pointer still inside, button released -> click edge.
+        composer.driveFrame(new FrameInput(40f, 30f, 0, 0f, 0f, java.util.List.of(), java.util.List.of()),
+                1f, 1f / 60f);
+
+        assertTrue("button must register a click from press-then-release over its bounds", clicked[0]);
+    }
+
+    @Test
     public void drivesAttachTickBeginRenderEndGcInOrder() {
         List<String> log = new ArrayList<>();
         SpyBackend backend = new SpyBackend("spy", log);

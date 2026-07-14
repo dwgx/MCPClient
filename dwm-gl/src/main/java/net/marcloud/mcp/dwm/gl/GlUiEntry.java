@@ -4,7 +4,6 @@ import java.util.function.LongConsumer;
 
 import net.marcloud.mcp.dwm.backend.BackendHost;
 import net.marcloud.mcp.dwm.backend.DefaultBackendRegistry;
-import net.marcloud.mcp.dwm.backend.FrameInput;
 import net.marcloud.mcp.dwm.component.Component;
 import net.marcloud.mcp.dwm.component.ComponentContext;
 import net.marcloud.mcp.dwm.component.FrameComponentContext;
@@ -49,8 +48,12 @@ public final class GlUiEntry {
                     MaterialMdcTheme.darkTheme(), compositor.store(), WidgetId.root("overlay"));
             Component root = new DemoRoot();
             UiComposer composer = new UiComposer(host, registry, compositor, ctx, root);
+            GameInput input = new GameInput();
 
-            return frame -> composer.driveFrame(FrameInput.none(), 1f, 1f / 60f);
+            // Read the live pointer/buttons each frame (overlay pixel space) so the MD3
+            // tree hit-tests the real cursor. fb height for the y-flip comes from the host.
+            return frame -> composer.driveFrame(
+                    input.read(host.framebufferHeightPx()), 1f, 1f / 60f);
         } catch (Throwable t) {
             System.err.println("[GlUiEntry] arm failed (no-op overlay): " + t);
             return frame -> {
