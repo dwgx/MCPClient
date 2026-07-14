@@ -10,6 +10,7 @@ import net.marcloud.mcp.dwm.component.FrameComponentContext;
 import net.marcloud.mcp.dwm.compositor.Compositor;
 import net.marcloud.mcp.dwm.compositor.UiComposer;
 import net.marcloud.mcp.dwm.compositor.WidgetId;
+import net.marcloud.mcp.dwm.gl.FrameClock;
 import net.marcloud.mcp.dwm.gl.GameBackendHost;
 import net.marcloud.mcp.dwm.gl.GameInput;
 import net.marcloud.mcp.dwm.theme.MaterialMdcTheme;
@@ -40,9 +41,13 @@ public final class ImGuiUiEntry {
             Component root = new DemoPanel();
             UiComposer composer = new UiComposer(host, registry, compositor, ctx, root);
             GameInput input = new GameInput();
+            FrameClock clock = new FrameClock();
 
+            // Real wall-clock frame delta (clamped) instead of a hardcoded 60 Hz, so
+            // animations run at the true render rate. scale stays 1f (no DIP factor on
+            // BackendHost; overlay coords are pixels).
             return frame -> composer.driveFrame(
-                    input.read(host.framebufferHeightPx()), 1f, 1f / 60f);
+                    input.read(host.framebufferHeightPx()), 1f, clock.tick());
         } catch (Throwable t) {
             System.err.println("[ImGuiUiEntry] arm failed (no-op overlay): " + t);
             return frame -> {

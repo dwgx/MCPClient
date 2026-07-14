@@ -87,10 +87,49 @@ public final class ImGuiDrawContext implements DrawContext {
 
     @Override
     public void roundedRect(float x, float y, float w, float h, Corners c, int argb) {
-        // Uniform-radius degradation (ImDrawList rounding is uniform): use the max corner.
-        float max = Math.max(Math.max(c.topLeft(), c.topRight()),
-                Math.max(c.bottomRight(), c.bottomLeft()));
-        roundedRect(x, y, w, h, max, argb);
+        if (dl == null) {
+            return;
+        }
+        // True per-corner rounding (was a max-radius approximation). addRectFilled's
+        // rounding is uniform, so build the shape from the PATH API instead — exactly how
+        // ImGui's own PathRect constructs a rounded rect: one quarter-arc per corner via
+        // pathArcToFast, each with ITS OWN radius, then a convex fill. pathArcToFast uses a
+        // 12-slot circle (index 0 = +x/right, 3 = down, 6 = left, 9 = up in y-down space);
+        // a radius < 0.5 makes it emit just the center point, so a zero corner degrades to
+        // the sharp rect corner with no branch.
+        float[] r = clampedCorners(w, h, c); // [tl, tr, br, bl]
+        float x1 = x + w;
+        float y1 = y + h;
+        int col = u32(argb);
+        dl.pathClear();
+        dl.pathArcToFast(x + r[0], y + r[0], r[0], 6, 9);    // top-left
+        dl.pathArcToFast(x1 - r[1], y + r[1], r[1], 9, 12);  // top-right
+        dl.pathArcToFast(x1 - r[2], y1 - r[2], r[2], 0, 3);  // bottom-right
+        dl.pathArcToFast(x + r[3], y1 - r[3], r[3], 3, 6);   // bottom-left
+        dl.pathFillConvex(col);
+    }
+
+    /**
+     * Clamp the four per-corner radii to {@code [0, half-short-side]} (negatives → sharp),
+     * returned as {@code [topLeft, topRight, bottomRight, bottomLeft]}. Pure math extracted
+     * from {@link #roundedRect(float, float, float, float, Corners, int)} so the per-corner
+     * clamping is unit-testable without a native ImGui draw list.
+     */
+    static float[] clampedCorners(float w, float h, Corners c) {
+        float half = Math.min(w, h) * 0.5f;
+        return new float[] {
+                clampCorner(c.topLeft(), half),
+                clampCorner(c.topRight(), half),
+                clampCorner(c.bottomRight(), half),
+                clampCorner(c.bottomLeft(), half),
+        };
+    }
+
+    private static float clampCorner(float radius, float halfShort) {
+        if (radius <= 0f) {
+            return 0f;
+        }
+        return Math.min(radius, halfShort);
     }
 
     @Override

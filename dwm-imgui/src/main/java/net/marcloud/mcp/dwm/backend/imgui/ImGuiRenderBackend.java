@@ -55,9 +55,11 @@ public final class ImGuiRenderBackend implements RenderBackend {
 
     @Override
     public BackendCaps caps() {
-        // Native uniform rounding + clip + text; no per-corner radius or layer-opacity
-        // compositing (folded into vertex alpha) or native shadow. Generous atlas size.
-        return new BackendCaps(false, true, false, true, false, 4096);
+        // Native uniform rounding + clip + text; per-corner radius IS now supported
+        // (ImGuiDrawContext builds it from per-corner pathArcToFast quarter-arcs). No native
+        // layer-opacity compositing (folded into vertex alpha) or native shadow. Generous
+        // atlas size.
+        return new BackendCaps(false, true, true, true, false, 4096);
     }
 
     @Override

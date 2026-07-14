@@ -98,23 +98,28 @@ public final class GlDrawContext implements DrawContext {
         }
         color(argb);
         // Center fan covering the whole rounded rect: center point + a perimeter walk
-        // (four corner arcs joined by the straight edges), as a GL_TRIANGLE_FAN.
-        float cx = x + w * 0.5f;
-        float cy = y + h * 0.5f;
-        GL11.glBegin(GL11.GL_TRIANGLE_FAN);
-        GL11.glVertex2f(cx, cy);
-        emitRoundedPerimeter(x, y, w, h, r, true);
-        GL11.glEnd();
+        // (four corner arcs joined by the straight edges), as a GL_TRIANGLE_FAN. Uniform
+        // radius is the per-corner walk with all four radii equal.
+        emitFan(x + w * 0.5f, y + h * 0.5f, roundedPerimeter(x, y, w, h, r, r, r, r));
     }
 
     @Override
     public void roundedRect(float x, float y, float w, float h, Corners c, int argb) {
-        // Fixed-function approximation: use a single uniform radius (the max of the four
-        // per-corner radii, clamped). True per-corner is a caps=false degradation here;
-        // imgui/Skiko backends honor Corners natively. Good enough for MD3 pills/cards.
-        float max = Math.max(Math.max(c.topLeft(), c.topRight()),
-                Math.max(c.bottomRight(), c.bottomLeft()));
-        roundedRect(x, y, w, h, max, argb);
+        // True per-corner rounding (was previously a max-radius approximation): each corner
+        // arc uses ITS OWN radius, clamped to half the short side (matching Skiko). A zero
+        // radius collapses that arc to the sharp rect corner, so mixed sharp/round corners
+        // (e.g. an MD3 top-rounded sheet) render faithfully on fixed-function GL too.
+        float half = Math.min(w, h) * 0.5f;
+        float rTL = clampCorner(c.topLeft(), half);
+        float rTR = clampCorner(c.topRight(), half);
+        float rBR = clampCorner(c.bottomRight(), half);
+        float rBL = clampCorner(c.bottomLeft(), half);
+        if (rTL <= 0.5f && rTR <= 0.5f && rBR <= 0.5f && rBL <= 0.5f) {
+            rect(x, y, w, h, argb);
+            return;
+        }
+        color(argb);
+        emitFan(x + w * 0.5f, y + h * 0.5f, roundedPerimeter(x, y, w, h, rTL, rTR, rBR, rBL));
     }
 
     @Override
@@ -139,17 +144,50 @@ public final class GlDrawContext implements DrawContext {
 
     @Override
     public void text(FontHandle font, float sizePx, float x, float y, int argb, CharSequence s) {
-        // Placeholder: no glyph atlas yet on the GL backend. Draw a thin underline bar
-        // sized to the approximate text width so layout/position is visible and the
-        // component reads as "has a label here". Real font rendering is a later increment
-        // (imgui/Skiko render text natively). Alpha is dimmed so it reads as a stand-in.
+        // Real glyphs from the embedded 8x8 bitmap font (no texture / no native dep — the
+        // fixed-function way): walk each glyph's lit pixels and emit one filled quad per
+        // pixel. The 8 cell columns are scaled to fill exactly one advance
+        // (sizePx * ADVANCE_RATIO) and the 8 rows to fill sizePx, so glyphs abut cleanly
+        // and the advance matches GlRenderBackend.measureText (no layout shift). y is the
+        // baseline-ish value MaterialButton computes; lift the cell top by ASCENT_RATIO em
+        // so GL text lands where imgui text does.
         if (s == null || s.length() == 0) {
             return;
         }
-        float w = s.length() * sizePx * 0.55f;
-        float barH = Math.max(1f, sizePx * 0.12f);
-        int dimmed = (argb & 0x00FFFFFF) | 0x80000000; // ~50% alpha stand-in
-        rect(x, y - barH, w, barH, dimmed);
+        float advance = GlBitmapFont.advance(sizePx);
+        float pixelW = advance / GlBitmapFont.CELL;
+        float pixelH = sizePx / GlBitmapFont.CELL;
+        float topY = y - sizePx * GlBitmapFont.ASCENT_RATIO;
+        // Set the color once (with layer opacity folded) and batch every lit pixel of the
+        // whole string into a single GL_QUADS block.
+        color(argb);
+        GL11.glBegin(GL11.GL_QUADS);
+        for (int i = 0; i < s.length(); i++) {
+            char ch = s.charAt(i);
+            long glyph = GlBitmapFont.glyph(ch);
+            if (glyph == 0L) {
+                continue; // blank cell (space / unmapped): only advance, no quads
+            }
+            float cellLeft = x + i * advance;
+            for (int row = 0; row < GlBitmapFont.CELL; row++) {
+                int rowBits = (int) ((glyph >>> (row * GlBitmapFont.CELL)) & 0xFF);
+                if (rowBits == 0) {
+                    continue;
+                }
+                float py = topY + row * pixelH;
+                for (int col = 0; col < GlBitmapFont.CELL; col++) {
+                    if ((rowBits & (1 << col)) == 0) {
+                        continue;
+                    }
+                    float px = cellLeft + col * pixelW;
+                    GL11.glVertex2f(px, py);
+                    GL11.glVertex2f(px + pixelW, py);
+                    GL11.glVertex2f(px + pixelW, py + pixelH);
+                    GL11.glVertex2f(px, py + pixelH);
+                }
+            }
+        }
+        GL11.glEnd();
     }
 
     @Override
@@ -234,6 +272,14 @@ public final class GlDrawContext implements DrawContext {
         return Math.min(radius, Math.min(w, h) * 0.5f);
     }
 
+    /** Clamp a single corner radius to [0, half-short-side]; negatives collapse to sharp. */
+    private static float clampCorner(float radius, float halfShort) {
+        if (radius <= 0f) {
+            return 0f;
+        }
+        return Math.min(radius, halfShort);
+    }
+
     private static int[] intersect(int[] a, int[] b) {
         int x0 = Math.max(a[0], b[0]);
         int y0 = Math.max(a[1], b[1]);
@@ -242,49 +288,60 @@ public final class GlDrawContext implements DrawContext {
         return new int[] {x0, y0, Math.max(0, x1 - x0), Math.max(0, y1 - y0)};
     }
 
+    /** Emit a GL_TRIANGLE_FAN: center vertex, the perimeter, then repeat vertex 0 to close. */
+    private static void emitFan(float cx, float cy, float[] perimeter) {
+        GL11.glBegin(GL11.GL_TRIANGLE_FAN);
+        GL11.glVertex2f(cx, cy);
+        for (int i = 0; i + 1 < perimeter.length; i += 2) {
+            GL11.glVertex2f(perimeter[i], perimeter[i + 1]);
+        }
+        if (perimeter.length >= 2) {
+            GL11.glVertex2f(perimeter[0], perimeter[1]); // close the loop
+        }
+        GL11.glEnd();
+    }
+
     /**
-     * Emit the rounded-rect perimeter as a vertex walk (for a GL_TRIANGLE_FAN started at
-     * the center). Four quarter-arcs at the corners, connected by straight edges. When
-     * {@code closeLoop} is true the first perimeter vertex is repeated at the end so the
-     * fan closes cleanly.
+     * Compute the rounded-rect perimeter as a flat {@code [x0,y0,x1,y1,...]} vertex walk —
+     * four quarter-arcs at the corners connected by straight edges, each corner with its
+     * OWN radius. A corner radius of 0 places that corner's center exactly at the sharp
+     * rect corner, so all its arc vertices collapse onto it and the corner renders sharp
+     * with no special-case branch (harmless degenerate triangles in the fan).
+     *
+     * <p>Pure geometry (no GL) so the per-corner vertex placement is unit-testable
+     * headless; {@link #emitFan} does the GL_TRIANGLE_FAN emission. Walk order is clockwise
+     * in y-down space: top-right, bottom-right, bottom-left, top-left.
      */
-    private static void emitRoundedPerimeter(float x, float y, float w, float h, float r, boolean closeLoop) {
+    static float[] roundedPerimeter(float x, float y, float w, float h,
+            float rTL, float rTR, float rBR, float rBL) {
         float l = x;
         float t = y;
         float ri = x + w;
         float b = y + h;
-        // Corner centers.
+        // Per-corner centers (inset by that corner's own radius) + radius, in walk order.
         float[][] centers = {
-                {ri - r, t + r}, // top-right
-                {ri - r, b - r}, // bottom-right
-                {l + r, b - r},  // bottom-left
-                {l + r, t + r},  // top-left
+                {ri - rTR, t + rTR}, // top-right
+                {ri - rBR, b - rBR}, // bottom-right
+                {l + rBL, b - rBL},  // bottom-left
+                {l + rTL, t + rTL},  // top-left
         };
-        // Each corner sweeps 90 degrees; start angles chosen so arcs connect edge-to-edge
-        // going clockwise in y-down space.
+        float[] radii = {rTR, rBR, rBL, rTL};
+        // Each corner sweeps 90 degrees; start angles connect arcs edge-to-edge clockwise.
         float[] startDeg = {-90f, 0f, 90f, 180f};
-        float firstX = 0f;
-        float firstY = 0f;
-        boolean first = true;
+        float[] out = new float[4 * (CORNER_SEGMENTS + 1) * 2];
+        int o = 0;
         for (int cIdx = 0; cIdx < 4; cIdx++) {
             float cx = centers[cIdx][0];
             float cy = centers[cIdx][1];
+            float r = radii[cIdx];
             float start = (float) Math.toRadians(startDeg[cIdx]);
             for (int s = 0; s <= CORNER_SEGMENTS; s++) {
                 float ang = start + (float) (Math.PI / 2) * s / CORNER_SEGMENTS;
-                float vx = cx + (float) Math.cos(ang) * r;
-                float vy = cy + (float) Math.sin(ang) * r;
-                GL11.glVertex2f(vx, vy);
-                if (first) {
-                    firstX = vx;
-                    firstY = vy;
-                    first = false;
-                }
+                out[o++] = cx + (float) Math.cos(ang) * r;
+                out[o++] = cy + (float) Math.sin(ang) * r;
             }
         }
-        if (closeLoop && !first) {
-            GL11.glVertex2f(firstX, firstY);
-        }
+        return out;
     }
 }
 

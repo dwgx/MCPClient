@@ -48,11 +48,16 @@ public final class GlUiEntry {
             Component root = new DemoPanel();
             UiComposer composer = new UiComposer(host, registry, compositor, ctx, root);
             GameInput input = new GameInput();
+            FrameClock clock = new FrameClock();
 
             // Read the live pointer/buttons each frame (overlay pixel space) so the MD3
             // tree hit-tests the real cursor. fb height for the y-flip comes from the host.
+            // dtSeconds is the REAL wall-clock delta (clamped) so ripple/fade run at the
+            // true render rate, not a hardcoded 60 Hz. scale stays 1f: BackendHost exposes
+            // no DIP/pixel factor (overlay coords are already pixels), so there is nothing
+            // truer to pass yet.
             return frame -> composer.driveFrame(
-                    input.read(host.framebufferHeightPx()), 1f, 1f / 60f);
+                    input.read(host.framebufferHeightPx()), 1f, clock.tick());
         } catch (Throwable t) {
             System.err.println("[GlUiEntry] arm failed (no-op overlay): " + t);
             return frame -> {

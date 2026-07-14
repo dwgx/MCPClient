@@ -52,11 +52,12 @@ public final class GlRenderBackend implements RenderBackend {
 
     @Override
     public BackendCaps caps() {
-        // No native path/clip-beyond-scissor/per-corner/layer-opacity/shadow; scissor clip
-        // IS supported but the SPI's 'clip' cap advertises rounded/arbitrary clip which we
-        // approximate with a rect scissor — keep it false so callers do not assume rounded
-        // clipping. A generous max texture size placeholder.
-        return new BackendCaps(false, true, false, true, false, 4096);
+        // per-corner radius IS now supported (GlDrawContext walks a per-corner triangle-fan
+        // perimeter), so advertise it true. No native path/clip-beyond-scissor/layer-opacity
+        // /shadow; scissor clip IS supported but the SPI's 'clip' cap advertises
+        // rounded/arbitrary clip which we approximate with a rect scissor — keep it false so
+        // callers do not assume rounded clipping. A generous max texture size placeholder.
+        return new BackendCaps(false, true, true, true, false, 4096);
     }
 
     @Override
@@ -171,8 +172,11 @@ public final class GlRenderBackend implements RenderBackend {
 
     @Override
     public TextMetrics measureText(FontHandle f, CharSequence s, float sizePx) {
-        int n = s == null ? 0 : s.length();
-        float w = n * sizePx * 0.55f; // matches GlDrawContext's placeholder advance
+        // Route through the bitmap font's own advance so measure == what text() draws
+        // (single source of truth). ADVANCE_RATIO is kept at the historical 0.55, so this
+        // is numerically identical to the pre-glyph value — no layout shift, GL pill width
+        // stays equal to the imgui / skiko widths.
+        float w = GlBitmapFont.measureWidth(s, sizePx);
         return new TextMetrics(w, sizePx * 0.8f, sizePx * 0.2f);
     }
 }
