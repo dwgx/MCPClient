@@ -35,6 +35,17 @@
             <scope>provided</scope>
         </dependency>
 
+        <!-- PatchGuard @Guarded contract: the ONLY pg artifact business code
+             imports. CLASS-retained marker (no runtime behavior), so 'provided'
+             keeps it off the runtime classpath while satisfying compile of the
+             @Guarded annotation. board's first real opt-in to hardening (KI-5). -->
+        <dependency>
+            <groupId>net.marcloud.mcp.189</groupId>
+            <artifactId>pg-api</artifactId>
+            <version>${project.version}</version>
+            <scope>provided</scope>
+        </dependency>
+
         <dependency>
             <groupId>junit</groupId>
             <artifactId>junit</artifactId>
@@ -42,4 +53,33 @@
             <scope>test</scope>
         </dependency>
     </dependencies>
+
+    <build>
+        <plugins>
+            <!-- PatchGuard build-time hardening: after compile (process-classes)
+                 scans target/classes for @Guarded types and rewrites their .class
+                 bytecode in place, so the packaged/test classpath carries hardened
+                 bytecode. Fail-safe by contract (never emits unloadable classes).
+                 Seed is PINNED so the build is reproducible and the hardening test
+                 is deterministic; default -1 picks a fresh random seed per build.
+                 First module to bind pg-maven-plugin (KI-5). -->
+            <plugin>
+                <groupId>net.marcloud.mcp.189</groupId>
+                <artifactId>pg-maven-plugin</artifactId>
+                <version>${project.version}</version>
+                <configuration>
+                    <seed>1337</seed>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>harden</id>
+                        <phase>process-classes</phase>
+                        <goals>
+                            <goal>harden</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
 </project>

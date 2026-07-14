@@ -6,6 +6,7 @@ import net.marcloud.mcp.board.Board;
 import net.marcloud.mcp.board.Chip;
 import net.marcloud.mcp.board.Trace;
 import net.marcloud.mcp.board.signals.TickSignal;
+import net.marcloud.pg.Guarded;
 
 /**
  * A SAMPLE tick-driven {@link Chip}: while enabled, it counts every
@@ -16,7 +17,16 @@ import net.marcloud.mcp.board.signals.TickSignal;
  *
  * <p>Neutral by contract: no cheat/legit layering, just an optional
  * {@link #category()} of {@code "diagnostic"}.
+ *
+ * <p>PatchGuard first consumer (KI-5): {@link Guarded @Guarded} opts this class
+ * into build-time hardening. Its String literals are display/log text only (the
+ * {@code "diagnostic"} category label and a guard message) — none are used as a
+ * reflection target or a persisted key, so the STANDARD-tier StringConstantPass
+ * can encode them without changing behavior. The category value is only ever
+ * compared at runtime (never matched against raw bytecode), so it materializes
+ * correctly through the injected decoder.
  */
+@Guarded
 public final class TickCounterChip extends Chip {
 
     private final Trace trace;
