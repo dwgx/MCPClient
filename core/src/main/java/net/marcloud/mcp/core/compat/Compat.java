@@ -50,12 +50,23 @@ public final class Compat {
     }
 
     /**
-     * The shipped default patch database. Empty for now — the confirmed KI patches
-     * land here as bound, signed {@link CompatPatch} classes when the crypto core is
-     * ready. Kept as a factory so tests can build their own populated database.
+     * The shipped default patch database. Carries the confirmed KI patches as bound,
+     * in-code {@link CompatPatch} classes (KI-10 in-code-trusted registration). Kept as
+     * a factory so tests can build their own populated database.
+     *
+     * <p><b>Arming caveat:</b> registration here makes a patch VISIBLE (counted by
+     * {@code list_compat_patches}); it does not by itself ARM the patch. The engine
+     * still gates arming on {@link PatchSigner#verify}, and the shipped
+     * {@link Ed25519PatchSigner} with {@link #defaultTrustAnchors() empty anchors} trusts
+     * nothing — so an unsigned in-code patch registers but does not apply until a genuine
+     * kernel keyring signs it. This preserves the fail-safe posture (07-COMPAT-SHIM §签名).
      */
     public static CompatDatabase defaultDatabase() {
-        return new CompatDatabase();
+        CompatDatabase db = new CompatDatabase();
+        // KI-4: LocalServerChannel bound on the wrong Netty event-loop group. In-code
+        // kernel-trusted; unsigned, so it registers/reports but only arms once signed.
+        db.register(new net.marcloud.mcp.core.compat.patches.Ki4LocalServerChannelPatch());
+        return db;
     }
 
     /**

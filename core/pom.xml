@@ -28,6 +28,11 @@
         <maven.compiler.release>25</maven.compiler.release>
         <bytebuddy.version>1.17.6</bytebuddy.version>
         <mcp.sdk.version>2.0.0</mcp.sdk.version>
+        <!-- Plain (un-shaded) ASM for the compat bytecode transforms. ByteBuddy
+             bundles ASM 9.8 but under its shaded net.bytebuddy.jar.asm package, which
+             is not usable as org.objectweb.asm; pin the same 9.8 pg-engine already
+             uses so both modules parse/emit with one ASM version. BSD-3. -->
+        <asm.version>9.8</asm.version>
     </properties>
 
     <dependencies>
@@ -62,6 +67,19 @@
             <groupId>io.modelcontextprotocol.sdk</groupId>
             <artifactId>mcp</artifactId>
             <version>${mcp.sdk.version}</version>
+        </dependency>
+
+        <!-- ASM: parse + rewrite vanilla class bytes in compat patches (KI-4, ...).
+             Un-shaded org.objectweb.asm, same 9.8 as pg-engine. -->
+        <dependency>
+            <groupId>org.ow2.asm</groupId>
+            <artifactId>asm</artifactId>
+            <version>${asm.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.ow2.asm</groupId>
+            <artifactId>asm-tree</artifactId>
+            <version>${asm.version}</version>
         </dependency>
 
         <dependency>
