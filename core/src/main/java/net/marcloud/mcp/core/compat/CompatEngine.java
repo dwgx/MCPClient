@@ -19,14 +19,19 @@ import net.marcloud.mcp.core.se.SeProtectedObjects;
  * first loaded. The {@code client/} source is never edited; this is load-time
  * patching, not {@code ldr} hot-redefine.
  *
- * <p><b>Safety posture:</b>
+ * <p><b>One arming rule (no bypass).</b> A patch arms if and ONLY if
+ * {@code signer.verify(manifest)} passes — a valid Ed25519 signature over the canonical
+ * signing input under a key pinned in {@link TrustAnchors}. In-code registration confers
+ * NO trust: an unsigned in-code patch never arms. With {@link TrustAnchors#empty() empty
+ * anchors} the signer trusts nothing, so the engine arms nothing (fail-safe default).
+ *
+ * <p><b>Safety posture (signer-independent gauntlet, in addition to the signature):</b>
  * <ul>
- *   <li>Only <b>signature-verified</b> patches are applied — an unverified patch is
- *       skipped with a log line. With the shipped {@link UnsignedPatchSigner} that
- *       means zero patches apply (fail-safe until the crypto core lands).</li>
  *   <li>A patch may never target a {@linkplain SeProtectedObjects protected} Core
  *       class — defense-in-depth so a compat patch cannot rewrite the guard itself,
  *       matching the same rule the redefine/hook installers enforce.</li>
+ *   <li>Only {@code VERIFIED}-status, runtime-applicable patches arm; when an online
+ *       authorized set is supplied, the patchId must be in it (ticket channel).</li>
  *   <li>A transform that throws is caught and treated as "no change" (original
  *       bytes preserved) — a buggy patch can never corrupt a class or crash class
  *       loading.</li>
@@ -82,12 +87,14 @@ public final class CompatEngine {
     }
 
     /**
-     * Build the engine from a database, keeping only patches that (1) verify under
-     * {@code signer}, (2) apply to the current runtime, (3) do not target a protected
-     * Core class, and (4) when {@code authorizedIds} is non-null, have a patchId in
-     * that online-authorized set (ALPC ticket channel). Pass {@code null} to skip the
-     * online filter (offline-only path). An empty set arms nothing (fail-closed when
-     * the authority is down). Never throws.
+     * Build the engine from a database, keeping only patches that (1) {@code VERIFIED}
+     * status, (2) do not target a protected Core class, (3) {@code signer.verify(manifest)}
+     * true (a valid Ed25519 signature against {@link TrustAnchors} — the ONLY arming path;
+     * in-code registration grants no trust), (4) apply to the current runtime, and (5) when
+     * {@code authorizedIds} is non-null, have a patchId in that online-authorized set (ALPC
+     * ticket channel). Pass {@code null} for {@code authorizedIds} to skip the online filter
+     * (offline-only path); an empty set arms nothing (fail-closed when the authority is
+     * down). With empty anchors the signer trusts nothing, so nothing arms. Never throws.
      */
     public static CompatEngine build(
             CompatDatabase db, PatchSigner signer, java.util.Set<String> authorizedIds) {
@@ -117,6 +124,9 @@ public final class CompatEngine {
                 skipped++;
                 continue;
             }
+            // The ONE arming gate: a valid Ed25519 signature against TrustAnchors. No
+            // bypass — in-code registration confers no trust. An unsigned/unverified
+            // patch is skipped; with empty anchors the signer trusts nothing.
             if (!signer.verify(m)) {
                 System.err.println("[MCP Compat] SKIP unverified patch " + m.code()
                         + " (targets " + m.targetClass() + ") — signature not trusted.");

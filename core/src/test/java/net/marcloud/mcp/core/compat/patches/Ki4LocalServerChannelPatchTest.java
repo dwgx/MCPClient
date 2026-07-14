@@ -140,8 +140,12 @@ public class Ki4LocalServerChannelPatchTest {
         assertEquals(PatchManifest.Status.VERIFIED, m.status());
         assertNotNull(m.patchId());
         assertNotNull(m.contentHash());
-        // Unsigned by construction (integrity/arming is a separate gate).
-        assertNull("KI-4 is unsigned in-code; signature stays null", m.signature());
+        // KI-4 ships SIGNED: the only arming path is signature verification, so the patch
+        // carries a real kernel Ed25519 signature in wire form. (That it VERIFIES against
+        // the baked anchor + actually arms is covered by Ki4SignedArmingTest.)
+        assertNotNull("KI-4 must ship signed (arming is signature-gated)", m.signature());
+        assertTrue("KI-4 signature must be in ed25519:v1: wire form",
+                m.signature().startsWith("ed25519:v1:"));
 
         CompatDatabase db = new CompatDatabase();
         db.register(p); // must not throw

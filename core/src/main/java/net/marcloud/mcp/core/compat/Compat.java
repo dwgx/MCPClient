@@ -18,12 +18,12 @@ import net.marcloud.mcp.core.alpc.CompatCrypto;
  * resulting engine + database are stashed here for the later-starting {@code
  * McpCore} to expose through {@code list_compat_patches}.
  *
- * <p>The shipped default is deliberately <b>inert</b>: an empty database and the
- * fail-safe {@link UnsignedPatchSigner}, so premain installs a no-op transformer
- * and applies nothing. Real patches (KI-1 mipmap, KI-4 LocalServerChannel, …) are
- * added to {@link #defaultDatabase()} as signed patch classes once the crypto core
- * is designed; until then the engine is wired but empty (no advertised-but-dead
- * behavior — {@code list_compat_patches} honestly reports count 0).
+ * <p>The shipped default has ONE arming rule: a patch arms iff its Ed25519 signature
+ * verifies against {@link #defaultTrustAnchors()} — the baked-in kernel public key. In-code
+ * registration confers no trust. {@link #defaultDatabase()} registers the confirmed KI
+ * patches (KI-4 LocalServerChannel, …), each shipping SIGNED by the kernel key, so they arm
+ * through that verify path. With empty anchors the signer trusts nothing and the engine arms
+ * nothing (fail-safe).
  *
  * <p>When {@code -Dmcp.core.psecure=true}, premain also opens the online ticket
  * channel ({@link CompatAuthorityClient}) against the P-SECURE process. Fail-closed:
@@ -51,33 +51,37 @@ public final class Compat {
 
     /**
      * The shipped default patch database. Carries the confirmed KI patches as bound,
-     * in-code {@link CompatPatch} classes (KI-10 in-code-trusted registration). Kept as
+     * in-code {@link CompatPatch} classes, each shipping SIGNED by the kernel key. Kept as
      * a factory so tests can build their own populated database.
      *
-     * <p><b>Arming caveat:</b> registration here makes a patch VISIBLE (counted by
-     * {@code list_compat_patches}); it does not by itself ARM the patch. The engine
-     * still gates arming on {@link PatchSigner#verify}, and the shipped
-     * {@link Ed25519PatchSigner} with {@link #defaultTrustAnchors() empty anchors} trusts
-     * nothing — so an unsigned in-code patch registers but does not apply until a genuine
-     * kernel keyring signs it. This preserves the fail-safe posture (07-COMPAT-SHIM §签名).
+     * <p><b>Arming.</b> Registration makes a patch VISIBLE ({@code list_compat_patches}) and
+     * confers NO trust. Whether it ARMS is decided solely by the engine: a valid Ed25519
+     * signature verified against {@link #defaultTrustAnchors()} plus the signer-independent
+     * gauntlet (VERIFIED status, not a protected target, {@link CompatPatch#appliesToRuntime()}).
+     * KI-4 arms because it carries a real kernel signature — not because it is registered
+     * in-code. With empty anchors nothing arms.
      */
     public static CompatDatabase defaultDatabase() {
         CompatDatabase db = new CompatDatabase();
-        // KI-4: LocalServerChannel bound on the wrong Netty event-loop group. In-code
-        // kernel-trusted; unsigned, so it registers/reports but only arms once signed.
+        // KI-4: LocalServerChannel bound on the wrong Netty event-loop group. Ships SIGNED
+        // by the kernel key; arms through the normal signature-verify path against the
+        // baked-in kernel anchor (in-code registration grants no trust).
         db.register(new net.marcloud.mcp.core.compat.patches.Ki4LocalServerChannelPatch());
         return db;
     }
 
     /**
-     * The shipped default trust anchors — deliberately EMPTY, so the real
-     * {@link Ed25519PatchSigner} verifies zero patches (the fail-safe posture the old
-     * {@link UnsignedPatchSigner} had: "no signer key" means "apply nothing"). Kept as
-     * a factory so a genuine kernel keyring can be injected here once real keys exist,
-     * without touching the boot path.
+     * The shipped default trust anchors — the baked-in kernel Ed25519 public key
+     * ({@link KernelTrustAnchor}). This is the ONE trust root: a patch is trusted only if
+     * its signature verifies under this kernel key; the matching PRIVATE key never enters
+     * the client (it lives with the offline signing tool, {@code PatchSignerCli}).
+     * Fail-closed: if the baked key cannot be loaded, this returns {@link TrustAnchors#empty()}
+     * (arm nothing). There is no signature-free path — every patch, including the in-code
+     * KI patches, arms only through {@link Ed25519PatchSigner} verification against these
+     * anchors.
      */
     public static TrustAnchors defaultTrustAnchors() {
-        return TrustAnchors.empty();
+        return KernelTrustAnchor.anchors();
     }
 
     /**
@@ -89,10 +93,10 @@ public final class Compat {
         try {
             CompatDatabase db = defaultDatabase();
             Set<String> online = resolveOnlineAuthorizedIds(db);
-            // The shipped default signer is a real Ed25519 integrity verifier with an
-            // EMPTY keyring — same fail-safe posture as the old UnsignedPatchSigner
-            // (trusts nothing, arms nothing), but on the real crypto path. A genuine
-            // TrustAnchors keyring is injected only when kernel keys exist.
+            // The shipped default signer is a real Ed25519 integrity verifier keyed on the
+            // baked-in kernel public key ({@code defaultTrustAnchors}). A patch arms iff its
+            // signature verifies under that key — the shipped KI patches (e.g. KI-4) ship
+            // signed and arm here; anything unsigned or wrongly-signed does not.
             CompatEngine e = CompatEngine.build(db, new Ed25519PatchSigner(defaultTrustAnchors()), online);
             // BLUE-1: when online authorization is in force, do NOT let the premain
             // snapshot be the final word (a ~seconds ticket would otherwise arm a

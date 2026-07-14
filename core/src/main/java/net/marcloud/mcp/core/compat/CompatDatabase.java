@@ -14,6 +14,12 @@ import java.util.Map;
  * class-loading thread as each target class arrives, so access is synchronized and
  * snapshots are returned as immutable copies. Lookups the engine's transformer needs
  * are indexed by target class (dotted FQN).
+ *
+ * <p><b>Registration confers NO trust.</b> Adding a patch here only makes it VISIBLE
+ * to {@link CompatEngine} and {@code list_compat_patches}; it does NOT arm the patch and
+ * grants NO signature-free trust. There is exactly ONE arming path in the engine — a
+ * valid Ed25519 signature verified against {@link TrustAnchors}. An unsigned in-code
+ * patch registers but never applies (fail-safe: empty anchors arm nothing).
  */
 public final class CompatDatabase {
 
@@ -23,6 +29,10 @@ public final class CompatDatabase {
      * Register a patch. A patch must be {@linkplain PatchManifest#isBound() bound}
      * (transform hash + content-addressed id) so it has a stable {@code patchId};
      * re-registering the same id is rejected to avoid silent shadowing.
+     *
+     * <p>Registration does not arm the patch and grants no trust: {@link CompatEngine#build}
+     * still requires a valid signature against {@link TrustAnchors}, so an unsigned patch
+     * registered here will not apply.
      */
     public synchronized void register(CompatPatch patch) {
         if (patch == null) {

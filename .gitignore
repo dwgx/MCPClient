@@ -55,3 +55,8 @@ overlay.log
 # capture-overlay.sh output (live PNGs + launch logs): scratch verification artifacts.
 scripts/_capture/
 scripts/_review/
+
+# Compat signing private keys — NEVER commit
+scripts/secrets/
+*.key.b64
+*-ed25519.priv

@@ -48,15 +48,22 @@ import net.marcloud.mcp.core.compat.PatchManifest;
  * transform returns {@code null} ("no change") and never throws — it never emits altered
  * bytes for a class it does not fully recognize.
  *
- * <p><b>Trust / arming.</b> This ships as an in-code, classpath {@link CompatPatch}
- * object; its integrity rests on being registered in kernel code
- * ({@code Compat.defaultDatabase()}), the KI-10 in-code-trusted boundary — NOT on an
- * Ed25519 signature. NOTE the shipped {@code CompatEngine} still gates arming on
- * {@code PatchSigner.verify}, and the default {@code Ed25519PatchSigner(TrustAnchors.empty())}
- * trusts nothing, so an unsigned patch REGISTERS (and is reported by
- * {@code list_compat_patches}) but does NOT actually arm until a genuine kernel keyring
- * signs it. This class deliberately does not modify that trust gate (that is KI-10 /
- * owner-sign-off territory).
+ * <p><b>Trust / arming.</b> This ships as an in-code, classpath {@link CompatPatch} object,
+ * but in-code registration confers NO trust: the {@code CompatEngine} has exactly one
+ * arming rule — a valid Ed25519 signature verified against {@link net.marcloud.mcp.core.compat.TrustAnchors}.
+ * So this patch SHIPS SIGNED: its manifest carries {@link #KERNEL_SIGNATURE}, an
+ * {@code ed25519:v1:} signature produced offline by the kernel signing key
+ * ({@code PatchSignerCli}) over this patch's canonical signing input, verified at premain
+ * against the baked-in kernel public key ({@code KernelTrustAnchor}, keyId
+ * {@code mcp-kernel-ed25519-v1}). It ACTUALLY ARMS (headless-provable: the engine reports
+ * it armed) because that signature verifies — NOT because it is in-code registered. With
+ * empty anchors it would not arm (fail-safe intact).
+ *
+ * <p><b>KI-10 honesty preserved.</b> The signature binds the manifest LABEL (targetClass,
+ * contentHash, keyId, status, kiRef, publisher, version), NOT the executed transform bytes —
+ * {@link net.marcloud.mcp.core.compat.PatchCanonicalizer}'s honest-boundary javadoc still
+ * holds. {@code contentHash} remains author-supplied; nothing here recomputes it from the
+ * emitted transform bytes. This class does not close, or widen, that gap.
  */
 public final class Ki4LocalServerChannelPatch implements CompatPatch {
 
@@ -76,6 +83,27 @@ public final class Ki4LocalServerChannelPatch implements CompatPatch {
      *  Defaults enabled because the bug is real and always present under this build's
      *  Netty 4.2.x. It can only make the patch apply LESS — it is NOT a signer bypass. */
     private static final String FLAG = "mcp.compat.ki4";
+
+    /** Stable hash of this patch's transform logic (author-supplied; the content-address
+     *  seed). Bound into the manifest via {@code withTransform} and covered by the
+     *  signature below. */
+    static final String TRANSFORM_SEED = "ki4-localserverchannel-group-v1";
+
+    /**
+     * The kernel's Ed25519 signature over this patch's canonical signing input
+     * (targetClass=net.minecraft.network.NetworkSystem, contentHash=sha256({@link #TRANSFORM_SEED}),
+     * keyId=mcp-kernel-ed25519-v1, status=VERIFIED, kiRef=KI-4, publisher=kernel,
+     * version=1.0.0.0), produced OFFLINE by {@code PatchSignerCli} with the kernel private
+     * key (which never enters the repo/jar). It verifies at premain against the baked-in
+     * kernel PUBLIC key ({@code KernelTrustAnchor}). This signature — not in-code
+     * registration — is what arms KI-4. Ed25519 is deterministic, so this string is stable.
+     *
+     * <p>HONESTY (KI-10): this binds the manifest LABEL, NOT the transform bytes; see the
+     * class javadoc and {@code PatchCanonicalizer}.
+     */
+    static final String KERNEL_SIGNATURE =
+            "ed25519:v1:mcp-kernel-ed25519-v1:"
+            + "eDNAOlg6byiiNK9IL0s-HCmzrSL9H-zVX4fxHf1G1RPCTq7vo8Tm_Fcm-t_T9JrGH9CpnBz-lRmukbSbFkXTAg";
 
     private final PatchManifest manifest;
 
@@ -98,7 +126,9 @@ public final class Ki4LocalServerChannelPatch implements CompatPatch {
                         + "group is left untouched.")
                 .status(PatchManifest.Status.VERIFIED)
                 .build()
-                .withTransform(PatchManifest.sha256Hex("ki4-localserverchannel-group-v1"), null);
+                // Ship SIGNED: bind the transform hash + the kernel Ed25519 signature, so
+                // the engine arms KI-4 through the normal verify path (not in-code trust).
+                .withTransform(PatchManifest.sha256Hex(TRANSFORM_SEED), KERNEL_SIGNATURE);
     }
 
     @Override

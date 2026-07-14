@@ -66,8 +66,9 @@ public final class CompatEngineTest {
         CompatDatabase db = new CompatDatabase();
         db.register(patch("net.minecraft.client.Foo", PatchManifest.Status.VERIFIED, new byte[]{9}));
         CompatEngine engine = CompatEngine.build(db, new UnsignedPatchSigner());
-        // The patch is VERIFIED + applicable, so ONLY the signature gate can stop it.
-        // Fail-safe: with no kernel key, nothing is trusted -> nothing armed.
+        // The patch is VERIFIED + applicable + in-code registered, so ONLY the signature
+        // gate can stop it. In-code registration confers NO trust: with no kernel key,
+        // nothing is trusted -> nothing armed. This is the one arming rule (no bypass).
         assertTrue("fail-safe signer must arm zero patches", engine.armedInternalNames().isEmpty());
         assertNull("unarmed target must not transform",
                 engine.apply("net/minecraft/client/Foo", new byte[]{1}));
