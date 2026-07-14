@@ -44,4 +44,63 @@ public interface CompatPatch {
      * @return patched bytes, or null for no change
      */
     byte[] transform(byte[] originalClassfileBytes);
+
+    /**
+     * A fixed, self-contained "canary" classfile that this patch's {@link #transform}
+     * produces a DETERMINISTIC, NON-NULL output for — the anchor for TUF L0 content
+     * binding. Same transform logic + same canary input ⇒ same transformed bytes ⇒
+     * same {@code contentHash}, so the signature binds the patch's actual BEHAVIOR
+     * (its transform's effect on a known input), not an author-supplied label
+     * (closes KI-10 for the in-code registration model).
+     *
+     * <p>The canary must be a minimal synthetic class shaped like the patch's target
+     * enough that {@code transform(canary)} exercises the real rewrite (e.g. a class
+     * with the same method name+descriptor + the instruction the patch matches) and
+     * returns changed bytes — NOT null. It must be produced deterministically (e.g. a
+     * fixed ASM emission), so the hash is stable across builds and machines. It is
+     * self-contained: no dependency on the vanilla client jar being present at
+     * runtime, so the engine can recompute the content hash at premain.
+     *
+     * <p><b>Honest boundary:</b> the canary covers the transform's behavior ON THAT
+     * INPUT, not its entire behavior on every possible class. It is a behavior
+     * FINGERPRINT, not a total spec — strong enough to detect a swapped/altered
+     * transform, not a proof of full equivalence.
+     *
+     * <p>Default: {@code null} — "no canary". Such a patch cannot participate in L0
+     * content binding; {@link ContentHash} treats a null canary as "unbound behavior"
+     * and the engine can require a canary for arming under a strict posture. The
+     * harmless {@code IdentityProbePatch} and any legacy patch keep compiling.
+     *
+     * @return deterministic canary classfile bytes, or {@code null} if this patch
+     *         provides no behavior anchor
+     */
+    default byte[] canaryClassBytes() {
+        return null;
+    }
+
+    /**
+     * The EXPECTED L0 behavior hash — the value {@link ContentHash#forPatch(CompatPatch)}
+     * should produce for this patch in this build. It is a compile-time constant the
+     * patch author pins into the source (generated once by running {@code ContentHash}
+     * over the patch), and the engine compares the runtime-recomputed behavior hash
+     * against it at arm time.
+     *
+     * <p><b>Why a pinned constant, not the signed contentHash (design decision — the
+     * "L0 form" fork):</b> the behavior hash is {@code sha256(transform(canary))}, which
+     * depends on the exact bytes ASM emits and therefore can drift across ASM/compiler
+     * versions. The Ed25519 signature must cover a STABLE value, so it keeps covering the
+     * manifest label (unchanged). L0 is a SECOND, INDEPENDENT gate: the signature proves
+     * provenance (a trusted key blessed this patch), and this canary check proves the
+     * transform has not been swapped/mutated since the author pinned its fingerprint. A
+     * mismatch (e.g. someone altered {@code transform} but kept the signed manifest) fails
+     * arming even with a valid signature.
+     *
+     * <p>Default {@code null} = no pinned hash: such a patch is exempt from the L0 gate
+     * (signature-only, legacy behavior), so anchor-less patches keep working.
+     *
+     * @return the pinned expected behavior hash, or {@code null} if this patch has none
+     */
+    default String expectedCanaryHash() {
+        return null;
+    }
 }

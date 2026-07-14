@@ -221,4 +221,56 @@ public final class Ki4LocalServerChannelPatch implements CompatPatch {
             return null;
         }
     }
+
+    // ---- TUF L0 content binding (behavior anchor) --------------------------
+
+    /** The author-pinned expected L0 behavior hash — see {@link #expectedCanaryHash()}. */
+    static final String EXPECTED_CANARY_HASH =
+            "ff9429695c8d607f2185c27aad0d7b7f50a1357fb36819159d13cf6e6610eb4f";
+
+    /**
+     * A deterministic, self-contained canary shaped like the vanilla {@code NetworkSystem}:
+     * {@code addLanEndpoint} AND {@code addLocalEndpoint} both {@code GETSTATIC eventLoops}.
+     * {@link #transform} rewrites ONLY the {@code addLocalEndpoint} read to
+     * {@code SERVER_LOCAL_EVENTLOOP}, leaving {@code addLanEndpoint} untouched — so
+     * {@code sha256(transform(canary))} fingerprints exactly that surgical scope. Same
+     * emission every build (ASM deterministic); self-contained (no vanilla client jar needed).
+     */
+    @Override
+    public byte[] canaryClassBytes() {
+        ClassWriter cw = new ClassWriter(0);
+        cw.visit(Opcodes.V1_8, Opcodes.ACC_PUBLIC, TARGET_INTERNAL, null, "java/lang/Object", null);
+        cw.visitField(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC | Opcodes.ACC_FINAL,
+                WRONG_FIELD, FIELD_DESC, null, null).visitEnd();
+        cw.visitField(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC | Opcodes.ACC_FINAL,
+                CORRECT_FIELD, FIELD_DESC, null, null).visitEnd();
+
+        org.objectweb.asm.MethodVisitor lan = cw.visitMethod(Opcodes.ACC_PUBLIC,
+                "addLanEndpoint", "(Ljava/net/InetAddress;I)V", null, null);
+        lan.visitCode();
+        lan.visitFieldInsn(Opcodes.GETSTATIC, TARGET_INTERNAL, WRONG_FIELD, FIELD_DESC);
+        lan.visitInsn(Opcodes.POP);
+        lan.visitInsn(Opcodes.RETURN);
+        lan.visitMaxs(1, 3);
+        lan.visitEnd();
+
+        org.objectweb.asm.MethodVisitor local = cw.visitMethod(Opcodes.ACC_PUBLIC,
+                METHOD_NAME, METHOD_DESC, null, null);
+        local.visitCode();
+        local.visitFieldInsn(Opcodes.GETSTATIC, TARGET_INTERNAL, WRONG_FIELD, FIELD_DESC);
+        local.visitInsn(Opcodes.POP);
+        local.visitInsn(Opcodes.ACONST_NULL);
+        local.visitInsn(Opcodes.ARETURN);
+        local.visitMaxs(1, 1);
+        local.visitEnd();
+
+        cw.visitEnd();
+        return cw.toByteArray();
+    }
+
+    /** The pinned L0 behavior fingerprint; the engine recomputes and compares at arm time. */
+    @Override
+    public String expectedCanaryHash() {
+        return EXPECTED_CANARY_HASH;
+    }
 }

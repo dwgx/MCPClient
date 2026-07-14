@@ -249,4 +249,64 @@ public final class Ki1MipmapZeroFillPatch implements CompatPatch {
         }
         return n;
     }
+
+    // ---- TUF L0 content binding (behavior anchor) --------------------------
+
+    /** The author-pinned expected L0 behavior hash — see {@link #expectedCanaryHash()}. */
+    static final String EXPECTED_CANARY_HASH =
+            "85d062ee09c71af0a45ba524755fd5e2b1b944011f550657cf974188151d698e";
+
+    /**
+     * A deterministic, self-contained canary shaped exactly like the vanilla
+     * {@code allocateTextureImpl(IIII)V}: a per-level loop that calls
+     * {@code GL11.glTexImage2D(...,(IntBuffer)null)} then {@code IINC}s the loop var — the
+     * precise shape {@link #transform} keys on. Same emission every build (ASM is
+     * deterministic), so {@code sha256(transform(canary))} is a stable behavior fingerprint.
+     * Self-contained: no dependency on the vanilla client jar at runtime.
+     */
+    @Override
+    public byte[] canaryClassBytes() {
+        ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_MAXS);
+        cw.visit(Opcodes.V1_8, Opcodes.ACC_PUBLIC, TARGET_INTERNAL, null, "java/lang/Object", null);
+        org.objectweb.asm.MethodVisitor mv = cw.visitMethod(
+                Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, METHOD_NAME, METHOD_DESC, null, null);
+        mv.visitCode();
+        org.objectweb.asm.Label loopHead = new org.objectweb.asm.Label();
+        org.objectweb.asm.Label loopEnd = new org.objectweb.asm.Label();
+        mv.visitInsn(Opcodes.ICONST_0);
+        mv.visitVarInsn(Opcodes.ISTORE, 4);
+        mv.visitLabel(loopHead);
+        mv.visitVarInsn(Opcodes.ILOAD, 4);
+        mv.visitVarInsn(Opcodes.ILOAD, 1);
+        mv.visitJumpInsn(Opcodes.IF_ICMPGT, loopEnd);
+        mv.visitIntInsn(Opcodes.SIPUSH, 3553);
+        mv.visitVarInsn(Opcodes.ILOAD, 4);
+        mv.visitIntInsn(Opcodes.SIPUSH, 6408);
+        mv.visitVarInsn(Opcodes.ILOAD, WIDTH_SLOT);
+        mv.visitVarInsn(Opcodes.ILOAD, 4);
+        mv.visitInsn(Opcodes.ISHR);
+        mv.visitVarInsn(Opcodes.ILOAD, HEIGHT_SLOT);
+        mv.visitVarInsn(Opcodes.ILOAD, 4);
+        mv.visitInsn(Opcodes.ISHR);
+        mv.visitInsn(Opcodes.ICONST_0);
+        mv.visitLdcInsn(32993);
+        mv.visitLdcInsn(33639);
+        mv.visitInsn(Opcodes.ACONST_NULL);
+        mv.visitTypeInsn(Opcodes.CHECKCAST, "java/nio/IntBuffer");
+        mv.visitMethodInsn(Opcodes.INVOKESTATIC, GL_OWNER, GL_METHOD, GL_DESC, false);
+        mv.visitIincInsn(4, 1);
+        mv.visitJumpInsn(Opcodes.GOTO, loopHead);
+        mv.visitLabel(loopEnd);
+        mv.visitInsn(Opcodes.RETURN);
+        mv.visitMaxs(0, 0);
+        mv.visitEnd();
+        cw.visitEnd();
+        return cw.toByteArray();
+    }
+
+    /** The pinned L0 behavior fingerprint; the engine recomputes and compares at arm time. */
+    @Override
+    public String expectedCanaryHash() {
+        return EXPECTED_CANARY_HASH;
+    }
 }

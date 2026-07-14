@@ -156,6 +156,30 @@ public final class CompatEngine {
                 skipped++;
                 continue;
             }
+            // TUF L0 — content binding. If the patch provides a behavior anchor
+            // (canaryClassBytes), the signature-covered contentHash MUST equal the hash
+            // recomputed from transform(canary). This binds the signature to what the
+            // transform ACTUALLY DOES, not an author label (closes KI-10 for in-code
+            // patches): a swapped/mutated transform yields a different behavior hash and
+            // fails here even with a valid signature over the old label. A patch with NO
+            // canary (legacy / the harmless IdentityProbe) is exempt — signature-only, as
+            // before — so this is additive and never breaks an anchor-less patch. Guard
+            // the recompute so a bad canary can never break the boot transformer.
+            boolean hasCanary;
+            try {
+                byte[] c = patch.canaryClassBytes();
+                hasCanary = c != null && c.length > 0;
+            } catch (Throwable t) {
+                hasCanary = false;
+            }
+            if (hasCanary && !ContentHash.matchesExpected(patch)) {
+                System.err.println("[MCP Compat] REJECT patch " + m.code()
+                        + ": L0 content binding failed — the behavior hash recomputed from its "
+                        + "canary does not match the author-pinned expectedCanaryHash (transform "
+                        + "swapped/mutated since the fingerprint was pinned).");
+                skipped++;
+                continue;
+            }
             if (!patch.appliesToRuntime()) {
                 skipped++;
                 continue;
