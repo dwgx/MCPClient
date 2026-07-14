@@ -69,11 +69,39 @@ final class FakeComponentContext implements ComponentContext {
 
     @Override
     public WidgetId id() {
-        return id;
+        return idTop();
     }
 
     @Override
     public WidgetId childId(String key) {
-        return WidgetId.of(id, key);
+        return WidgetId.of(idTop(), key);
+    }
+
+    private final java.util.ArrayDeque<WidgetId> idStack = new java.util.ArrayDeque<>();
+
+    private WidgetId idTop() {
+        return idStack.isEmpty() ? id : idStack.peek();
+    }
+
+    @Override
+    public void pushId(String key) {
+        idStack.push(WidgetId.of(idTop(), key));
+    }
+
+    @Override
+    public void popId() {
+        if (!idStack.isEmpty()) {
+            idStack.pop();
+        }
+    }
+
+    @Override
+    public net.marcloud.mcp.dwm.backend.TextMetrics measureText(
+            net.marcloud.mcp.dwm.backend.FontHandle font, CharSequence text, float sizePx) {
+        // Deterministic fixed-advance metrics for tests (matches the old approxTextWidth
+        // 0.6 advance so existing width assertions still hold).
+        int n = text == null ? 0 : text.length();
+        return new net.marcloud.mcp.dwm.backend.TextMetrics(
+                n * sizePx * 0.6f, sizePx * 0.8f, sizePx * 0.2f);
     }
 }

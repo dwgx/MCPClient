@@ -88,7 +88,9 @@ public final class MaterialButton implements Component {
     public Size measure(ComponentContext ctx) {
         MdcTheme theme = ctx.theme();
         float sizePx = theme.typeSizePx(TypeRole.LABEL_LARGE);
-        float textW = approxTextWidth(label, sizePx);
+        // Measure through the context's backend-consistent metrics, not a per-backend
+        // guess, so the pill width is the same on gl / imgui / skiko.
+        float textW = ctx.measureText(DEFAULT_FONT, label, sizePx).width();
         float padH = variant == Variant.TEXT ? 12f : PAD_H_DP;
         return new Size(padH * 2f + textW, HEIGHT_DP);
     }
@@ -185,7 +187,7 @@ public final class MaterialButton implements Component {
 
         // 4) Label (Label Large), centered.
         float sizePx = theme.typeSizePx(TypeRole.LABEL_LARGE);
-        float textW = approxTextWidth(label, sizePx);
+        float textW = ctx.measureText(DEFAULT_FONT, label, sizePx).width();
         float tx = x + (w - textW) * 0.5f;
         // Baseline approx: vertical center using 0.8 ascent / 0.2 descent (NullBackend).
         float ty = y + (h + sizePx * 0.6f) * 0.5f - sizePx * 0.2f;

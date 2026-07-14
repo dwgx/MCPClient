@@ -118,7 +118,9 @@ public final class UiComposer {
             backendBegun = true;
             DrawContext draw = backend.draw();
             if (draw != null) {
-                ctx.bind(draw, input, metrics);
+                // Bind the backend's real text measurer so components size text
+                // consistently across backends (the layout prerequisite).
+                ctx.bind(draw, backend::measureText, input, metrics);
                 // Full-viewport root; components lay out within (0,0,w,h) DIP.
                 root.render(ctx, 0f, 0f, w, h);
             }

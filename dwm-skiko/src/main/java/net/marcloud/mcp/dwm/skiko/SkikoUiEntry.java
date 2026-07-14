@@ -5,9 +5,8 @@ import java.util.function.LongConsumer;
 import net.marcloud.mcp.dwm.backend.BackendHost;
 import net.marcloud.mcp.dwm.backend.DefaultBackendRegistry;
 import net.marcloud.mcp.dwm.component.Component;
-import net.marcloud.mcp.dwm.component.ComponentContext;
+import net.marcloud.mcp.dwm.component.DemoPanel;
 import net.marcloud.mcp.dwm.component.FrameComponentContext;
-import net.marcloud.mcp.dwm.component.material.MaterialButton;
 import net.marcloud.mcp.dwm.compositor.Compositor;
 import net.marcloud.mcp.dwm.compositor.UiComposer;
 import net.marcloud.mcp.dwm.compositor.WidgetId;
@@ -38,7 +37,7 @@ public final class SkikoUiEntry {
             Compositor compositor = new Compositor();
             FrameComponentContext ctx = new FrameComponentContext(
                     MaterialMdcTheme.darkTheme(), compositor.store(), WidgetId.root("overlay"));
-            Component root = new DemoRoot();
+            Component root = new DemoPanel();
             UiComposer composer = new UiComposer(host, registry, compositor, ctx, root);
             GameInput input = new GameInput();
 
@@ -52,20 +51,4 @@ public final class SkikoUiEntry {
         }
     }
 
-    /** Minimal demo root: one MD3 filled button near the top-left (same as the siblings). */
-    private static final class DemoRoot implements Component {
-
-        private final MaterialButton button = new MaterialButton("DWM M3", MaterialButton.Variant.FILLED);
-
-        @Override
-        public Result render(ComponentContext ctx, float x, float y, float w, float h) {
-            Size size = button.measure(ctx);
-            return button.render(ctx, x + 16f, y + 16f, size.width(), size.height());
-        }
-
-        @Override
-        public Size measure(ComponentContext ctx) {
-            return button.measure(ctx);
-        }
-    }
 }
