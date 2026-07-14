@@ -124,6 +124,9 @@ public enum Ring {
             Map.entry("get_story", R3),
             // compat: read-only view of loaded startup patches
             Map.entry("list_compat_patches", R3),
+            // PHASE T observe: read-only timeline spine
+            Map.entry("clock_now", R3),
+            Map.entry("timeline_tail", R3),
             // permission tools themselves
             Map.entry("drop_privilege", R3),
             Map.entry("restore_privilege", R3),

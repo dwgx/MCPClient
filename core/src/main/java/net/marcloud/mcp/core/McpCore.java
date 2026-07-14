@@ -195,6 +195,44 @@ public final class McpCore {
         seams = new SeamController(bus, game);
         new SeamTools(seams).registerAll(registry);
 
+        // PHASE T: arm the tick injector by DEFAULT so the single GameClock actually
+        // advances (tickId is the spine every observation stamps itself with). Opt-OUT
+        // with -Dmcp.core.tick=false. Needs Instrumentation (-javaagent); absent or any
+        // fault => the clock simply never advances (tickId stays 0), MCP still serves —
+        // never fatal. Was opt-in via the seam_tick_enable tool only; now on by default
+        // because the timeline is core infrastructure, not an optional experiment.
+        if (!"false".equalsIgnoreCase(System.getProperty("mcp.core.tick", "true"))) {
+            try {
+                if (seams.canInstall()) {
+                    seams.installTickInjector();
+                    System.err.println("[MCP Core] tick clock armed (GameClock advancing on runTick).");
+                } else {
+                    System.err.println("[MCP Core] tick clock NOT armed — Instrumentation absent "
+                            + "(start with -javaagent:core-<ver>.jar). GameClock stays at tick 0.");
+                }
+            } catch (Throwable t) {
+                System.err.println("[MCP Core] tick injector install failed (clock disabled, "
+                        + "game unaffected): " + t);
+            }
+        }
+
+        // PHASE T: Timeline ring — fold every EventBus event onto the GameClock as a
+        // safe {tickId, kind, summary} entry, and expose clock_now / timeline_tail.
+        // Attach BEFORE nothing-else-matters ordering; subscribing to the GameEvent
+        // base type captures all present + future event subclasses in one hook.
+        net.marcloud.mcp.core.ke.Timeline timeline =
+                new net.marcloud.mcp.core.ke.Timeline(
+                        Integer.getInteger("mcp.core.timelineCap", 512));
+        timeline.attach(bus);
+        new net.marcloud.mcp.core.drivers.observe.ObserveTools(
+                net.marcloud.mcp.core.ke.GameClock.INSTANCE, timeline).registerAll(registry);
+
+        // PHASE T (T.8): fan the ONE clock out to board's TickSignal by reflection —
+        // zero compile-time board dependency (core never imports board). Board present
+        // ⇒ its tick chips run off the same GameClock; board absent ⇒ silent no-op.
+        // (Lighting Board.init + installing default chips is PHASE E's job, not here.)
+        new net.marcloud.mcp.core.link.BoardClockBridge(bus).attach();
+
         // DWM overlay (OPT-IN via -Dmcp.core.overlay=true). Reflectively discovers
         // whichever optional overlay backend jar is on the game classpath (pure-Java
         // dwm-gl, or imgui); if present, installs the render-frame seam
