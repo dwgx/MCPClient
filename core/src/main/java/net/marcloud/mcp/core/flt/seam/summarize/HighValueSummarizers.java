@@ -75,6 +75,7 @@ public final class HighValueSummarizers {
         // Full-exposure per-category families (PHASE packet-exposure W2+).
         WorldSummarizers.registerInto(r);
         MovementSummarizers.registerInto(r);
+        EntitySummarizers.registerInto(r);
     }
 
     static final class PosLook implements PacketSummarizer {
