@@ -78,6 +78,7 @@ public final class HighValueSummarizers {
         EntitySummarizers.registerInto(r);
         InventorySummarizers.registerInto(r);
         SessionSummarizers.registerInto(r);
+        FxMoveSummarizers.registerInto(r);
     }
 
     static final class PosLook implements PacketSummarizer {
