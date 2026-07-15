@@ -72,6 +72,9 @@ public final class HighValueSummarizers {
         r.register(new PlayerList(), "net.minecraft.network.play.server.S38PacketPlayerListItem");
         // C03 + its nested C04/C05/C06 movement packets share one summarizer.
         r.registerFallback(new Move());
+        // Full-exposure per-category families (PHASE packet-exposure W2+).
+        WorldSummarizers.registerInto(r);
+        MovementSummarizers.registerInto(r);
     }
 
     static final class PosLook implements PacketSummarizer {
