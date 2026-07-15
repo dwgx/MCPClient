@@ -76,6 +76,8 @@ public final class HighValueSummarizers {
         WorldSummarizers.registerInto(r);
         MovementSummarizers.registerInto(r);
         EntitySummarizers.registerInto(r);
+        InventorySummarizers.registerInto(r);
+        SessionSummarizers.registerInto(r);
     }
 
     static final class PosLook implements PacketSummarizer {
