@@ -242,6 +242,39 @@ public final class McpCore {
         // (Lighting Board.init + installing default chips is PHASE E's job, not here.)
         new net.marcloud.mcp.core.link.BoardClockBridge(bus).attach();
 
+        // PHASE A: streaming real control. ActRuntime holds per-slot target state,
+        // applied on the game thread by ActTickLoop (TickEvent). LivePlayerActuator is
+        // the sole net.minecraft-touching impl; the three appliers bridge controllers
+        // into the runtime. MovementInputInstaller swaps EntityPlayerSP.movementInput
+        // for a synthetic subclass (client zero-diff). act_set/act_cancel/act_status
+        // are the RPC face. Nothing arms until act_set is called.
+        net.marcloud.mcp.core.drivers.act.ActRuntime actRuntime =
+                net.marcloud.mcp.core.drivers.act.ActRuntime.INSTANCE;
+        net.marcloud.mcp.core.drivers.act.ActActuator actuator =
+                new net.marcloud.mcp.core.drivers.act.LivePlayerActuator(game);
+        actRuntime.registerApplier(net.marcloud.mcp.core.drivers.act.ActSlot.MOVE,
+                new net.marcloud.mcp.core.drivers.act.MoveApplier());
+        actRuntime.registerApplier(net.marcloud.mcp.core.drivers.act.ActSlot.LOOK,
+                new net.marcloud.mcp.core.drivers.act.LookApplier(actuator));
+        actRuntime.registerApplier(net.marcloud.mcp.core.drivers.act.ActSlot.INTERACT,
+                new net.marcloud.mcp.core.drivers.act.InteractApplier(actuator));
+        new net.marcloud.mcp.core.drivers.act.ActTickLoop(actRuntime).attach(bus);
+        net.marcloud.mcp.core.drivers.act.MovementInputInstaller moveInstaller =
+                new net.marcloud.mcp.core.drivers.act.MovementInputInstaller(
+                        new net.marcloud.mcp.core.drivers.act.GameAccessInputSlot(game), actRuntime);
+        moveInstaller.attach(bus);
+        // Arm permanently: the ActMovementInput wrapper delegates 100% to vanilla input
+        // UNLESS a MOVE intent is active (view.moveActive()), so a resident swap is
+        // transparent until act_set{move} arrives. Without this, act_set{move} would
+        // report ACTIVE while the player never actually moved (fake success). The
+        // installer no-ops until the player exists and re-swaps across world-join/respawn.
+        moveInstaller.arm();
+        new net.marcloud.mcp.core.drivers.action.ActTools(actRuntime).registerAll(registry);
+
+        // PHASE E: fan whitelisted world GameEvents out to board Signals (disconnect,
+        // inbound chat, block-change). Board absent ⇒ silent no-op, like the clock bridge.
+        new net.marcloud.mcp.core.link.BoardWorldEventBridge(bus).attach();
+
         // DWM overlay (OPT-IN via -Dmcp.core.overlay=true). Reflectively discovers
         // whichever optional overlay backend jar is on the game classpath (pure-Java
         // dwm-gl, or imgui); if present, installs the render-frame seam

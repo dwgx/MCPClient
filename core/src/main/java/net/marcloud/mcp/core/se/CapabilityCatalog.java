@@ -43,6 +43,8 @@ public final class CapabilityCatalog {
             // so caps=strict default-deny would be bypassed. See CAP_WORLD_WRITE.
             Map.entry("gui_click_element", Set.of(CapabilitySid.CAP_WORLD_WRITE)),
             Map.entry("gui_type_text", Set.of(CapabilitySid.CAP_WORLD_WRITE)),
+            Map.entry("act_set", Set.of(CapabilitySid.CAP_WORLD_WRITE)),
+            Map.entry("act_cancel", Set.of(CapabilitySid.CAP_WORLD_WRITE)),
             Map.entry("gui_press_key", Set.of(CapabilitySid.CAP_WORLD_WRITE)),
             // synthesize / redefine
             Map.entry("eval_java", Set.of(CAP_TOOL_CREATE)),
