@@ -127,6 +127,8 @@ public enum Ring {
             // PHASE T observe: read-only timeline spine
             Map.entry("clock_now", R3),
             Map.entry("timeline_tail", R3),
+            Map.entry("packets_tail", R3),
+            Map.entry("packet_get", R3),
             // permission tools themselves
             Map.entry("drop_privilege", R3),
             Map.entry("restore_privilege", R3),

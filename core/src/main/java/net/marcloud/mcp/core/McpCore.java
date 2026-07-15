@@ -224,8 +224,17 @@ public final class McpCore {
                 new net.marcloud.mcp.core.ke.Timeline(
                         Integer.getInteger("mcp.core.timelineCap", 512));
         timeline.attach(bus);
+
+        // PHASE P: PacketJournal — a packet-only ring fed from the Netty-tap
+        // Seam packet events, addressable per-packet (seq) for packet_get.
+        net.marcloud.mcp.core.ke.PacketJournal packetJournal =
+                new net.marcloud.mcp.core.ke.PacketJournal(
+                        Integer.getInteger("mcp.core.packetJournalCap", 1024));
+        packetJournal.attach(bus);
+
         new net.marcloud.mcp.core.drivers.observe.ObserveTools(
-                net.marcloud.mcp.core.ke.GameClock.INSTANCE, timeline).registerAll(registry);
+                net.marcloud.mcp.core.ke.GameClock.INSTANCE, timeline, packetJournal,
+                seams).registerAll(registry);
 
         // PHASE T (T.8): fan the ONE clock out to board's TickSignal by reflection —
         // zero compile-time board dependency (core never imports board). Board present
