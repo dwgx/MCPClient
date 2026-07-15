@@ -88,6 +88,22 @@
             <version>4.13.2</version>
             <scope>test</scope>
         </dependency>
+
+        <!-- PHASE E: board on the TEST classpath ONLY. core's MAIN code has zero
+             compile dependency on board (it reaches board purely by reflection via
+             BoardTraceLink/BoardWorldEventBridge). But the PHASE-E link tests must
+             exercise the real reflective round-trip against genuine board Signal
+             classes (publish a real ChatSendSignal, read its veto flag; map events
+             to real DisconnectSignal/ChatReceiveSignal/BlockChangeSignal). 'test'
+             scope keeps board off main compile and off the runtime/agent jar, so
+             the zero-hard-dependency peer contract is preserved — board is present
+             for the tests the same way it is present at runtime in a full client. -->
+        <dependency>
+            <groupId>net.marcloud.mcp.189</groupId>
+            <artifactId>board</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>

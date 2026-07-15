@@ -39,13 +39,29 @@ public final class ActionManager {
      */
     public boolean sendChat(String message)
             throws InterruptedException, ExecutionException, TimeoutException {
+        // PHASE E.1: give board chips a PRE veto over AI-originated chat. Board absent
+        // ⇒ publishChatSend returns a non-cancelled result ⇒ behavior unchanged. A chip
+        // that vetoes stops the send; the reason is surfaced to the caller. Published on
+        // the game thread below (Trace.publish is synchronous) BEFORE the real send.
         return exec.invokeAndWait(() -> {
             if (game.player() == null) {
                 return false; // not in world — nothing sent
             }
+            net.marcloud.mcp.core.link.BoardTraceLink.ChatSendResult veto =
+                    net.marcloud.mcp.core.link.BoardTraceLink.shared().publishChatSend(message);
+            if (veto.cancelled()) {
+                throw new ChatVetoedException(veto.reason());
+            }
             game.player().sendChatMessage(message);
             return true;
         }, defaultTimeoutMillis);
+    }
+
+    /** Thrown when a board chip vetoes an outgoing chat (PHASE E.1). Carries the veto reason. */
+    public static final class ChatVetoedException extends RuntimeException {
+        public ChatVetoedException(String reason) {
+            super(reason == null ? "vetoed" : reason);
+        }
     }
 
     /**
