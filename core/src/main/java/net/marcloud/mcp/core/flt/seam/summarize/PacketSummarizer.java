@@ -1,5 +1,7 @@
 package net.marcloud.mcp.core.flt.seam.summarize;
 
+import java.util.Map;
+
 /**
  * A reference-free projector of a single decoded Minecraft packet into a short,
  * human/LLM-legible {@code String} (PHASE P.3). Invoked SYNCHRONOUSLY inside the
@@ -27,4 +29,28 @@ public interface PacketSummarizer {
      * through to the next candidate). Never retains the packet.
      */
     String summarize(Object packet);
+
+    /**
+     * Structured counterpart to {@link #summarize}: read the same fields off the
+     * live {@code packet} and return them as an ordered, JSON-ready
+     * {@code Map<String,Object>} (build one with {@link PacketView#of()}), so a
+     * caller can hand an LLM typed fields instead of a string it must parse.
+     *
+     * <p>Same reference-free contract as {@link #summarize}: read synchronously in
+     * the tap, copy only immutable scalars/Strings, never retain the packet. Same
+     * honesty contract: omit a field that is not on the wire rather than inventing a
+     * default.
+     *
+     * <p><b>Default: {@code null}</b> — "no structured projection". A summarizer that
+     * only produces a String (the B/C tier, and any legacy summarizer) leaves this
+     * unimplemented; the registry then reports no typed fields for that packet, and
+     * {@code packet_view} falls back to the String summary alone. A-tier summarizers
+     * override this to expose typed fields.
+     *
+     * @return an ordered JSON-ready field map, or {@code null} if this summarizer
+     *         offers no structured projection
+     */
+    default Map<String, Object> project(Object packet) {
+        return null;
+    }
 }

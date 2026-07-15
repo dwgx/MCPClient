@@ -1,7 +1,9 @@
 package net.marcloud.mcp.core.flt.seam.summarize;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import java.lang.reflect.Field;
@@ -172,5 +174,83 @@ public class PacketSummarizerRegistryTest {
         String s = r.summarize(new Object());
         assertNotNull("throwing summarizer must degrade to generic, never propagate", s);
         assertEquals("Object", s);
+    }
+
+    // ---- structured projection (project / projectStructured) ----------------
+
+    @Test
+    public void healthProjectsTypedFields() {
+        S06PacketUpdateHealth p = new S06PacketUpdateHealth(6.0f, 3, 0.0f);
+        java.util.Map<String, Object> m = reg.projectStructured(p);
+        assertNotNull(m);
+        assertEquals(6.0, ((Number) m.get("hp")).doubleValue(), 0.0001);
+        assertEquals(3, ((Number) m.get("food")).intValue());
+        assertEquals(0.0, ((Number) m.get("sat")).doubleValue(), 0.0001);
+    }
+
+    @Test
+    public void combatProjectsDeathOnlyForEntityDied() throws Exception {
+        S42PacketCombatEvent died = new S42PacketCombatEvent();
+        died.eventType = S42PacketCombatEvent.Event.ENTITY_DIED;
+        died.deathMessage = "Steve drowned";
+        java.util.Map<String, Object> m = reg.projectStructured(died);
+        assertEquals("ENTITY_DIED", m.get("event"));
+        assertEquals("Steve drowned", m.get("death"));
+
+        S42PacketCombatEvent ended = new S42PacketCombatEvent();
+        ended.eventType = S42PacketCombatEvent.Event.END_COMBAT;
+        java.util.Map<String, Object> m2 = reg.projectStructured(ended);
+        assertEquals("END_COMBAT", m2.get("event"));
+        assertFalse("non-death combat must not carry a death field", m2.containsKey("death"));
+    }
+
+    @Test
+    public void playerListProjectsNamesOnlyForAdd() throws Exception {
+        S38PacketPlayerListItem add = newPlayerList(S38PacketPlayerListItem.Action.ADD_PLAYER);
+        addEntry(add, "Steve");
+        addEntry(add, "Alex");
+        java.util.Map<String, Object> m = reg.projectStructured(add);
+        assertEquals("ADD_PLAYER", m.get("action"));
+        assertEquals(2, ((Number) m.get("count")).intValue());
+        assertEquals(java.util.List.of("Steve", "Alex"), m.get("names"));
+
+        S38PacketPlayerListItem rem = newPlayerList(S38PacketPlayerListItem.Action.REMOVE_PLAYER);
+        addEntryNoName(rem);
+        java.util.Map<String, Object> m2 = reg.projectStructured(rem);
+        assertEquals("REMOVE_PLAYER", m2.get("action"));
+        assertFalse("REMOVE must not carry a names field (no name on wire)", m2.containsKey("names"));
+    }
+
+    @Test
+    public void projectReturnsNullForUnprojectedPacket() {
+        // KeepAlive has a String summarizer but no project() override -> null typed view.
+        assertNull(reg.projectStructured(new S00PacketKeepAlive(7)));
+    }
+
+    @Test
+    public void projectNeverThrows() {
+        PacketSummarizerRegistry r = new PacketSummarizerRegistry(new GenericPacketSummarizer());
+        r.registerFallback(new PacketSummarizer() {
+            @Override public boolean handles(String cn) { return true; }
+            @Override public String summarize(Object p) { return "x"; }
+            @Override public java.util.Map<String, Object> project(Object p) {
+                throw new RuntimeException("boom");
+            }
+        });
+        // a throwing project() must degrade to null, never propagate
+        assertNull(r.projectStructured(new Object()));
+    }
+
+    @Test
+    public void packetViewDropsNullsAndKeepsOrder() {
+        java.util.Map<String, Object> m = PacketView.of()
+                .put("a", 1)
+                .put("skip", null)
+                .put("b", "two")
+                .putRounded("c", 3.14159, 2)
+                .buildMap();
+        assertFalse("null value must be dropped", m.containsKey("skip"));
+        assertEquals(java.util.List.of("a", "b", "c"), new java.util.ArrayList<>(m.keySet()));
+        assertEquals(3.14, ((Number) m.get("c")).doubleValue(), 0.0001);
     }
 }

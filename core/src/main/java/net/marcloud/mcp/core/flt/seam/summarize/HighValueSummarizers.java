@@ -183,6 +183,14 @@ public final class HighValueSummarizers {
             return "health hp=" + f2(s.getHealth()) + " food=" + s.getFoodLevel()
                     + " sat=" + f2(s.getSaturationLevel());
         }
+        @Override public java.util.Map<String, Object> project(Object p) {
+            S06PacketUpdateHealth s = (S06PacketUpdateHealth) p;
+            return PacketView.of()
+                    .putRounded("hp", s.getHealth(), 2)
+                    .put("food", s.getFoodLevel())
+                    .putRounded("sat", s.getSaturationLevel(), 2)
+                    .buildMap();
+        }
     }
 
     /**
@@ -206,6 +214,16 @@ public final class HighValueSummarizers {
                 return "combat event=" + event + " death=\"" + msg + "\"";
             }
             return "combat event=" + event;
+        }
+        @Override public java.util.Map<String, Object> project(Object p) {
+            S42PacketCombatEvent s = (S42PacketCombatEvent) p;
+            String event = s.eventType == null ? "?" : s.eventType.name();
+            PacketView.Builder b = PacketView.of().put("event", event);
+            if (s.eventType == S42PacketCombatEvent.Event.ENTITY_DIED) {
+                // death message only exists for ENTITY_DIED (honesty: omit otherwise)
+                b.put("death", s.deathMessage == null ? "" : s.deathMessage);
+            }
+            return b.buildMap();
         }
     }
 
@@ -241,6 +259,25 @@ public final class HighValueSummarizers {
                         + " names=" + (names.length() == 0 ? "-" : names);
             }
             return "playerList action=" + action + " count=" + count;
+        }
+        @Override public java.util.Map<String, Object> project(Object p) {
+            S38PacketPlayerListItem s = (S38PacketPlayerListItem) p;
+            String action = s.getAction() == null ? "?" : s.getAction().name();
+            java.util.List<S38PacketPlayerListItem.AddPlayerData> entries = s.getEntries();
+            int count = entries == null ? 0 : entries.size();
+            PacketView.Builder b = PacketView.of().put("action", action).put("count", count);
+            if (s.getAction() == S38PacketPlayerListItem.Action.ADD_PLAYER && entries != null) {
+                // only ADD carries names on the wire; REMOVE has UUID only (omit names)
+                java.util.List<String> names = new java.util.ArrayList<>();
+                for (S38PacketPlayerListItem.AddPlayerData e : entries) {
+                    String name = e.getProfile() == null ? null : e.getProfile().getName();
+                    if (name != null && !name.isEmpty()) {
+                        names.add(name);
+                    }
+                }
+                b.put("names", names);
+            }
+            return b.buildMap();
         }
     }
 

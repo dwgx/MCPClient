@@ -88,6 +88,54 @@ public final class PacketSummarizerRegistry {
         }
     }
 
+    /**
+     * The STRUCTURED projection for {@code packet}: the ordered JSON-ready field map
+     * from the resolved summarizer's {@link PacketSummarizer#project}, or {@code null}
+     * if no summarizer offers one (B/C tier, or the packet is unknown). Same
+     * resolution order as {@link #summarize} (exact → handles() fallback → generic)
+     * and the same never-throw guard, so the tap can call it inline safely.
+     *
+     * <p>Returns {@code null} (not an empty map) to mean "no typed fields available"
+     * so a caller can distinguish a summarizer that declines from one that projects
+     * an empty object.
+     */
+    public Map<String, Object> projectStructured(Object packet) {
+        if (packet == null) {
+            return null;
+        }
+        String fqn = packet.getClass().getName();
+
+        PacketSummarizer ex = exact.get(fqn);
+        if (ex != null) {
+            Map<String, Object> r = safeProject(ex, packet);
+            if (r != null) {
+                return r;
+            }
+        }
+        for (PacketSummarizer f : fallbacks) {
+            try {
+                if (!f.handles(fqn)) {
+                    continue;
+                }
+            } catch (Throwable t) {
+                continue;
+            }
+            Map<String, Object> r = safeProject(f, packet);
+            if (r != null) {
+                return r;
+            }
+        }
+        return safeProject(generic, packet);
+    }
+
+    private static Map<String, Object> safeProject(PacketSummarizer s, Object packet) {
+        try {
+            return s.project(packet);
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
     private static String simpleName(String fqn) {
         int cut = Math.max(fqn.lastIndexOf('.'), fqn.lastIndexOf('$'));
         return cut >= 0 && cut + 1 < fqn.length() ? fqn.substring(cut + 1) : fqn;
