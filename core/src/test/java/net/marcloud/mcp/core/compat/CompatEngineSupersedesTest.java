@@ -129,6 +129,47 @@ public final class CompatEngineSupersedesTest {
         assertTrue(engine.armedPatchIds().contains(b.manifest().patchId()));
     }
 
+    /** An UNSIGNED patch (built + registered, but never signed by a trusted key). */
+    private static CompatPatch unsignedPatch(String code, String kiRef, String target,
+                                             String supersedes, String transformSeed, String version) {
+        PatchManifest.Builder b = new PatchManifest.Builder()
+                .code(code).name(code).version(version).kiRef(kiRef)
+                .targetClass(target).platformCondition("")
+                .publisher("attacker").builtAt("2026-07-15T00:00:00Z")
+                .status(PatchManifest.Status.VERIFIED);
+        if (supersedes != null) {
+            b.supersedes(supersedes);
+        }
+        // withTransform binds a contentHash but NO trusted signature -> signer.verify fails.
+        PatchManifest unsigned = b.build().withTransform(PatchManifest.sha256Hex(transformSeed), null);
+        return new CompatPatch() {
+            @Override public PatchManifest manifest() { return unsigned; }
+            @Override public byte[] transform(byte[] original) { return new byte[]{2}; }
+        };
+    }
+
+    @Test
+    public void unsignedPatchCannotDisarmSignedPredecessor_F1() {
+        // S3 red-team F1: an UNSIGNED patch that claims to supersede a SIGNED patch (higher
+        // version, same target) must NOT disarm it. Before the fix, supersededIds was built
+        // from chain-validity ALONE, so the signed patch A was silently switched off while
+        // the unsigned attacker B never armed. Teeth: A must STAY armed.
+        String target = "net.minecraft.client.Foo";
+        CompatPatch a = signedPatch("MCP-A-F1", "KI-4", target, null, "f1-v1");   // signed, v1
+        String aId = a.manifest().patchId();
+        CompatPatch evil = unsignedPatch("EVIL-F1", "KI-4", target, aId, "f1-evil", "2.0.0.0"); // unsigned, higher
+
+        CompatDatabase db = new CompatDatabase();
+        db.register(a);
+        db.register(evil);
+        CompatEngine engine = CompatEngine.build(db, verifier(), null);
+
+        assertTrue("signed predecessor A must stay armed — an unsigned patch cannot disarm it",
+                engine.armedPatchIds().contains(aId));
+        assertFalse("unsigned attacker patch never arms",
+                engine.armedPatchIds().contains(evil.manifest().patchId()));
+    }
+
     @Test
     public void supersededPatchSkippedEvenWhenRegisteredAfterSuccessor() {
         // Registration order must not matter: B (superseding) registered BEFORE A.

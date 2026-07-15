@@ -116,12 +116,18 @@ public final class CompatEngine {
             System.err.println("[MCP Compat] REFUSING cyclic supersedes graph — " + cycle
                     + "; no patch in a cycle can arm (no defined chain tip).");
         }
-        // Only a VALID chain link may suppress its predecessor: an invalid superseding patch
-        // (malformed prev pointer, cross-target, version rollback, or in a cycle) has no
-        // authority to knock out the patch it claims to replace. Collect superseded ids only
-        // from patches whose link passes PatchChain — so a bogus "I supersede A" cannot disarm
-        // A. This closes the ordering hole where a rejected successor still suppressed its
-        // (legitimate, still-armable) predecessor.
+        // Only a VALID, SIGNED, VERIFIED chain link may suppress its predecessor. Three
+        // gates, all required:
+        //   (1) valid chain link (PatchChain: well-formed prev pointer, same target,
+        //       version strictly newer, not in a cycle),
+        //   (2) status == VERIFIED,
+        //   (3) a trusted Ed25519 signature (signer.verify).
+        // Without (2)+(3) an UNSIGNED patch could set supersedes=<a signed patch's id> with
+        // a higher version and silently DISARM that signed patch (which itself never arms) —
+        // a real HIGH bug (S3 red-team F1, 2026-07-15): in-code registration confers NO trust
+        // in the ARM direction, so it must confer none in the DISARM direction either. An
+        // attacker who can register a CompatPatch object already has code-exec today, but this
+        // becomes directly exploitable once patches ship as data — close it now.
         java.util.Set<String> supersededIds = new java.util.HashSet<>();
         for (CompatPatch patch : all) {
             PatchManifest m = patch.manifest();
@@ -130,9 +136,18 @@ public final class CompatEngine {
                 continue;
             }
             boolean inCycle = cycle != null;
-            if (!inCycle && PatchChain.rejectionReason(m, all) == null) {
-                supersededIds.add(s);
+            if (inCycle || PatchChain.rejectionReason(m, all) != null) {
+                continue;
             }
+            // A superseding patch may only suppress its predecessor if it would itself be
+            // trusted to arm: VERIFIED status + a signature verifying against the anchors.
+            if (m.status() != PatchManifest.Status.VERIFIED || !signer.verify(m)) {
+                System.err.println("[MCP Compat] IGNORING supersede from " + m.code()
+                        + " (patchId " + m.patchId() + ") — unverified/unsigned patches cannot "
+                        + "disarm a signed predecessor.");
+                continue;
+            }
+            supersededIds.add(s);
         }
         for (CompatPatch patch : db.all()) {
             PatchManifest m = patch.manifest();
@@ -187,14 +202,17 @@ public final class CompatEngine {
                 skipped++;
                 continue;
             }
-            // TUF L0 — content binding. If the patch provides a behavior anchor
-            // (canaryClassBytes), the signature-covered contentHash MUST equal the hash
-            // recomputed from transform(canary). This binds the signature to what the
-            // transform ACTUALLY DOES, not an author label (closes KI-10 for in-code
-            // patches): a swapped/mutated transform yields a different behavior hash and
-            // fails here even with a valid signature over the old label. A patch with NO
-            // canary (legacy / the harmless IdentityProbe) is exempt — signature-only, as
-            // before — so this is additive and never breaks an anchor-less patch. Guard
+            // TUF L0 — content binding (UNSIGNED equality check, not a signature over
+            // behavior). If the patch provides a behavior anchor (canaryClassBytes), the
+            // hash recomputed from transform(canary) MUST equal the patch's constant
+            // expectedCanaryHash(). NOTE: the Ed25519 signature does NOT cover this hash —
+            // it covers a stable manifest label (PatchCanonicalizer). Both transform() and
+            // expectedCanaryHash live in the same patch class, so L0 is drift-detection
+            // (catches accidental/version changes), NOT adversarial binding — an attacker
+            // with code-exec can edit both together. See known-issues KI-10 for the full
+            // boundary. A patch with NO canary (legacy / the harmless IdentityProbe) is
+            // exempt — signature-only, as before — so this is additive and never breaks an
+            // anchor-less patch. Guard
             // the recompute so a bad canary can never break the boot transformer.
             boolean hasCanary;
             try {

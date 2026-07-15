@@ -12,10 +12,19 @@ import java.security.NoSuchAlgorithmException;
  * {@code canary} is the patch's deterministic {@link CompatPatch#canaryClassBytes()}
  * behavior anchor. Two builds of the same transform logic produce the same
  * transformed canary bytes, hence the same hash; a swapped or altered transform
- * produces different bytes, hence a different hash — so a signature over this hash
- * binds the patch's behavior (closing KI-10 for the in-code model). The domain tag
- * and targetClass are folded in so a transform that happens to emit identical bytes
- * for a different target cannot collide.
+ * produces different bytes, hence a different hash. The domain tag and targetClass
+ * are folded in so a transform that happens to emit identical bytes for a different
+ * target cannot collide.
+ *
+ * <p><b>Honest boundary (NOT a signature over behavior).</b> This L0 hash is an
+ * UNSIGNED equality check: {@link #forPatch} recomputes it and {@code
+ * matchesExpected} compares it to the patch's {@link CompatPatch#expectedCanaryHash()}
+ * — a constant that lives in the SAME patch class as {@code transform()}. The Ed25519
+ * signature covers a stable manifest LABEL (see {@link PatchCanonicalizer}), NOT this
+ * behavior hash. So an attacker with classpath/code-exec can edit {@code transform()}
+ * AND its sibling {@code expectedCanaryHash} constant together and defeat L0 — it is
+ * drift-detection (catches accidental/version changes), not adversarial binding. It
+ * does NOT by itself "close KI-10"; see known-issues KI-10 for the full boundary.
  *
  * <p><b>Fail-closed:</b> a patch with no canary (default {@link
  * CompatPatch#canaryClassBytes()} returns null), or whose transform returns null /
