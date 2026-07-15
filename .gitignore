@@ -60,3 +60,7 @@ scripts/_review/
 scripts/secrets/
 *.key.b64
 *-ed25519.priv
+
+# JVM crash dumps (regenerable, never commit)
+hs_err_pid*.log
+replay_pid*.log

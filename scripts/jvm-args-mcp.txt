@@ -5,6 +5,15 @@
 
 -Dfile.encoding=UTF-8
 
+# --- Heap ceiling. Without an explicit -Xmx the JVM ergonomically claims ~1/4 of
+#     physical RAM (8 GB on a 32 GB box) and tries to reserve that as G1 virtual
+#     space up front; when other apps (e.g. a running game) hold RAM and the
+#     Windows pagefile is small, that reservation fails with "insufficient memory /
+#     paging file too small" and the JVM aborts at boot. MC 1.8.9 needs well under
+#     2 GB, so pin it: bounded footprint, no huge reservation, no OOM abort. ---
+-Xms512m
+-Xmx2g
+
 # --- Unsafe: silences Netty/Guava warnings on JDK25/JBR25 (still 'warn'). ---
 --sun-misc-unsafe-memory-access=allow
 # --- Native access: LWJGL3 / JNA / oshi. ---

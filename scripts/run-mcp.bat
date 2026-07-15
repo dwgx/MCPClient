@@ -27,10 +27,8 @@ REM     (-Dmcp.core.overlay is unset); use run-mcp-overlay.bat to arm it. Build 
 REM     scripts\build-jars.bat. ---
 set "DWM_JAR=%~dp0..\dwm-gl\target\dwm-gl-1.8.9-all.jar"
 set "CP=%GAME_JAR%;%CORE_JAR%"
-if exist "%DWM_JAR%" (
-  set "CP=%GAME_JAR%;%CORE_JAR%;%DWM_JAR%"
-  echo [run-mcp] DWM GL backend present — added to classpath (overlay NOT armed).
-)
+if exist "%DWM_JAR%" set "CP=%GAME_JAR%;%CORE_JAR%;%DWM_JAR%"
+if exist "%DWM_JAR%" echo [run-mcp] DWM GL backend present, added to classpath ^(overlay NOT armed^).
 
 REM --- Working dir must be the game dir (assets, saves). ---
 cd /d "%~dp0..\test_run"
