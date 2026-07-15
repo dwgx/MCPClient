@@ -208,6 +208,14 @@ public final class ToolRegistry {
                 return sent ? ok("sent: " + message)
                             : error("not in world — cannot send chat");
             } catch (Exception e) {
+                // PHASE E.1: the veto is thrown inside the game-thread Callable, so
+                // invokeAndWait wraps it in ExecutionException — unwrap to report it
+                // as a veto rather than a generic failure.
+                Throwable cause = e instanceof java.util.concurrent.ExecutionException
+                        ? e.getCause() : e;
+                if (cause instanceof net.marcloud.mcp.core.drivers.action.ActionManager.ChatVetoedException) {
+                    return error("vetoed: " + cause.getMessage());
+                }
                 return error("send failed: " + e.getMessage());
             }
         });
@@ -480,11 +488,11 @@ public final class ToolRegistry {
         Tool tool = Tool.builder()
                 .name("capture_screen")
                 .title("Capture screen (PNG)")
-                .description("[requires: GLFW-window] SEE the game: capture the current rendered frame as a PNG image "
-                        + "and return it for you to look at. Use this when you need visual "
-                        + "understanding the symbolic scan can't give (scenery, builds, GUI, "
-                        + "terrain, rendering issues). Costs image tokens — prefer "
-                        + "scan_surroundings for routine sensing. Downscaled to ~1024px long edge.")
+                .description("[requires: GLFW-window] VALIDATION PROFILE — a rendered PNG frame for when you "
+                        + "must literally SEE the scene (visual bugs, GUI layout, a build you can't infer). "
+                        + "This is NOT your primary sense: world_view (structured, reference-free, cheap) is "
+                        + "how you perceive and decide; capture_screen is a secondary validation/debug channel. "
+                        + "Costs image tokens — never use it as a per-tick sensor. Downscaled to ~1024px long edge.")
                 .annotations(ToolAnnotations.builder()
                         .title("Capture screen (PNG)")
                         .readOnlyHint(true)
