@@ -102,6 +102,103 @@ public final class NettyTap {
     }
 
     /**
+     * Install the built-in packet observer <b>before</b> the terminal packet
+     * handler (KI-9 fix). The vanilla {@code NetworkManager} is a
+     * {@link io.netty.channel.SimpleChannelInboundHandler} sitting at the pipeline
+     * tail; it consumes inbound packets without re-firing them, so a handler added
+     * with {@code addLast} (behind it) never sees inbound. Installing before the
+     * terminal makes this tap the last inbound handler that runs, so it observes
+     * every decoded packet exactly once and the terminal still consumes it.
+     *
+     * <p>Outbound is unaffected (writes start at the tail and flow toward the head,
+     * so the tap is still traversed exactly once). Removal is position-independent
+     * ({@code pipeline.remove(name)}), so {@link #removeHandler}/{@link #removeAll}
+     * work unchanged.
+     *
+     * @return true if installed, false if unavailable or already installed
+     */
+    public boolean installBuiltinTap(String name, ChannelDuplexHandler handler) {
+        Channel ch = acquireChannel();
+        if (ch == null) {
+            return false;
+        }
+        // The terminal handler IS the NetworkManager instance (added to the pipeline
+        // under some name — "packet_handler" in vanilla). Pass it so we can resolve
+        // its actual name by identity, immune to a rename.
+        ChannelHandler terminal = null;
+        try {
+            terminal = game.networkManager();
+        } catch (Throwable ignored) {
+            // No NetworkManager (headless / not connected) — resolveTerminalName falls back.
+        }
+        return installBefore(ch, name, handler, terminal);
+    }
+
+    boolean installBefore(Channel ch, String name, ChannelDuplexHandler handler,
+                          ChannelHandler terminalInstance) {
+        try {
+            ChannelPipeline p = ch.pipeline();
+            if (p.get(name) != null) {
+                return false;
+            }
+            String terminalName = resolveTerminalName(p, terminalInstance);
+            if (terminalName != null) {
+                p.addBefore(terminalName, name, handler);
+            } else {
+                // No terminal consumer found: fall back to tail. Inbound may not be
+                // observed, but this never breaks the pipeline (fail-safe).
+                System.err.println("[NettyTap] no terminal handler found; "
+                        + "installing '" + name + "' at tail (inbound may not fire)");
+                p.addLast(name, handler);
+            }
+            installedOn.computeIfAbsent(name, ignored -> ConcurrentHashMap.newKeySet()).add(ch);
+            return true;
+        } catch (Exception e) {
+            System.err.println("[NettyTap] failed to install handler '" + name
+                    + "' before terminal: " + e);
+            return false;
+        }
+    }
+
+    /**
+     * Resolve the pipeline name of the terminal inbound consumer, in order of
+     * robustness: (1) by identity if {@code terminalInstance} is in the pipeline
+     * (rename-immune); (2) the conventional vanilla name {@code "packet_handler"};
+     * (3) the last {@link io.netty.channel.SimpleChannelInboundHandler} in the
+     * pipeline. Returns null if none found (caller falls back to addLast).
+     */
+    private static String resolveTerminalName(ChannelPipeline p, ChannelHandler terminalInstance) {
+        if (terminalInstance != null) {
+            try {
+                ChannelHandlerContext ctx = p.context(terminalInstance);
+                if (ctx != null) {
+                    return ctx.name();
+                }
+            } catch (Exception ignored) {
+                // fall through
+            }
+        }
+        try {
+            if (p.get("packet_handler") != null) {
+                return "packet_handler";
+            }
+        } catch (Exception ignored) {
+            // fall through
+        }
+        String last = null;
+        try {
+            for (Map.Entry<String, ChannelHandler> e : p) {
+                if (e.getValue() instanceof io.netty.channel.SimpleChannelInboundHandler) {
+                    last = e.getKey();
+                }
+            }
+        } catch (Exception ignored) {
+            // fall through
+        }
+        return last;
+    }
+
+    /**
      * Remove a handler from the pipeline by name.
      *
      * @param name handler name
@@ -164,14 +261,26 @@ public final class NettyTap {
     @ChannelHandler.Sharable
     public static final class PacketTapHandler extends ChannelDuplexHandler {
 
-        /** Immutable metadata published for decoded, mutable message objects. */
-        public record MessageSnapshot(String className) {
+        /**
+         * Immutable metadata published for decoded, mutable message objects: the
+         * packet class name plus a reference-free {@code summary} String produced
+         * synchronously by the summarizer registry (PHASE P.3/P.4). The live packet
+         * is never retained — only these two Strings escape the callback.
+         */
+        public record MessageSnapshot(String className, String summary) {
         }
 
         private final EventBus bus;
+        private final net.marcloud.mcp.core.flt.seam.summarize.PacketSummarizerRegistry summarizers;
 
         public PacketTapHandler(EventBus bus) {
+            this(bus, net.marcloud.mcp.core.flt.seam.summarize.PacketSummarizerRegistry.defaults());
+        }
+
+        public PacketTapHandler(EventBus bus,
+                net.marcloud.mcp.core.flt.seam.summarize.PacketSummarizerRegistry summarizers) {
             this.bus = bus;
+            this.summarizers = summarizers;
         }
 
         @Override
@@ -200,13 +309,18 @@ public final class NettyTap {
          * down the pipeline. Byte buffers are copied into read-only snapshots;
          * decoded objects are represented only by immutable class metadata.
          */
-        private static Object frozen(Object msg) {
+        private Object frozen(Object msg) {
             if (msg instanceof ByteBuf b) {
                 byte[] bytes = new byte[b.readableBytes()];
                 b.getBytes(b.readerIndex(), bytes);
                 return Unpooled.unmodifiableBuffer(Unpooled.wrappedBuffer(bytes));
             }
-            return new MessageSnapshot(msg == null ? "null" : msg.getClass().getName());
+            String className = msg == null ? "null" : msg.getClass().getName();
+            // Summarize SYNCHRONOUSLY on the live decoded packet, before it
+            // continues down the pipeline. The registry never throws; only the
+            // resulting String escapes — the packet reference is not retained.
+            String summary = msg == null ? "" : summarizers.summarize(msg);
+            return new MessageSnapshot(className, summary);
         }
     }
 }

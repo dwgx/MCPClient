@@ -92,7 +92,35 @@ public final class Timeline {
      * already render cleanly. PHASE P's summarizers will enrich this per packet;
      * for now this keeps the entry compact and holds no live reference.
      */
+    /**
+     * If {@code event} is a Netty-tap packet event whose rawMsg is a
+     * {@link net.marcloud.mcp.core.flt.seam.NettyTap.PacketTapHandler.MessageSnapshot},
+     * render "SimpleName summary" from it; else null (fall through to toString).
+     */
+    private static String packetSummary(GameEvent event) {
+        Object raw = null;
+        if (event instanceof net.marcloud.mcp.core.flt.seam.events.SeamPacketInboundEvent in) {
+            raw = in.rawMsg();
+        } else if (event instanceof net.marcloud.mcp.core.flt.seam.events.SeamPacketOutboundEvent out) {
+            raw = out.rawMsg();
+        }
+        if (raw instanceof net.marcloud.mcp.core.flt.seam.NettyTap.PacketTapHandler.MessageSnapshot snap) {
+            String cn = snap.className();
+            int cut = cn == null ? -1 : Math.max(cn.lastIndexOf('.'), cn.lastIndexOf('$'));
+            String simple = cut >= 0 && cut + 1 < cn.length() ? cn.substring(cut + 1) : cn;
+            String sum = snap.summary();
+            return sum == null || sum.isEmpty() ? simple : simple + " " + sum;
+        }
+        return null;
+    }
+
     private static String summarize(GameEvent event) {
+        // PHASE P: for tap packet events, prefer the reference-free summary the tap
+        // computed synchronously on the live packet (class name + field digest).
+        String pkt = packetSummary(event);
+        if (pkt != null) {
+            return pkt;
+        }
         // Prefer nothing over a giant/looping toString; cap hard.
         String s;
         try {

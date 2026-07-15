@@ -57,7 +57,9 @@ public final class SeamController {
      * @return true if installed, false if unavailable or already installed
      */
     public boolean installNettyTap() {
-        return nettyTap.installHandler("mcp_packet_tap", new NettyTap.PacketTapHandler(bus));
+        // KI-9: install BEFORE the terminal packet handler so inbound packets are
+        // observed (the vanilla NetworkManager at the tail consumes them otherwise).
+        return nettyTap.installBuiltinTap("mcp_packet_tap", new NettyTap.PacketTapHandler(bus));
     }
 
     /**
