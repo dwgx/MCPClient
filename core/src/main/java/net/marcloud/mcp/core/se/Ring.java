@@ -95,6 +95,7 @@ public enum Ring {
             Map.entry("send_chat", R1),
             // R2 observe: live game/GL reads on the game thread
             Map.entry("scan_surroundings", R2),
+            Map.entry("world_view", R2),
             Map.entry("capture_screen", R2),
             Map.entry("read_player_state", R2),
             Map.entry("gui_snapshot", R2),

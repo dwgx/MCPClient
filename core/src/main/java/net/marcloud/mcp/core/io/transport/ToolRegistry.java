@@ -36,6 +36,9 @@ import net.minecraft.network.Packet;
 public final class ToolRegistry {
 
     private final ToolContext ctx;
+    /** PHASE W.7: last WorldView, for world_view mode=diff. */
+    private final java.util.concurrent.atomic.AtomicReference<net.marcloud.mcp.core.drivers.world.WorldView> lastWorldView =
+            new java.util.concurrent.atomic.AtomicReference<>();
 
     public ToolRegistry(ToolContext ctx) {
         this.ctx = ctx;
@@ -51,6 +54,7 @@ public final class ToolRegistry {
         tools.add(sendRawPacket());
         tools.add(disconnectReport());
         tools.add(scanSurroundings());
+        tools.add(worldView());
         tools.add(captureScreen());
         return tools;
     }
@@ -355,12 +359,13 @@ public final class ToolRegistry {
         Tool tool = Tool.builder()
                 .name("scan_surroundings")
                 .title("Scan surroundings")
-                .description("[requires: in-world] The primary observation: a symbolic snapshot of the player's "
-                        + "situation — position, health/hunger, biome/dimension/time, inventory, "
-                        + "the block column (below/legs/head), dedup'd nearby block types with "
-                        + "counts, and nearby entities sorted by distance. Cheap and precise; "
-                        + "use this as your main sense of the world (use capture_screen only when "
-                        + "you specifically need to SEE the scene).")
+                .description("[requires: in-world] A symbolic snapshot of the player's situation — "
+                        + "position, health/hunger, biome/dimension/time, inventory, the block "
+                        + "column (below/legs/head), dedup'd nearby block types with counts, and "
+                        + "nearby entities sorted by distance. Cheap and precise. NOTE: world_view "
+                        + "is the richer structured successor (columnar grid, per-slot inventory, "
+                        + "raytrace target, full|diff modes) — prefer it for detailed decisions; "
+                        + "this stays for a compact heartbeat. (capture_screen only when you must SEE.)")
                 .annotations(ToolAnnotations.builder()
                         .title("Scan surroundings")
                         .readOnlyHint(true)
@@ -388,6 +393,87 @@ public final class ToolRegistry {
                 return error("scan failed: " + e.getMessage());
             }
         });
+    }
+
+    private SyncToolSpecification worldView() {
+        Tool tool = Tool.builder()
+                .name("world_view")
+                .title("World view (structured observation)")
+                .description("[requires: in-world] The richer successor to scan_surroundings: a "
+                        + "structured, reference-free snapshot — self (pos/vel/look/hp/food/xp/armor/"
+                        + "air/effects/gamemode/flags), a columnar local block grid, nearby entities "
+                        + "(sorted, capped), per-slot inventory (registry names), the crosshair target "
+                        + "(raytrace), and env (dimension/biome/time). 'profile'=sparse|explore|combat "
+                        + "sets token budget; 'mode'=full|diff (diff = changes since your last "
+                        + "world_view); 'radius' overrides grid size; 'sections' picks a subset. Prefer "
+                        + "this over capture_screen for decisions — you can play without screenshots.")
+                .annotations(ToolAnnotations.builder()
+                        .title("World view (structured observation)")
+                        .readOnlyHint(true)
+                        .destructiveHint(false)
+                        .idempotentHint(false)
+                        .openWorldHint(false)
+                        .build())
+                .inputSchema(objectSchema(Map.of(
+                        "profile", Map.of("type", "string",
+                                "description", "sparse | explore | combat (default explore)"),
+                        "mode", Map.of("type", "string",
+                                "description", "full | diff (default full; diff = since last world_view)"),
+                        "radius", Map.of("type", "integer",
+                                "description", "grid half-size 1-16 (default from profile)"),
+                        "sections", Map.of("type", "array", "items", Map.of("type", "string"),
+                                "description", "subset of self,grid,entities,inventory,target,env")),
+                        List.of()))
+                .build();
+        return new SyncToolSpecification(tool, (exchange, request) -> {
+            Map<String, Object> args = request.arguments();
+            net.marcloud.mcp.core.drivers.world.ObserveProfile prof =
+                    net.marcloud.mcp.core.drivers.world.ObserveProfile.parse(
+                            args == null ? null : str(args.get("profile")));
+            boolean diff = args != null && "diff".equalsIgnoreCase(str(args.get("mode")));
+            int radius = prof.gridRadius;
+            if (args != null && args.get("radius") instanceof Number n) {
+                radius = Math.max(1, Math.min(16, n.intValue()));
+            }
+            final int r = radius;
+            List<String> sections = asStringList(args == null ? null : args.get("sections"));
+            try {
+                net.marcloud.mcp.core.drivers.world.WorldView v =
+                        net.marcloud.mcp.core.GameBridge.onGameThread(
+                                () -> net.marcloud.mcp.core.drivers.world.WorldViewCapture.capture(
+                                        ctx.game(), prof, r, sections));
+                String json;
+                if (diff) {
+                    json = net.marcloud.mcp.core.io.http.Json.write(
+                            net.marcloud.mcp.core.drivers.world.WorldViewDiff.diff(lastWorldView.get(), v));
+                } else {
+                    json = net.marcloud.mcp.core.io.http.Json.write(
+                            net.marcloud.mcp.core.drivers.world.WorldViewJson.toMap(v));
+                }
+                lastWorldView.set(v);
+                return ok(json);
+            } catch (Exception e) {
+                return error("world_view failed: " + e.getMessage());
+            }
+        });
+    }
+
+    private static String str(Object o) {
+        return o instanceof String s ? s : null;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<String> asStringList(Object v) {
+        if (v instanceof List<?> l) {
+            List<String> out = new ArrayList<>();
+            for (Object o : l) {
+                if (o != null) {
+                    out.add(String.valueOf(o));
+                }
+            }
+            return out;
+        }
+        return List.of();
     }
 
     private SyncToolSpecification captureScreen() {
