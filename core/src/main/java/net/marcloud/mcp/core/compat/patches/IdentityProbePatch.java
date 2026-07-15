@@ -18,8 +18,14 @@ import net.marcloud.mcp.core.compat.PatchManifest;
  */
 public final class IdentityProbePatch implements CompatPatch {
 
-    /** A deliberately synthetic target that no real class uses. */
-    public static final String TARGET = "net.marcloud.mcp.core.compat.__probe.Sentinel";
+    /**
+     * A deliberately synthetic target that no real class uses. It MUST live outside every
+     * {@link net.marcloud.mcp.core.se.SeProtectedObjects protected} prefix (se/ob/compat),
+     * or the engine would (correctly) refuse to arm a patch aimed at the guarded namespaces —
+     * the S6 self-lobotomy fix now protects the whole {@code net.marcloud.mcp.core.compat.*}
+     * trust core, so this probe target sits in a neutral synthetic namespace instead.
+     */
+    public static final String TARGET = "net.marcloud.mcp.probe.Sentinel";
 
     private final PatchManifest manifest;
 

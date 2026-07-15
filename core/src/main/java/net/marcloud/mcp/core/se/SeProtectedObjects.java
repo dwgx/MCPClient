@@ -25,8 +25,9 @@ import java.util.Set;
  * neutralize the guard.
  *
  * <p>Protection is by exact fully-qualified name plus a prefix rule for the whole
- * {@code net.marcloud.mcp.core.security} package, so kernel classes added later
- * (integrity/privilege/capability/handle types) are covered automatically.
+ * Security Reference Monitor ({@code se}), Object Manager ({@code ob}), and compat
+ * trust-core ({@code compat}) packages, so kernel classes added later
+ * (integrity/privilege/capability/handle/trust types) are covered automatically.
  * Redefining {@code net.minecraft.*} game classes — the legitimate use case —
  * is never affected.
  */
@@ -45,6 +46,19 @@ public final class SeProtectedObjects {
      * handles, so redefining it could defeat the object-handle gate.
      */
     private static final String OBJECT_PACKAGE = "net.marcloud.mcp.core.ob.";
+
+    /**
+     * Compat trust-core (compat) prefix — also whole-package protected. The compat
+     * layer is the entire signature/trust spine of the AppCompat shim engine
+     * (CompatEngine, TufTrust, RootTrust, KernelTrustAnchor, Ed25519PatchSigner,
+     * PatchChain, SnapshotVerifier, TrustAnchors, CompatDatabase, patches/*). Without
+     * this prefix, {@code redefine_class} / Byte Buddy could hot-swap
+     * {@code Ed25519PatchSigner.verify} to always-true and disarm signature checking
+     * from inside — a self-lobotomy of the patch-trust guard. Covering the whole
+     * package means trust classes added later are protected automatically, exactly
+     * like the Se and Ob layers.
+     */
+    private static final String COMPAT_PACKAGE = "net.marcloud.mcp.core.compat.";
 
     /**
      * Load-bearing classes outside the security package: the supervised-gate
@@ -93,6 +107,7 @@ public final class SeProtectedObjects {
         }
         String n = normalize(className);
         return n.startsWith(SECURITY_PACKAGE) || n.startsWith(OBJECT_PACKAGE)
+                || n.startsWith(COMPAT_PACKAGE)
                 || PROTECTED.contains(n);
     }
 

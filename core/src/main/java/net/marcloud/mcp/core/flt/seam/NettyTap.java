@@ -236,20 +236,66 @@ public final class NettyTap {
     }
 
     /**
-     * Check if a handler is installed in the pipeline.
+     * Check if a handler is installed on the <b>currently live</b> game channel (S2 fix).
+     *
+     * <p>The old implementation read {@link #trackedChannel}, which is only refreshed
+     * inside {@link #acquireChannel()} (called on install, not on a status check). After
+     * a server reconnect <i>without</i> a re-install, {@code trackedChannel} still points
+     * at the previous, now-closed channel whose pipeline may still carry the handler — so
+     * reading it would report {@code true} while the live channel has no tap at all. This
+     * re-acquires the live channel from the {@link net.minecraft.network.NetworkManager}
+     * and checks ITS pipeline: a stale, closed, or absent channel now honestly reports
+     * {@code false}. Fault-safe — never throws (a headless / not-connected JVM yields a
+     * null live channel ⇒ {@code false}).
+     *
+     * <p><b>Live-only note.</b> The reflection that reaches the live channel
+     * ({@link #liveChannel()} → private {@code NetworkManager.channel} field) only
+     * resolves against a running game; it cannot be exercised headlessly. The
+     * reconnect/stale-channel decision itself is covered by a focused unit test against
+     * the package-private {@link #isHandlerInstalled(Channel, String)} comparison core.
      *
      * @param name handler name
-     * @return true if present
+     * @return true if present on the live channel
      */
     public boolean isHandlerInstalled(String name) {
-        Channel ch = trackedChannel;
-        if (ch == null) {
+        return isHandlerInstalled(liveChannel(), name);
+    }
+
+    /**
+     * Comparison core (package-visible for headless teeth): a handler counts as installed
+     * only when it is present on the supplied <b>live</b> channel and that channel is still
+     * open. A stale/closed channel — even one whose pipeline still holds the handler after a
+     * reconnect — reports {@code false}. Never throws.
+     */
+    boolean isHandlerInstalled(Channel live, String name) {
+        if (live == null || !live.isOpen()) {
             return false;
         }
         try {
-            return ch.pipeline().get(name) != null;
+            return live.pipeline().get(name) != null;
         } catch (Exception e) {
             return false;
+        }
+    }
+
+    /**
+     * Fetch the current live game channel <i>without</i> mutating {@link #trackedChannel}
+     * (so a status check has no side effects, unlike {@link #acquireChannel()} which the
+     * install path uses to record the tracked channel). Returns null when the game is not
+     * running or not connected. Fault-safe — swallows every failure and returns null.
+     */
+    private Channel liveChannel() {
+        try {
+            NetworkManager nm = game.networkManager();
+            if (nm == null) {
+                return null;
+            }
+            Field f = NetworkManager.class.getDeclaredField("channel");
+            f.setAccessible(true);
+            return (Channel) f.get(nm);
+        } catch (Throwable t) {
+            // Not connected / headless / reflection unavailable — treat as no live channel.
+            return null;
         }
     }
 

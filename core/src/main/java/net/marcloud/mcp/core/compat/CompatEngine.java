@@ -107,14 +107,23 @@ public final class CompatEngine {
         // a superseding patch (a) points at a well-formed predecessor and (b) carries a strictly
         // higher version than the predecessor it replaces when that predecessor is present (rollback
         // protection). A superseded patch does not arm — the newer chain tip wins. A cyclic
-        // supersedes graph has no defined tip, so the whole cyclic group is refused.
+        // supersedes graph has no defined tip, so exactly the members of that cycle are refused
+        // (scoped per-chain — F5); independent chains are unaffected.
         // This is the IN-CODE chain (order among registered patches); the signed, delivered
         // chain-metadata (L2 root/targets, L3 snapshot/timestamp) sign OVER this structure later.
         List<CompatPatch> all = db.all();
-        String cycle = PatchChain.findCycle(all);
-        if (cycle != null) {
-            System.err.println("[MCP Compat] REFUSING cyclic supersedes graph — " + cycle
-                    + "; no patch in a cycle can arm (no defined chain tip).");
+        // S3 F5: scope the cycle poison to its OWN chain. A supersedes cycle has no defined
+        // tip, so patches whose patchId is a member of a cycle cannot arm and cannot suppress
+        // a predecessor — but patches on OTHER, independent chains must still arm and still
+        // supersede normally. The old code set a single global `cycle != null` flag that (a)
+        // emptied supersededIds and (b) skipped EVERY patch carrying a supersedes value, so one
+        // injected 2-cycle disabled all superseding patches engine-wide. cycleMembers holds
+        // only the patchIds actually looping; the acyclic remainder is unaffected.
+        java.util.Set<String> cycleMembers = PatchChain.findCycleMembers(all);
+        if (!cycleMembers.isEmpty()) {
+            System.err.println("[MCP Compat] REFUSING cyclic supersedes chain — patchIds "
+                    + cycleMembers + " form a cycle (no defined chain tip); scoped to that chain "
+                    + "only, other chains still arm.");
         }
         // Only a VALID, SIGNED, VERIFIED chain link may suppress its predecessor. Three
         // gates, all required:
@@ -135,7 +144,10 @@ public final class CompatEngine {
             if (s == null || s.isBlank()) {
                 continue;
             }
-            boolean inCycle = cycle != null;
+            // A patch that is itself a member of a cycle has no defined tip, so it may not
+            // suppress anything (scoped to its own chain — F5). A patch on an acyclic chain
+            // still supersedes its predecessor normally even if some UNRELATED chain loops.
+            boolean inCycle = cycleMembers.contains(m.patchId());
             if (inCycle || PatchChain.rejectionReason(m, all) != null) {
                 continue;
             }
@@ -173,8 +185,11 @@ public final class CompatEngine {
                 skipped++;
                 continue;
             }
-            // TUF L1: a patch in a supersedes cycle has no defined chain tip -> refuse it.
-            if (cycle != null && m.supersedes() != null && !m.supersedes().isBlank()) {
+            // TUF L1 (F5): a patch that is a MEMBER of a supersedes cycle has no defined chain
+            // tip -> refuse just that patch. Patches on other, acyclic chains are untouched.
+            if (cycleMembers.contains(m.patchId())) {
+                System.err.println("[MCP Compat] REJECT patch " + m.code() + " (patchId "
+                        + m.patchId() + "): member of a supersedes cycle — no defined chain tip.");
                 skipped++;
                 continue;
             }

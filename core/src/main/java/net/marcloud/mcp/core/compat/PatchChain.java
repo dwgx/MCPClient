@@ -122,6 +122,13 @@ public final class PatchChain {
         try {
             return Integer.parseInt(parts[i].trim());
         } catch (NumberFormatException e) {
+            // F6 (S3, cosmetic): a non-numeric or int-overflowing segment maps to 0.
+            // This is one-directional and CANNOT help an attacker: a segment forced to 0
+            // can only make this version compare LOWER (or equal), never higher — so a
+            // malformed/overflowing version can never fake a "strictly greater" successor
+            // to satisfy the 不可回退 rollback check in rejectionReason(). Worst case it
+            // makes an otherwise-valid patch fail its version-order check (fail-closed).
+            // No behavior change needed; the mapping is safe by construction.
             return 0;
         }
     }
@@ -159,5 +166,62 @@ public final class PatchChain {
             }
         }
         return null;
+    }
+
+    /**
+     * Compute the EXACT SET of patchIds that are members of a supersedes cycle (S3 F5). Unlike
+     * {@link #findCycle} (which returns a description of the first cycle for logging), this
+     * scopes the poison to the offending patchIds only, so a single injected 2-cycle on one
+     * target chain does not disable superseding patches on every OTHER independent chain — only
+     * the patches actually looping (which have no defined chain tip) are refused.
+     *
+     * <p>The supersedes graph is functional (each patchId has at most one outgoing edge — its
+     * {@code supersedes} pointer), so a patchId is a cycle member iff following its chain returns
+     * to it. Returns an empty set when the graph is acyclic. Never throws.
+     */
+    public static java.util.Set<String> findCycleMembers(List<CompatPatch> registered) {
+        java.util.Set<String> members = new java.util.HashSet<>();
+        if (registered == null) {
+            return members;
+        }
+        Map<String, String> supersedesOf = new HashMap<>(); // patchId -> its supersedes
+        for (CompatPatch cp : registered) {
+            if (cp == null || cp.manifest() == null) {
+                continue;
+            }
+            PatchManifest m = cp.manifest();
+            if (m.patchId() != null && m.supersedes() != null && !m.supersedes().isBlank()) {
+                supersedesOf.put(m.patchId(), m.supersedes());
+            }
+        }
+        java.util.Set<String> settled = new java.util.HashSet<>(); // patchIds whose fate is decided
+        for (String start : supersedesOf.keySet()) {
+            if (settled.contains(start)) {
+                continue;
+            }
+            // Walk the chain from start, recording each node's position in THIS walk.
+            Map<String, Integer> path = new java.util.LinkedHashMap<>();
+            String cur = start;
+            int idx = 0;
+            while (cur != null && !settled.contains(cur)) {
+                Integer seenAt = path.get(cur);
+                if (seenAt != null) {
+                    // Re-entered a node in the current path -> every node from that point
+                    // onward (inclusive) is on the cycle.
+                    for (Map.Entry<String, Integer> e : path.entrySet()) {
+                        if (e.getValue() >= seenAt) {
+                            members.add(e.getKey());
+                        }
+                    }
+                    break;
+                }
+                path.put(cur, idx++);
+                cur = supersedesOf.get(cur);
+            }
+            // Nodes we just walked either sit on a cycle (added above) or lead OUT of the graph /
+            // into an already-settled structure — either way their membership is now decided.
+            settled.addAll(path.keySet());
+        }
+        return members;
     }
 }
