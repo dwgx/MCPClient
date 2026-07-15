@@ -93,6 +93,11 @@ public enum Ring {
             // R1 system: outward game/network effects
             Map.entry("send_raw_packet", R1),
             Map.entry("send_chat", R1),
+            // typed send_* tools (W6): outward network effects, same ring as send_raw_packet
+            Map.entry("send_client_status", R1),
+            Map.entry("send_held_item", R1),
+            Map.entry("send_close_window", R1),
+            Map.entry("send_dig", R1),
             // R2 observe: live game/GL reads on the game thread
             Map.entry("scan_surroundings", R2),
             Map.entry("world_view", R2),

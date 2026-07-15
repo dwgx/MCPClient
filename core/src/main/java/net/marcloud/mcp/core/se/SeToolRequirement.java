@@ -76,6 +76,11 @@ public record SeToolRequirement(Ring requiredRing,
             java.util.Map.entry("eval_java", IntegrityLevel.SYSTEM),      // arbitrary in-proc code
             java.util.Map.entry("send_raw_packet", IntegrityLevel.HIGH),  // network connection
             java.util.Map.entry("send_chat", IntegrityLevel.HIGH),
+            // typed send_* tools (W6): outward packet sends, same integrity as send_raw_packet
+            java.util.Map.entry("send_client_status", IntegrityLevel.HIGH),
+            java.util.Map.entry("send_held_item", IntegrityLevel.HIGH),
+            java.util.Map.entry("send_close_window", IntegrityLevel.HIGH),
+            java.util.Map.entry("send_dig", IntegrityLevel.HIGH),
             // GUI interaction drives real handlers (windowClick → server, button actions)
             java.util.Map.entry("gui_click_element", IntegrityLevel.HIGH),
             java.util.Map.entry("gui_type_text", IntegrityLevel.HIGH),

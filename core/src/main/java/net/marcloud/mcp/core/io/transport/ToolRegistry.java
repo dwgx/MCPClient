@@ -56,6 +56,12 @@ public final class ToolRegistry {
         tools.add(scanSurroundings());
         tools.add(worldView());
         tools.add(captureScreen());
+        // Typed send_* tools (packet-exposure W6): build a specific C-packet and
+        // dispatch it via the same veto-guarded ActionManager.sendRawPacket path.
+        tools.add(sendClientStatus());
+        tools.add(sendHeldItem());
+        tools.add(sendCloseWindow());
+        tools.add(sendDig());
         return tools;
     }
 
@@ -94,6 +100,29 @@ public final class ToolRegistry {
     private static String argString(Map<String, Object> args, String key) {
         Object v = (args == null) ? null : args.get(key);
         return v == null ? null : v.toString();
+    }
+
+    private static Integer argInt(Map<String, Object> args, String key) {
+        Object v = (args == null) ? null : args.get(key);
+        return v instanceof Number n ? n.intValue() : null;
+    }
+
+    /**
+     * Dispatch a pre-built typed C-packet through the veto-guarded send path shared
+     * with send_raw_packet (W5 PacketSendSignal). Central so every send_* tool
+     * reports veto / not-connected / success identically.
+     */
+    private CallToolResult sendTyped(Packet<?> packet, String label) {
+        try {
+            boolean sent = ctx.actions().sendRawPacket(packet);
+            return sent ? ok("sent " + label) : error("not connected — no open channel to send on");
+        } catch (Exception e) {
+            Throwable cause = e instanceof java.util.concurrent.ExecutionException ? e.getCause() : e;
+            if (cause instanceof net.marcloud.mcp.core.drivers.action.ActionManager.PacketVetoedException) {
+                return error("vetoed: " + cause.getMessage());
+            }
+            return error(label + " failed: " + e);
+        }
     }
 
     // ---- tools -------------------------------------------------------------
@@ -534,6 +563,139 @@ public final class ToolRegistry {
             } catch (Exception e) {
                 return error("capture_screen failed: " + e.getMessage());
             }
+        });
+    }
+
+    // ---- typed send_* tools (W6) -------------------------------------------
+
+    private SyncToolSpecification sendClientStatus() {
+        Tool tool = Tool.builder()
+                .name("send_client_status")
+                .title("Send client status")
+                .description("[requires: connected-to-server] Send a C16 client-status packet. "
+                        + "status: PERFORM_RESPAWN (respawn after death / leave the end), "
+                        + "REQUEST_STATS, or OPEN_INVENTORY_ACHIEVEMENT. Respawn is the main use.")
+                .annotations(ToolAnnotations.builder().title("Send client status")
+                        .readOnlyHint(false).destructiveHint(true)
+                        .idempotentHint(false).openWorldHint(true).build())
+                .inputSchema(objectSchema(Map.of(
+                        "status", stringProp("PERFORM_RESPAWN | REQUEST_STATS | OPEN_INVENTORY_ACHIEVEMENT")),
+                        List.of("status")))
+                .build();
+        return new SyncToolSpecification(tool, (exchange, request) -> {
+            String status = argString(request.arguments(), "status");
+            if (status == null) {
+                return error("status is required");
+            }
+            net.minecraft.network.play.client.C16PacketClientStatus.EnumState state;
+            try {
+                state = net.minecraft.network.play.client.C16PacketClientStatus.EnumState
+                        .valueOf(status.trim().toUpperCase(java.util.Locale.ROOT));
+            } catch (IllegalArgumentException e) {
+                return error("unknown status '" + status + "' (PERFORM_RESPAWN|REQUEST_STATS|OPEN_INVENTORY_ACHIEVEMENT)");
+            }
+            return sendTyped(new net.minecraft.network.play.client.C16PacketClientStatus(state),
+                    "client_status " + state.name());
+        });
+    }
+
+    private SyncToolSpecification sendHeldItem() {
+        Tool tool = Tool.builder()
+                .name("send_held_item")
+                .title("Change held hotbar slot")
+                .description("[requires: connected-to-server] Send a C09 held-item-change: select "
+                        + "hotbar slot 0-8 as the active held item.")
+                .annotations(ToolAnnotations.builder().title("Change held hotbar slot")
+                        .readOnlyHint(false).destructiveHint(true)
+                        .idempotentHint(true).openWorldHint(true).build())
+                .inputSchema(objectSchema(Map.of(
+                        "slot", Map.of("type", "integer", "description", "hotbar slot 0-8")),
+                        List.of("slot")))
+                .build();
+        return new SyncToolSpecification(tool, (exchange, request) -> {
+            Integer slot = argInt(request.arguments(), "slot");
+            if (slot == null) {
+                return error("slot (integer 0-8) is required");
+            }
+            if (slot < 0 || slot > 8) {
+                return error("slot must be 0-8, got " + slot);
+            }
+            return sendTyped(new net.minecraft.network.play.client.C09PacketHeldItemChange(slot),
+                    "held_item slot=" + slot);
+        });
+    }
+
+    private SyncToolSpecification sendCloseWindow() {
+        Tool tool = Tool.builder()
+                .name("send_close_window")
+                .title("Close a container window")
+                .description("[requires: connected-to-server] Send a C0D close-window packet for the "
+                        + "given windowId (0 = the player's own inventory).")
+                .annotations(ToolAnnotations.builder().title("Close a container window")
+                        .readOnlyHint(false).destructiveHint(true)
+                        .idempotentHint(true).openWorldHint(true).build())
+                .inputSchema(objectSchema(Map.of(
+                        "windowId", Map.of("type", "integer", "description", "window id (0 = own inventory)")),
+                        List.of("windowId")))
+                .build();
+        return new SyncToolSpecification(tool, (exchange, request) -> {
+            Integer windowId = argInt(request.arguments(), "windowId");
+            if (windowId == null) {
+                return error("windowId (integer) is required");
+            }
+            return sendTyped(new net.minecraft.network.play.client.C0DPacketCloseWindow(windowId),
+                    "close_window win=" + windowId);
+        });
+    }
+
+    private SyncToolSpecification sendDig() {
+        Tool tool = Tool.builder()
+                .name("send_dig")
+                .title("Send player digging")
+                .description("[requires: connected-to-server, in-world] Send a C07 player-digging packet. "
+                        + "status: START_DESTROY_BLOCK / STOP_DESTROY_BLOCK / ABORT_DESTROY_BLOCK (mining a "
+                        + "block at pos+face), or DROP_ITEM / DROP_ALL_ITEMS / RELEASE_USE_ITEM (pos/face "
+                        + "ignored). pos is x,y,z; face is UP/DOWN/NORTH/SOUTH/EAST/WEST.")
+                .annotations(ToolAnnotations.builder().title("Send player digging")
+                        .readOnlyHint(false).destructiveHint(true)
+                        .idempotentHint(false).openWorldHint(true).build())
+                .inputSchema(objectSchema(Map.of(
+                        "status", stringProp("START_DESTROY_BLOCK|STOP_DESTROY_BLOCK|ABORT_DESTROY_BLOCK|"
+                                + "DROP_ITEM|DROP_ALL_ITEMS|RELEASE_USE_ITEM"),
+                        "x", Map.of("type", "integer", "description", "block x (default 0 for item actions)"),
+                        "y", Map.of("type", "integer", "description", "block y"),
+                        "z", Map.of("type", "integer", "description", "block z"),
+                        "face", stringProp("UP|DOWN|NORTH|SOUTH|EAST|WEST (default UP)")),
+                        List.of("status")))
+                .build();
+        return new SyncToolSpecification(tool, (exchange, request) -> {
+            Map<String, Object> args = request.arguments();
+            String status = argString(args, "status");
+            if (status == null) {
+                return error("status is required");
+            }
+            net.minecraft.network.play.client.C07PacketPlayerDigging.Action action;
+            try {
+                action = net.minecraft.network.play.client.C07PacketPlayerDigging.Action
+                        .valueOf(status.trim().toUpperCase(java.util.Locale.ROOT));
+            } catch (IllegalArgumentException e) {
+                return error("unknown status '" + status + "'");
+            }
+            int x = argInt(args, "x") == null ? 0 : argInt(args, "x");
+            int y = argInt(args, "y") == null ? 0 : argInt(args, "y");
+            int z = argInt(args, "z") == null ? 0 : argInt(args, "z");
+            net.minecraft.util.EnumFacing face = net.minecraft.util.EnumFacing.UP;
+            String faceArg = argString(args, "face");
+            if (faceArg != null) {
+                try {
+                    face = net.minecraft.util.EnumFacing.valueOf(faceArg.trim().toUpperCase(java.util.Locale.ROOT));
+                } catch (IllegalArgumentException e) {
+                    return error("unknown face '" + faceArg + "'");
+                }
+            }
+            return sendTyped(new net.minecraft.network.play.client.C07PacketPlayerDigging(
+                    action, new net.minecraft.util.BlockPos(x, y, z), face),
+                    "dig " + action.name());
         });
     }
 }
