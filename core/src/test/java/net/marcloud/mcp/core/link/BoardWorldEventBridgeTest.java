@@ -112,6 +112,62 @@ public class BoardWorldEventBridgeTest {
         assertTrue("unparseable position => no signal", published.isEmpty());
     }
 
+    // ---- Tier-2 mapping: health / death / player join ----------------------
+
+    @Test
+    public void healthInboundMapsToOneHealthChangeSignal() {
+        bus.publish(new SeamPacketInboundEvent(snap(
+                "net.minecraft.network.play.server.S06PacketUpdateHealth",
+                "health hp=17.50 food=20 sat=4.25")));
+        assertEquals(1, published.size());
+        assertEquals("HealthChangeSignal", published.get(0));
+    }
+
+    @Test
+    public void healthWithUnparseableValueEmitsNothing() {
+        bus.publish(new SeamPacketInboundEvent(snap(
+                "net.minecraft.network.play.server.S06PacketUpdateHealth",
+                "health hp=? food=0 sat=0")));
+        assertTrue("unparseable hp => no signal", published.isEmpty());
+    }
+
+    @Test
+    public void combatDeathMapsToOneDeathSignal() {
+        bus.publish(new SeamPacketInboundEvent(snap(
+                "net.minecraft.network.play.server.S42PacketCombatEvent",
+                "combat event=ENTITY_DIED death=\"Steve was slain by Zombie\"")));
+        assertEquals(1, published.size());
+        assertEquals("DeathSignal", published.get(0));
+    }
+
+    @Test
+    public void combatNonDeathEmitsNothing() {
+        bus.publish(new SeamPacketInboundEvent(snap(
+                "net.minecraft.network.play.server.S42PacketCombatEvent",
+                "combat event=END_COMBAT")));
+        assertTrue("a non-death combat event => no signal", published.isEmpty());
+    }
+
+    @Test
+    public void playerListAddMapsToOneJoinPerName() {
+        bus.publish(new SeamPacketInboundEvent(snap(
+                "net.minecraft.network.play.server.S38PacketPlayerListItem",
+                "playerList action=ADD_PLAYER count=2 names=Steve,Alex")));
+        assertEquals(2, published.size());
+        assertEquals("PlayerJoinSignal", published.get(0));
+        assertEquals("PlayerJoinSignal", published.get(1));
+    }
+
+    @Test
+    public void playerListRemoveEmitsNothing() {
+        // REMOVE carries no name on the wire, so the summary has no names= field.
+        bus.publish(new SeamPacketInboundEvent(snap(
+                "net.minecraft.network.play.server.S38PacketPlayerListItem",
+                "playerList action=REMOVE_PLAYER count=1")));
+        assertTrue("player leave is not wired (no name on wire) => no signal",
+                published.isEmpty());
+    }
+
     // ---- bounded whitelist: teeth ------------------------------------------
 
     @Test
@@ -175,6 +231,36 @@ public class BoardWorldEventBridgeTest {
         assertEquals(2, ((Integer) c.getMethod("y").invoke(s)).intValue());
         assertEquals(3, ((Integer) c.getMethod("z").invoke(s)).intValue());
         assertEquals("minecraft:dirt", c.getMethod("state").invoke(s));
+    }
+
+    @Test
+    public void healthChangeSignalCarriesParsedValue() throws Exception {
+        bus.publish(new SeamPacketInboundEvent(snap(
+                "net.minecraft.network.play.server.S06PacketUpdateHealth",
+                "health hp=6.00 food=3 sat=0.00")));
+        Signal s = signals.get(0);
+        float hp = (Float) s.getClass().getMethod("health").invoke(s);
+        assertEquals(6.0f, hp, 0.0001f);
+    }
+
+    @Test
+    public void deathSignalCarriesParsedMessage() throws Exception {
+        bus.publish(new SeamPacketInboundEvent(snap(
+                "net.minecraft.network.play.server.S42PacketCombatEvent",
+                "combat event=ENTITY_DIED death=\"fell from a high place\"")));
+        Signal s = signals.get(0);
+        String msg = (String) s.getClass().getMethod("message").invoke(s);
+        assertEquals("fell from a high place", msg);
+    }
+
+    @Test
+    public void playerJoinSignalsCarryParsedNames() throws Exception {
+        bus.publish(new SeamPacketInboundEvent(snap(
+                "net.minecraft.network.play.server.S38PacketPlayerListItem",
+                "playerList action=ADD_PLAYER count=2 names=Steve,Alex")));
+        assertEquals(2, signals.size());
+        assertEquals("Steve", signals.get(0).getClass().getMethod("name").invoke(signals.get(0)));
+        assertEquals("Alex", signals.get(1).getClass().getMethod("name").invoke(signals.get(1)));
     }
 
     @Test

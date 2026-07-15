@@ -31,12 +31,19 @@ import net.marcloud.mcp.core.flt.seam.NettyTap.PacketTapHandler.MessageSnapshot;
  *   <li>inbound {@code S23PacketBlockChange} → {@code BlockChangeSignal(x,y,z,state)}
  *       — Tier-2, coords + state parsed from the block-change summarizer's
  *       {@code at=x,y,z state=...} form.</li>
+ *   <li>inbound {@code S06PacketUpdateHealth} → {@code HealthChangeSignal(hp)}
+ *       — Tier-2, hp parsed from the health summarizer's {@code hp=<f>} field.</li>
+ *   <li>inbound {@code S42PacketCombatEvent} (ENTITY_DIED only) → {@code DeathSignal(msg)}
+ *       — Tier-2, death message parsed from the combat summarizer's
+ *       {@code death="..."} field; the non-death combat events emit nothing.</li>
+ *   <li>inbound {@code S38PacketPlayerListItem} (ADD_PLAYER only) → one
+ *       {@code PlayerJoinSignal} per named entry, parsed from the player-list
+ *       summarizer's {@code names=a,b,c} field (one packet can add several).</li>
  * </ul>
- * The remaining Tier-2 signals (health/death/join/leave) are intentionally NOT
- * wired here: no PHASE-P summarizer emits their fields, so honestly populating
- * them is impossible from the summary alone. Their board value types ship as typed
- * contracts with the exact summarizer work documented on each. Do NOT emit them
- * with a fake field.
+ * {@code PlayerLeaveSignal} is intentionally NOT wired: on the wire a
+ * {@code REMOVE_PLAYER} entry carries only a UUID, never a name (the client decodes
+ * {@code GameProfile(uuid, null)}), so the summary honestly has no name to map. The
+ * signal ships as a typed contract only. Do NOT emit it with a fabricated name.
  *
  * <p>Fault-isolated: the {@link EventBus} already guards each subscriber, and
  * {@link BoardTraceLink} never throws onto the caller, so a board-side fault can
@@ -47,6 +54,12 @@ public final class BoardWorldEventBridge {
     private static final String S02_CHAT = "net.minecraft.network.play.server.S02PacketChat";
     private static final String S23_BLOCK_CHANGE =
             "net.minecraft.network.play.server.S23PacketBlockChange";
+    private static final String S06_HEALTH =
+            "net.minecraft.network.play.server.S06PacketUpdateHealth";
+    private static final String S42_COMBAT =
+            "net.minecraft.network.play.server.S42PacketCombatEvent";
+    private static final String S38_PLAYER_LIST =
+            "net.minecraft.network.play.server.S38PacketPlayerListItem";
 
     private static final String CHAT_RECEIVE_SIGNAL =
             "net.marcloud.mcp.board.signals.ChatReceiveSignal";
@@ -54,6 +67,12 @@ public final class BoardWorldEventBridge {
             "net.marcloud.mcp.board.signals.DisconnectSignal";
     private static final String BLOCK_CHANGE_SIGNAL =
             "net.marcloud.mcp.board.signals.BlockChangeSignal";
+    private static final String HEALTH_CHANGE_SIGNAL =
+            "net.marcloud.mcp.board.signals.HealthChangeSignal";
+    private static final String DEATH_SIGNAL =
+            "net.marcloud.mcp.board.signals.DeathSignal";
+    private static final String PLAYER_JOIN_SIGNAL =
+            "net.marcloud.mcp.board.signals.PlayerJoinSignal";
 
     private final EventBus bus;
     private final BoardTraceLink link;
@@ -116,6 +135,18 @@ public final class BoardWorldEventBridge {
         }
         if (cn.endsWith("S23PacketBlockChange") || S23_BLOCK_CHANGE.equals(cn)) {
             emitBlockChange(snap.summary());
+            return;
+        }
+        if (cn.endsWith("S06PacketUpdateHealth") || S06_HEALTH.equals(cn)) {
+            emitHealth(snap.summary());
+            return;
+        }
+        if (cn.endsWith("S42PacketCombatEvent") || S42_COMBAT.equals(cn)) {
+            emitDeath(snap.summary());
+            return;
+        }
+        if (cn.endsWith("S38PacketPlayerListItem") || S38_PLAYER_LIST.equals(cn)) {
+            emitPlayerJoins(snap.summary());
         }
         // Any other inbound packet type: not whitelisted, no signal.
     }
@@ -151,6 +182,79 @@ public final class BoardWorldEventBridge {
         link.publish(BLOCK_CHANGE_SIGNAL,
                 new Class<?>[] { int.class, int.class, int.class, String.class },
                 x, y, z, state == null ? "" : state);
+    }
+
+    /**
+     * Parse the S06 summary {@code "health hp=<f> food=<i> sat=<f>"} into a
+     * {@code HealthChangeSignal(float)}. Emits nothing if {@code hp=} is absent or
+     * not a float (honest: no invented health value).
+     */
+    private void emitHealth(String summary) {
+        if (summary == null) {
+            return;
+        }
+        String hp = parseToken(summary, "hp=");
+        if (hp == null) {
+            return;
+        }
+        float health;
+        try {
+            health = Float.parseFloat(hp.trim());
+        } catch (NumberFormatException e) {
+            return; // non-numeric — decline honestly
+        }
+        link.publish(HEALTH_CHANGE_SIGNAL,
+                new Class<?>[] { float.class },
+                health);
+    }
+
+    /**
+     * Parse the S42 summary and, only for {@code event=ENTITY_DIED}, emit a
+     * {@code DeathSignal(message)} carrying the quoted {@code death="..."} text.
+     * The non-death combat events (ENTER_COMBAT / END_COMBAT) carry no message and
+     * emit nothing.
+     */
+    private void emitDeath(String summary) {
+        if (summary == null) {
+            return;
+        }
+        String event = parseToken(summary, "event=");
+        if (!"ENTITY_DIED".equals(event)) {
+            return; // only a death is a DeathSignal
+        }
+        String msg = parseQuoted(summary, "death=");
+        link.publish(DEATH_SIGNAL,
+                new Class<?>[] { String.class },
+                msg == null ? "" : msg);
+    }
+
+    /**
+     * Parse the S38 summary and, only for {@code action=ADD_PLAYER}, emit one
+     * {@code PlayerJoinSignal} per name in the {@code names=a,b,c} field (a single
+     * packet can add several players). Emits nothing for other actions or when no
+     * names are present (e.g. {@code names=-}).
+     */
+    private void emitPlayerJoins(String summary) {
+        if (summary == null) {
+            return;
+        }
+        String action = parseToken(summary, "action=");
+        if (!"ADD_PLAYER".equals(action)) {
+            return; // only an add is a join; REMOVE carries no name on the wire
+        }
+        String names = parseToken(summary, "names=");
+        if (names == null || names.isEmpty() || "-".equals(names)) {
+            return; // no honestly-available names
+        }
+        for (String name : names.split(",")) {
+            String trimmed = name.trim();
+            if (trimmed.isEmpty()) {
+                continue;
+            }
+            link.publish(PLAYER_JOIN_SIGNAL,
+                    new Class<?>[] { String.class },
+                    trimmed);
+        }
     }
 
     // ---- tiny summary parsers (format defined by HighValueSummarizers) ------

@@ -4,10 +4,13 @@ import net.minecraft.network.play.client.C03PacketPlayer;
 import net.minecraft.network.play.server.S00PacketKeepAlive;
 import net.minecraft.network.play.server.S02PacketChat;
 import net.minecraft.network.play.server.S03PacketTimeUpdate;
+import net.minecraft.network.play.server.S06PacketUpdateHealth;
 import net.minecraft.network.play.server.S08PacketPlayerPosLook;
 import net.minecraft.network.play.server.S12PacketEntityVelocity;
 import net.minecraft.network.play.server.S23PacketBlockChange;
 import net.minecraft.network.play.server.S26PacketMapChunkBulk;
+import net.minecraft.network.play.server.S38PacketPlayerListItem;
+import net.minecraft.network.play.server.S42PacketCombatEvent;
 import net.minecraft.util.BlockPos;
 
 /**
@@ -15,6 +18,9 @@ import net.minecraft.util.BlockPos;
  * what an LLM most needs to perceive the game: authoritative position (S08),
  * time-of-day (S03), liveness (S00), world edits (S23), chat (S02), world load
  * (S26), entity motion (S12), and the client's own movement (C03 + subclasses).
+ *
+ * <p>PHASE E.2 adds three more the board bridge needs to surface world signals
+ * honestly: health (S06), combat/death (S42), and the player tab-list (S38).
  *
  * <p>Each reads only public getters off the live packet and returns a compact
  * String; nothing retains the packet. Placeholder-free formatting keeps summaries
@@ -61,6 +67,9 @@ public final class HighValueSummarizers {
         r.register(new Chat(), "net.minecraft.network.play.server.S02PacketChat");
         r.register(new ChunkBulk(), "net.minecraft.network.play.server.S26PacketMapChunkBulk");
         r.register(new Velocity(), "net.minecraft.network.play.server.S12PacketEntityVelocity");
+        r.register(new Health(), "net.minecraft.network.play.server.S06PacketUpdateHealth");
+        r.register(new Combat(), "net.minecraft.network.play.server.S42PacketCombatEvent");
+        r.register(new PlayerList(), "net.minecraft.network.play.server.S38PacketPlayerListItem");
         // C03 + its nested C04/C05/C06 movement packets share one summarizer.
         r.registerFallback(new Move());
     }
@@ -162,6 +171,76 @@ public final class HighValueSummarizers {
                     + " v=" + f3(s.getMotionX() / 8000.0)
                     + "," + f3(s.getMotionY() / 8000.0)
                     + "," + f3(s.getMotionZ() / 8000.0);
+        }
+    }
+
+    static final class Health implements PacketSummarizer {
+        @Override public boolean handles(String cn) {
+            return "net.minecraft.network.play.server.S06PacketUpdateHealth".equals(cn);
+        }
+        @Override public String summarize(Object p) {
+            S06PacketUpdateHealth s = (S06PacketUpdateHealth) p;
+            return "health hp=" + f2(s.getHealth()) + " food=" + s.getFoodLevel()
+                    + " sat=" + f2(s.getSaturationLevel());
+        }
+    }
+
+    /**
+     * S42PacketCombatEvent. Only ENTITY_DIED carries a death message; the other
+     * events (ENTER_COMBAT / END_COMBAT) have none, so we emit only the event id
+     * for those and never a fake message. The death message is a public field
+     * ({@code deathMessage}) already unformatted by the server ctor.
+     */
+    static final class Combat implements PacketSummarizer {
+        @Override public boolean handles(String cn) {
+            return "net.minecraft.network.play.server.S42PacketCombatEvent".equals(cn);
+        }
+        @Override public String summarize(Object p) {
+            S42PacketCombatEvent s = (S42PacketCombatEvent) p;
+            String event = s.eventType == null ? "?" : s.eventType.name();
+            if (s.eventType == S42PacketCombatEvent.Event.ENTITY_DIED) {
+                String msg = s.deathMessage == null ? "" : s.deathMessage;
+                if (msg.length() > 120) {
+                    msg = msg.substring(0, 120) + "…";
+                }
+                return "combat event=" + event + " death=\"" + msg + "\"";
+            }
+            return "combat event=" + event;
+        }
+    }
+
+    /**
+     * S38PacketPlayerListItem. Emits the action plus, for {@code ADD_PLAYER}, the
+     * comma-joined player names read from each entry's {@link com.mojang.authlib.GameProfile#getName()}.
+     * For {@code REMOVE_PLAYER} the name is genuinely NOT on the wire (the client
+     * decodes a {@code GameProfile(uuid, null)} — see {@code readPacketData}), so we
+     * emit only the entry count and no names — no fabricated identity.
+     */
+    static final class PlayerList implements PacketSummarizer {
+        @Override public boolean handles(String cn) {
+            return "net.minecraft.network.play.server.S38PacketPlayerListItem".equals(cn);
+        }
+        @Override public String summarize(Object p) {
+            S38PacketPlayerListItem s = (S38PacketPlayerListItem) p;
+            String action = s.getAction() == null ? "?" : s.getAction().name();
+            java.util.List<S38PacketPlayerListItem.AddPlayerData> entries = s.getEntries();
+            int count = entries == null ? 0 : entries.size();
+            if (s.getAction() == S38PacketPlayerListItem.Action.ADD_PLAYER && entries != null) {
+                StringBuilder names = new StringBuilder();
+                for (S38PacketPlayerListItem.AddPlayerData e : entries) {
+                    String name = e.getProfile() == null ? null : e.getProfile().getName();
+                    if (name == null || name.isEmpty()) {
+                        continue;
+                    }
+                    if (names.length() > 0) {
+                        names.append(',');
+                    }
+                    names.append(name);
+                }
+                return "playerList action=" + action + " count=" + count
+                        + " names=" + (names.length() == 0 ? "-" : names);
+            }
+            return "playerList action=" + action + " count=" + count;
         }
     }
 
