@@ -313,7 +313,7 @@ public final class NettyTap {
          * synchronously by the summarizer registry (PHASE P.3/P.4). The live packet
          * is never retained — only these two Strings escape the callback.
          */
-        public record MessageSnapshot(String className, String summary) {
+        public record MessageSnapshot(String className, String summary, Map<String, Object> fields) {
         }
 
         private final EventBus bus;
@@ -366,7 +366,11 @@ public final class NettyTap {
             // continues down the pipeline. The registry never throws; only the
             // resulting String escapes — the packet reference is not retained.
             String summary = msg == null ? "" : summarizers.summarize(msg);
-            return new MessageSnapshot(className, summary);
+            // Structured projection computed once here (single source of truth); only
+            // A-tier summarizers return non-null. The map is an unmodifiable copy of
+            // immutable scalars (PacketView), so it is reference-free like summary.
+            Map<String, Object> fields = msg == null ? null : summarizers.projectStructured(msg);
+            return new MessageSnapshot(className, summary, fields);
         }
     }
 }

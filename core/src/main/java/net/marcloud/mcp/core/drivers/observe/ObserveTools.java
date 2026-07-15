@@ -62,6 +62,7 @@ public final class ObserveTools {
         if (journal != null) {
             specs.add(packetsTail());
             specs.add(packetGet());
+            specs.add(packetView());
         }
         for (SyncToolSpecification spec : specs) {
             Tool t = spec.tool();
@@ -163,6 +164,18 @@ public final class ObserveTools {
             m.put("byteLen", e.byteLen());
         }
         m.put("summary", e.summary());
+        return m;
+    }
+
+    /** Structured row for packet_view: the typed field map instead of a summary String. */
+    private static Map<String, Object> fieldsRow(PacketJournal.Entry e) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("seq", e.seq());
+        m.put("tickId", e.tickId());
+        m.put("dir", e.dir().name());
+        m.put("class", e.packetClass());
+        m.put("simpleName", e.simpleName());
+        m.put("fields", e.fields());
         return m;
     }
 
@@ -298,6 +311,84 @@ public final class ObserveTools {
             }
             return CallToolResult.builder()
                     .addTextContent(Json.write(row(found.get()))).isError(false).build();
+        });
+    }
+
+    private SyncToolSpecification packetView() {
+        Tool tool = Tool.builder()
+                .name("packet_view")
+                .title("Structured packet view")
+                .description("[requires: netty-tap] Read-only: recent packets that carry a STRUCTURED, "
+                        + "typed projection (the high-value A-tier packets — position, health, world "
+                        + "edits, inventory, entity spawns, etc.), oldest first. Each: {seq, tickId, "
+                        + "dir(IN/OUT), class, simpleName, fields:{...typed key/values...}}. Unlike "
+                        + "packets_tail (a String summary per packet), this hands you parsed fields you "
+                        + "can read directly — no string parsing. Filter with 'dir' (IN|OUT), 'class' "
+                        + "(class-name substring), 'sinceSeq' (only seq > this), and 'limit' (default 50). "
+                        + "Packets with no typed projection (low-value / not yet modeled) are omitted; "
+                        + "use packets_tail to see those.")
+                .inputSchema(Map.of(
+                        "type", "object",
+                        "properties", Map.of(
+                                "limit", Map.of("type", "integer", "description", "max entries (default 50)"),
+                                "dir", Map.of("type", "string", "description", "IN | OUT (default any)"),
+                                "class", Map.of("type", "string",
+                                        "description", "keep only classes whose name contains this substring"),
+                                "sinceSeq", Map.of("type", "integer",
+                                        "description", "only packets with seq greater than this (incremental polling)")),
+                        "required", List.of()))
+                .annotations(ToolAnnotations.builder()
+                        .title("Structured packet view")
+                        .readOnlyHint(true).destructiveHint(false)
+                        .idempotentHint(false).openWorldHint(false).build())
+                .build();
+        return new SyncToolSpecification(tool, (exchange, request) -> {
+            Map<String, Object> args = request.arguments();
+            int limit = 50;
+            long sinceSeq = 0L;
+            String classSub = null;
+            if (args != null) {
+                if (args.get("limit") instanceof Number n) {
+                    limit = Math.max(0, n.intValue());
+                }
+                if (args.get("sinceSeq") instanceof Number n) {
+                    sinceSeq = n.longValue();
+                }
+                if (args.get("class") instanceof String s && !s.isBlank()) {
+                    classSub = s;
+                }
+            }
+            PacketFilter filter = filterFromArgs(args);
+            List<Object> entries = new ArrayList<>();
+            for (PacketJournal.Entry e : journal.tail()) {
+                // only entries that actually carry typed fields (A-tier)
+                if (e.fields() == null || e.fields().isEmpty()) {
+                    continue;
+                }
+                if (e.seq() <= sinceSeq) {
+                    continue;
+                }
+                if (classSub != null && (e.packetClass() == null || !e.packetClass().contains(classSub))) {
+                    continue;
+                }
+                if (filter.accepts(e.simpleName(), e.packetClass(), e.dir())) {
+                    entries.add(fieldsRow(e));
+                }
+            }
+            if (entries.size() > limit) {
+                entries = new ArrayList<>(entries.subList(entries.size() - limit, entries.size()));
+            }
+            if (entries.isEmpty() && journal.size() == 0 && !tapInstalled()) {
+                return CallToolResult.builder().addTextContent(
+                        "packet tap not installed — this is NOT an authoritative 'no packets'. "
+                        + "Install it via the seam netty-tap tool first.").isError(true).build();
+            }
+            Map<String, Object> out = new LinkedHashMap<>();
+            out.put("count", entries.size());
+            out.put("tickNow", clock.tickId());
+            out.put("tapInstalled", tapInstalled());
+            out.put("entries", entries);
+            return CallToolResult.builder().addTextContent(Json.write(out)).isError(false).build();
         });
     }
 }

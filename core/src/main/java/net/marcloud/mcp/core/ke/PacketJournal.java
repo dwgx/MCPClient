@@ -2,6 +2,7 @@ package net.marcloud.mcp.core.ke;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import io.netty.buffer.ByteBuf;
@@ -47,7 +48,8 @@ public final class PacketJournal {
      * message was a decoded object, not a ByteBuf), and a reference-free summary.
      */
     public record Entry(long seq, long tickId, long arrivalMono, Dir dir,
-                        String packetClass, int byteLen, String summary) {
+                        String packetClass, int byteLen, String summary,
+                        Map<String, Object> fields) {
 
         /** The unqualified packet class name (last dot segment). */
         public String simpleName() {
@@ -110,7 +112,7 @@ public final class PacketJournal {
         Entry entry;
         try {
             entry = new Entry(0L, tickId, arrivalMono, dir,
-                    classOf(rawMsg), lenOf(rawMsg), summaryOf(rawMsg));
+                    classOf(rawMsg), lenOf(rawMsg), summaryOf(rawMsg), fieldsOf(rawMsg));
         } catch (Throwable t) {
             // A misbehaving projection must never break the publishing thread.
             return;
@@ -118,7 +120,7 @@ public final class PacketJournal {
         synchronized (lock) {
             long seq = ++seqGen;
             ring[head] = new Entry(seq, entry.tickId(), entry.arrivalMono(), entry.dir(),
-                    entry.packetClass(), entry.byteLen(), entry.summary());
+                    entry.packetClass(), entry.byteLen(), entry.summary(), entry.fields());
             head = (head + 1) % ring.length;
             if (size < ring.length) {
                 size++;
@@ -154,6 +156,18 @@ public final class PacketJournal {
             return snap.summary();
         }
         return "";
+    }
+
+    /**
+     * Reference-free structured fields: the MessageSnapshot's typed projection if
+     * present (A-tier packets), else null. The map is already an unmodifiable copy
+     * of immutable scalars (built by {@code PacketView}), so nothing mutable escapes.
+     */
+    private static Map<String, Object> fieldsOf(Object rawMsg) {
+        if (rawMsg instanceof NettyTap.PacketTapHandler.MessageSnapshot snap) {
+            return snap.fields();
+        }
+        return null;
     }
 
     /** Snapshot of all entries, oldest first. */

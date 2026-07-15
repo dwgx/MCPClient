@@ -133,6 +133,7 @@ public enum Ring {
             Map.entry("timeline_tail", R3),
             Map.entry("packets_tail", R3),
             Map.entry("packet_get", R3),
+            Map.entry("packet_view", R3),
             // permission tools themselves
             Map.entry("drop_privilege", R3),
             Map.entry("restore_privilege", R3),

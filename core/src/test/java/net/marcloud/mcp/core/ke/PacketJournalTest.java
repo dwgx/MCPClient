@@ -18,7 +18,34 @@ import org.junit.Test;
 public class PacketJournalTest {
 
     private static NettyTap.PacketTapHandler.MessageSnapshot snap(String cls) {
-        return new NettyTap.PacketTapHandler.MessageSnapshot(cls, "");
+        return new NettyTap.PacketTapHandler.MessageSnapshot(cls, "", null);
+    }
+
+    private static NettyTap.PacketTapHandler.MessageSnapshot snapFields(
+            String cls, java.util.Map<String, Object> fields) {
+        return new NettyTap.PacketTapHandler.MessageSnapshot(cls, "", fields);
+    }
+
+    @Test
+    public void structuredFieldsFlowFromSnapshotIntoEntry() {
+        EventBus bus = new EventBus();
+        PacketJournal j = new PacketJournal(16);
+        j.attach(bus);
+
+        java.util.Map<String, Object> fields = new java.util.LinkedHashMap<>();
+        fields.put("hp", 20.0);
+        fields.put("food", 18);
+        bus.publish(new SeamPacketInboundEvent(
+                snapFields("net.minecraft.network.play.server.S06PacketUpdateHealth", fields)));
+        // a snapshot with null fields (B/C tier) must carry null through, not crash
+        bus.publish(new SeamPacketInboundEvent(
+                snap("net.minecraft.network.play.server.S00PacketKeepAlive")));
+
+        List<PacketJournal.Entry> t = j.tail();
+        assertEquals(2, t.size());
+        assertEquals(20.0, ((Number) t.get(0).fields().get("hp")).doubleValue(), 0.0001);
+        assertEquals(18, ((Number) t.get(0).fields().get("food")).intValue());
+        assertTrue("B/C-tier snapshot carries null fields", t.get(1).fields() == null);
     }
 
     @Before

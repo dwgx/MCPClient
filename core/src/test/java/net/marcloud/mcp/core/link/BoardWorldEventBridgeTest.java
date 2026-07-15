@@ -71,7 +71,7 @@ public class BoardWorldEventBridgeTest {
     }
 
     private MessageSnapshot snap(String className, String summary) {
-        return new MessageSnapshot(className, summary);
+        return new MessageSnapshot(className, summary, null);
     }
 
     // ---- Tier-1 mappings ----------------------------------------------------
