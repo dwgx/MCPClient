@@ -316,6 +316,14 @@ public final class ToolRegistry {
                         ? ok("sent packet: " + packet.getClass().getSimpleName())
                         : error("not connected — no open channel to send on");
             } catch (Exception e) {
+                // A board veto is thrown inside the game-thread Callable, so
+                // invokeAndWait wraps it in ExecutionException — unwrap to report it
+                // as a veto rather than a generic failure (mirrors send_chat).
+                Throwable cause = e instanceof java.util.concurrent.ExecutionException
+                        ? e.getCause() : e;
+                if (cause instanceof net.marcloud.mcp.core.drivers.action.ActionManager.PacketVetoedException) {
+                    return error("vetoed: " + cause.getMessage());
+                }
                 return error("send_raw_packet failed: " + e);
             }
         });

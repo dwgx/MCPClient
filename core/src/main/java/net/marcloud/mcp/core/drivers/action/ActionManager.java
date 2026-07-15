@@ -77,10 +77,27 @@ public final class ActionManager {
         return exec.invokeAndWait(() -> {
             NetworkManager nm = game.networkManager();
             if (nm == null || !nm.isChannelOpen()) {
-                return false;
+                return false; // not connected — nothing sent, no veto published
+            }
+            // Give board chips a PRE veto over AI-originated packet sends (mirrors
+            // sendChat's ChatSendSignal). Published AFTER the connection check so a
+            // not-connected send never spuriously fires a veto. Board absent ⇒
+            // publishPacketSend returns a non-cancelled result ⇒ behavior unchanged.
+            String packetClass = packet == null ? "null" : packet.getClass().getName();
+            net.marcloud.mcp.core.link.BoardTraceLink.PacketSendResult veto =
+                    net.marcloud.mcp.core.link.BoardTraceLink.shared().publishPacketSend(packetClass);
+            if (veto.cancelled()) {
+                throw new PacketVetoedException(veto.reason());
             }
             nm.sendPacket(packet);
             return true;
         }, defaultTimeoutMillis);
+    }
+
+    /** Thrown when a board chip vetoes an outgoing packet. Carries the veto reason. */
+    public static final class PacketVetoedException extends RuntimeException {
+        public PacketVetoedException(String reason) {
+            super(reason == null ? "vetoed" : reason);
+        }
     }
 }

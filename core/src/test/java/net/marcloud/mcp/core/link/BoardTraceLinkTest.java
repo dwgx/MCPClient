@@ -145,4 +145,60 @@ public class BoardTraceLinkTest {
         assertTrue(r.published());
         assertFalse(r.cancelled());
     }
+
+    // ---- (3) W5: packet-send veto, mirroring the chat path ------------------
+
+    @Test
+    public void publishPacketSendIsNoopWhenBoardAbsent() {
+        BoardTraceLink link = new BoardTraceLink();
+        BoardTraceLink.PacketSendResult r = link.publishPacketSend(
+                "net.minecraft.network.play.client.C02PacketUseEntity");
+        assertFalse("board absent => not published", r.published());
+        assertFalse("board absent => not cancelled (caller still sends)", r.cancelled());
+        assertNull(r.reason());
+    }
+
+    @Test
+    public void packetSendNotCancelledWhenNoSubscriberVetoes() {
+        Trace trace = new Trace();
+        trace.subscribe(net.marcloud.mcp.board.signals.PacketSendSignal.class, s -> { /* observe */ });
+
+        BoardTraceLink link = new BoardTraceLink();
+        link.setTraceForTest(trace, tracePublishMethod());
+
+        BoardTraceLink.PacketSendResult r = link.publishPacketSend("some.Packet");
+        assertTrue("published to the injected trace", r.published());
+        assertFalse("no veto => not cancelled", r.cancelled());
+        assertNull(r.reason());
+    }
+
+    @Test
+    public void packetSendCancelledWithReasonSurfacesReason() {
+        Trace trace = new Trace();
+        trace.subscribe(net.marcloud.mcp.board.signals.PacketSendSignal.class,
+                s -> s.cancel("attack packets blocked"));
+
+        BoardTraceLink link = new BoardTraceLink();
+        link.setTraceForTest(trace, tracePublishMethod());
+
+        BoardTraceLink.PacketSendResult r = link.publishPacketSend(
+                "net.minecraft.network.play.client.C02PacketUseEntity");
+        assertTrue(r.published());
+        assertTrue("chip vetoed => cancelled", r.cancelled());
+        assertEquals("attack packets blocked", r.reason());
+    }
+
+    @Test
+    public void packetSendSignalCarriesPacketClass() {
+        Trace trace = new Trace();
+        final String[] seen = { null };
+        trace.subscribe(net.marcloud.mcp.board.signals.PacketSendSignal.class,
+                s -> seen[0] = s.packetClass());
+
+        BoardTraceLink link = new BoardTraceLink();
+        link.setTraceForTest(trace, tracePublishMethod());
+
+        link.publishPacketSend("net.minecraft.network.play.client.C07PacketPlayerDigging");
+        assertEquals("net.minecraft.network.play.client.C07PacketPlayerDigging", seen[0]);
+    }
 }

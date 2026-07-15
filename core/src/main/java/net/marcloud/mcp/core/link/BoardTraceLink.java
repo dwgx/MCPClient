@@ -36,6 +36,7 @@ public final class BoardTraceLink {
     private static final String BACKPLANE = "net.marcloud.mcp.board.Backplane";
     private static final String BOARD_PORT_KEY = "board.port";
     private static final String CHAT_SEND_SIGNAL = "net.marcloud.mcp.board.signals.ChatSendSignal";
+    private static final String PACKET_SEND_SIGNAL = "net.marcloud.mcp.board.signals.PacketSendSignal";
 
     /** The process-wide link used by production call sites (e.g. ActionManager). */
     private static final BoardTraceLink SHARED = new BoardTraceLink();
@@ -63,6 +64,22 @@ public final class BoardTraceLink {
         }
     }
 
+    /**
+     * The outcome of a {@link #publishPacketSend(String)} attempt — the packet-send
+     * counterpart to {@link ChatSendResult}.
+     *
+     * @param published {@code true} if the signal reached a live board {@code Trace}
+     * @param cancelled {@code true} if a board chip vetoed the send
+     * @param reason    the veto rationale a chip recorded, or {@code null}
+     */
+    public record PacketSendResult(boolean published, boolean cancelled, String reason) {
+
+        /** A "board absent" result: not published, not cancelled, no reason. */
+        static PacketSendResult absent() {
+            return new PacketSendResult(false, false, null);
+        }
+    }
+
     // ---- cached reflected handles (resolved lazily, then reused) -------------
 
     private volatile boolean traceResolved;
@@ -74,6 +91,12 @@ public final class BoardTraceLink {
     private volatile Constructor<?> chatSendCtor; // ChatSendSignal(String)
     private volatile Method isCancelled;          // Cancellable.isCancelled()
     private volatile Method reasonOf;             // ChatSendSignal.reason()
+
+    private volatile boolean packetResolved;
+    private volatile boolean packetAvailable;
+    private volatile Constructor<?> packetSendCtor; // PacketSendSignal(String)
+    private volatile Method packetIsCancelled;      // Cancellable.isCancelled()
+    private volatile Method packetReasonOf;         // PacketSendSignal.reason()
 
     /** Per-signal-class constructor cache for the generic {@link #publish} path. */
     private final Map<String, Constructor<?>> ctorCache = new ConcurrentHashMap<>();
@@ -122,6 +145,37 @@ public final class BoardTraceLink {
             // Board vanished / signature changed / chip threw — never surface it.
             // Report "absent" so the caller proceeds with the send unharmed.
             return ChatSendResult.absent();
+        }
+    }
+
+    /**
+     * Publish a board {@code PacketSendSignal(packetClass)} in its {@code PRE} phase
+     * and read back the veto outcome — the packet-send counterpart to
+     * {@link #publishChatSend(String)}. Never throws; board absent ⇒
+     * {@link PacketSendResult#absent()} (caller sends normally).
+     *
+     * @param packetClass the FQCN of the packet about to be sent
+     * @return the publish + veto outcome (never {@code null})
+     */
+    public PacketSendResult publishPacketSend(String packetClass) {
+        try {
+            if (!available()) {
+                return PacketSendResult.absent();
+            }
+            if (!packetResolved) {
+                resolvePacket();
+            }
+            if (!packetAvailable) {
+                return PacketSendResult.absent();
+            }
+            Object signal = packetSendCtor.newInstance(packetClass);
+            Object returned = tracePublish.invoke(trace, signal);
+            Object published = returned != null ? returned : signal;
+            boolean cancelled = (Boolean) packetIsCancelled.invoke(published);
+            String reason = (String) packetReasonOf.invoke(published);
+            return new PacketSendResult(true, cancelled, reason);
+        } catch (Throwable t) {
+            return PacketSendResult.absent();
         }
     }
 
@@ -215,6 +269,27 @@ public final class BoardTraceLink {
             this.chatAvailable = true;
         } catch (Throwable t) {
             this.chatAvailable = false;
+        }
+    }
+
+    /**
+     * One-time resolution of the {@code PacketSendSignal(String)} constructor plus
+     * its {@code isCancelled()} / {@code reason()} accessors. Independent of chat
+     * resolution (dedicated handles) so the two veto paths never interfere.
+     */
+    private synchronized void resolvePacket() {
+        if (packetResolved) {
+            return;
+        }
+        packetResolved = true;
+        try {
+            Class<?> sig = Class.forName(PACKET_SEND_SIGNAL);
+            this.packetSendCtor = sig.getConstructor(String.class);
+            this.packetIsCancelled = sig.getMethod("isCancelled");
+            this.packetReasonOf = sig.getMethod("reason");
+            this.packetAvailable = true;
+        } catch (Throwable t) {
+            this.packetAvailable = false;
         }
     }
 
