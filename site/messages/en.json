@@ -1,0 +1,66 @@
+{
+  "meta": {
+    "title": "MCPClient — the Kernel",
+    "description": "Exposes a live Minecraft 1.8.9 client to LLMs over MCP: observe, act on, hot-swap and deeply debug the running game — with every call gated by a 7-layer, NT-style privilege kernel."
+  },
+  "nav": {
+    "docs": "Docs",
+    "capabilities": "Capabilities",
+    "security": "Kernel"
+  },
+  "footer": {
+    "tagline": "Turning a live Minecraft JVM into a programmable substrate",
+    "docs": "Docs",
+    "disclaimer": "MCPClient is a research project, not affiliated with Mojang or Microsoft. Minecraft is a trademark of Mojang."
+  },
+  "hero": {
+    "badge": "the Kernel · MC 1.8.9",
+    "title": "MCPClient",
+    "slogan": "Turn a live Minecraft JVM into a programmable substrate an AI can reach — with kernel-debugger-grade control.",
+    "intro": "A -javaagent injects a running Minecraft 1.8.9 client and hands the full capability spectrum — observe, act, hot-swap, deep-debug — to an LLM over the Model Context Protocol. Every single call must pass through the same 7-layer, NT-style privilege kernel.",
+    "ctaDocs": "Read the docs",
+    "ctaGithub": "View on GitHub"
+  },
+  "what": {
+    "title": "What is this",
+    "body": "MCPClient (codename: the Kernel) is a system-level control platform. It turns a Minecraft client that is actually rendering into a fully controllable, programmable substrate. Exposing that control to an LLM is the most important entry point — but not the essence. The essence is total system-level control over a live JVM; an AI is simply its flagship way to drive it.",
+    "flowLlm": "LLM",
+    "flowMcp": "MCP protocol",
+    "flowKernel": "7-layer kernel",
+    "flowJvm": "Live MC JVM"
+  },
+  "features": {
+    "title": "Highlights",
+    "subtitle": "Why this project is different"
+  },
+  "security": {
+    "title": "7-Layer Security Kernel",
+    "subtitle": "Modeled on the Windows NT privilege system; all layers AND together — any one denial denies the call.",
+    "note": "A single decision authority: SeReferenceMonitor.evaluate(), with IoManager.supervise() as its only call site. The HTTP front door goes through the same supervised handler and cannot bypass it.",
+    "statusLive": "Live",
+    "statusOptin": "opt-in",
+    "statusBuilt": "Built"
+  },
+  "capabilities": {
+    "title": "Capability Packs C1–C9",
+    "subtitle": "The full spectrum, from introspection to debugger-grade execution control"
+  },
+  "modules": {
+    "title": "Module Architecture",
+    "subtitle": "A three-tier structure. The test: remove it, and can the rest of the spine still compile and run on its own?"
+  },
+  "tech": {
+    "title": "Tech Stack"
+  },
+  "cta": {
+    "title": "Go deeper",
+    "body": "The full architecture docs, 7-layer kernel internals, capability packs, and MCP tool reference all live in the documentation.",
+    "button": "Open the docs"
+  },
+  "docs": {
+    "searchPlaceholder": "Search docs…",
+    "onThisPage": "On this page",
+    "noResults": "No matches",
+    "sectionNav": "Docs navigation"
+  }
+}

@@ -1,0 +1,66 @@
+{
+  "meta": {
+    "title": "MCPClient — the Kernel",
+    "description": "稼働中の Minecraft 1.8.9 クライアントを MCP 経由で LLM に公開します。動いているゲームを観察・操作・ホットスワップし、深くデバッグする——そのすべての呼び出しが 7 層の NT 風特権カーネルを通ります。"
+  },
+  "nav": {
+    "docs": "ドキュメント",
+    "capabilities": "能力パック",
+    "security": "カーネル"
+  },
+  "footer": {
+    "tagline": "稼働中の Minecraft JVM をプログラム可能な基盤に変える",
+    "docs": "ドキュメント",
+    "disclaimer": "MCPClient は研究プロジェクトであり、Mojang / Microsoft とは関係ありません。Minecraft は Mojang の商標です。"
+  },
+  "hero": {
+    "badge": "the Kernel · MC 1.8.9",
+    "title": "MCPClient",
+    "slogan": "稼働中の Minecraft JVM を、AI が到達できるプログラム可能な基盤に。カーネルデバッガ級の制御を伴って。",
+    "intro": "-javaagent で稼働中の Minecraft 1.8.9 クライアントに注入し、「観察・操作・ホットスワップ・深いデバッグ」という能力の全域を Model Context Protocol 経由で LLM に委ねます。ただし、そのすべての呼び出しは同一の 7 層 NT 風特権カーネルを必ず通過します。",
+    "ctaDocs": "ドキュメントを読む",
+    "ctaGithub": "GitHub で見る"
+  },
+  "what": {
+    "title": "これは何か",
+    "body": "MCPClient（コードネーム the Kernel）はシステムレベルの制御プラットフォームです。実際にレンダリングしている Minecraft クライアントを、完全に制御可能でプログラム可能な基盤へと変えます。その制御を LLM に公開することは最も重要な入口ですが、本質ではありません。本質は「稼働中の JVM に対するシステムレベルの完全制御」であり、AI はそれを駆動する旗艦的な手段にすぎません。",
+    "flowLlm": "LLM",
+    "flowMcp": "MCP プロトコル",
+    "flowKernel": "7 層カーネル",
+    "flowJvm": "稼働中の MC JVM"
+  },
+  "features": {
+    "title": "主な特長",
+    "subtitle": "このプロジェクトが違う理由"
+  },
+  "security": {
+    "title": "7 層セキュリティカーネル",
+    "subtitle": "Windows NT の特権体系に倣った設計。全層が AND で結合し、いずれか 1 層でも拒否すれば呼び出しは拒否されます。",
+    "note": "単一の決定権限は SeReferenceMonitor.evaluate() であり、その唯一の呼び出し点が IoManager.supervise() です。HTTP のフロントドアも同じ supervised handler を通るため、迂回はできません。",
+    "statusLive": "有効",
+    "statusOptin": "opt-in",
+    "statusBuilt": "実装済み"
+  },
+  "capabilities": {
+    "title": "能力パック C1–C9",
+    "subtitle": "イントロスペクションからデバッガ級の実行制御まで、能力の全域"
+  },
+  "modules": {
+    "title": "モジュール構成",
+    "subtitle": "3 層構造。判定基準は「それを消しても、残りの骨格は単独でコンパイル・実行できるか」。"
+  },
+  "tech": {
+    "title": "技術スタック"
+  },
+  "cta": {
+    "title": "さらに深く",
+    "body": "詳細なアーキテクチャ資料、7 層カーネルの内部、能力パック、MCP ツールリファレンスはすべてドキュメントにあります。",
+    "button": "ドキュメントを開く"
+  },
+  "docs": {
+    "searchPlaceholder": "ドキュメントを検索…",
+    "onThisPage": "このページの目次",
+    "noResults": "一致する結果がありません",
+    "sectionNav": "ドキュメントナビ"
+  }
+}

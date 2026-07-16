@@ -1,0 +1,66 @@
+{
+  "meta": {
+    "title": "MCPClient — the Kernel",
+    "description": "把活着的 Minecraft 1.8.9 客户端通过 MCP 暴露给 LLM：观察、操控、热改、深度调试运行中的游戏，每一次调用都受 7 层 NT 风格特权内核约束。"
+  },
+  "nav": {
+    "docs": "文档",
+    "capabilities": "能力包",
+    "security": "安全内核"
+  },
+  "footer": {
+    "tagline": "把活着的 Minecraft JVM 变成可编程基底",
+    "docs": "文档",
+    "disclaimer": "MCPClient 是一个研究性项目，与 Mojang / Microsoft 无关联。Minecraft 是 Mojang 的商标。"
+  },
+  "hero": {
+    "badge": "the Kernel · MC 1.8.9",
+    "title": "MCPClient",
+    "slogan": "把活着的 Minecraft JVM 变成 AI 可达的、内核调试器级控制的可编程基底。",
+    "intro": "用 -javaagent 注入运行中的 Minecraft 1.8.9 客户端，通过 Model Context Protocol 把「观察 / 操控 / 热改 / 深度调试」整条能力谱交给 LLM——而每一次调用都必须穿过同一道 7 层 NT 风格特权内核。",
+    "ctaDocs": "查看文档",
+    "ctaGithub": "GitHub 源码"
+  },
+  "what": {
+    "title": "这是什么",
+    "body": "MCPClient（代号 the Kernel）是一个系统级控制平台：它把一个真在渲染的 Minecraft 客户端变成一块完全可控、可编程的基底。把控制暴露给 LLM 是最重要的驱动入口，但不是本质——本质是「对活体 JVM 的系统级完全控制」，AI 只是驱动它的旗舰方式。",
+    "flowLlm": "LLM",
+    "flowMcp": "MCP 协议",
+    "flowKernel": "7 层安全内核",
+    "flowJvm": "活着的 MC JVM"
+  },
+  "features": {
+    "title": "核心亮点",
+    "subtitle": "为什么这个项目不一样"
+  },
+  "security": {
+    "title": "7 层安全内核",
+    "subtitle": "参照 Windows NT 内核特权体系；全部 AND 组合，任一层拒绝即拒绝。",
+    "note": "单一决策权威 SeReferenceMonitor.evaluate()，唯一调用点 IoManager.supervise()。HTTP 前门走同一条 supervised handler，无法绕过。",
+    "statusLive": "已生效",
+    "statusOptin": "opt-in",
+    "statusBuilt": "已构建"
+  },
+  "capabilities": {
+    "title": "能力包 C1-C9",
+    "subtitle": "从自省到调试器级执行控制的完整能力谱"
+  },
+  "modules": {
+    "title": "模块架构",
+    "subtitle": "三层结构：删了它，其余骨架还能否独立编译运行？"
+  },
+  "tech": {
+    "title": "技术栈"
+  },
+  "cta": {
+    "title": "深入了解",
+    "body": "完整的架构文档、7 层内核细节、能力包与 MCP 工具参考都在文档站。",
+    "button": "进入文档"
+  },
+  "docs": {
+    "searchPlaceholder": "搜索文档…",
+    "onThisPage": "本页目录",
+    "noResults": "无匹配结果",
+    "sectionNav": "文档导航"
+  }
+}
