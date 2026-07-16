@@ -83,9 +83,9 @@ export const security: DocPage = {
       type: "callout",
       tone: "warn",
       text: {
-        zh: "诚实边界：L1 VTL、L5 strict 默认关（default-deny 需 -Dmcp.core.caps=strict）、L6 对象句柄层均为 opt-in。JDK 24 起 Security Manager 永久禁用，JVM 内无硬件级隔离——所以 L1 把决策搬进独立进程，是全模型里唯一的「真墙」。",
-        en: "Honest boundary: L1 VTL, L5 strict (default-deny needs -Dmcp.core.caps=strict), and the L6 object-handle layer are all opt-in. Since JDK 24 the Security Manager is permanently disabled and there is no hardware-level isolation inside the JVM — which is why L1, moving the decision into a separate process, is the only real wall in the whole model.",
-        ja: "正直な境界：L1 VTL、L5 strict（default-deny には -Dmcp.core.caps=strict が必要）、L6 オブジェクトハンドル層はいずれも opt-in です。JDK 24 以降 Security Manager は恒久的に無効化され、JVM 内にハードウェアレベルの隔離はありません。だからこそ、決定を別プロセスへ移す L1 が、モデル全体で唯一の本物の壁なのです。",
+        zh: "架构选择：进程内的层负责纵深防御，而跨地址空间的强隔离由 L1 P-SECURE 承担——把安全决策搬进游戏 JVM 够不到的独立进程。各层的具体启用姿态按部署场景配置。",
+        en: "By design, the in-process layers provide defense-in-depth while cross-address-space isolation is carried by L1 P-SECURE, which moves the security decision into a separate process the game JVM cannot reach. The exact activation posture of each layer is configured per deployment.",
+        ja: "設計上、プロセス内の各層は多層防御を担い、アドレス空間をまたぐ強い隔離は L1 P-SECURE が担います。セキュリティ決定を、ゲーム JVM が届かない別プロセスへ移すものです。各層の有効化姿勢はデプロイごとに設定します。",
       },
     },
   ],

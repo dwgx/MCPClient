@@ -1,4 +1,4 @@
-// 7 层安全内核 L1-L7。事实来源：.ai-notes/docs/architecture/01-SECURITY-KERNEL.md
+// 7 层安全内核 L1-L7。
 // 结构字段（id/code/nt/status）不译；name/duty 三语手工翻译（见 glossary.ts 术语表）。
 import type { L10n } from "./glossary";
 

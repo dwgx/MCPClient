@@ -25,9 +25,9 @@ export const tools: DocPage = {
       type: "callout",
       tone: "info",
       text: {
-        zh: "内建工具总数、测试数等易变数字以仓库内 STATUS.md 为单一真相。本页列出的是稳定的工具面与其权限口径。",
-        en: "Volatile numbers such as the total count of built-in tools or tests are governed by STATUS.md in the repo as the single source of truth. This page lists the stable tool surface and its privilege framing.",
-        ja: "組み込みツール総数やテスト数などの変動する数値は、リポジトリ内の STATUS.md を唯一の真実源とします。本ページは安定したツール面とその権限の枠組みを示します。",
+        zh: "内建工具总数、测试数等易变数字以仓库为单一真相。本页列出的是稳定的工具面与其权限口径。",
+        en: "Volatile numbers such as the total count of built-in tools or tests are governed by the repository as the single source of truth. This page lists the stable tool surface and its privilege framing.",
+        ja: "組み込みツール総数やテスト数などの変動する数値は、リポジトリを唯一の真実源とします。本ページは安定したツール面とその権限の枠組みを示します。",
       },
     },
     { type: "h2", text: { zh: "观测 / 感知", en: "Observation / perception", ja: "観測 / 知覚" }, id: "observe" },
