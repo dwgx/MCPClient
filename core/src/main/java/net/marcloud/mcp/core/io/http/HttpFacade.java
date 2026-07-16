@@ -49,11 +49,19 @@ public final class HttpFacade {
     private final int port;
     /** Shared secret; when non-blank, every request must carry {@code Authorization: Bearer <token>}. Blank = open (loopback dev default). */
     private final String authToken;
+    /** A.10 outward event stream; null when no EventBus was wired (SSE route then 503s honestly). */
+    private final SseStream sse;
     private volatile HttpServer server;
 
-    /** Open facade (no auth) — the loopback dev default. */
+    /** Open facade (no auth, no event stream) — the minimal loopback dev default. */
     public HttpFacade(IoManager registry, String bindHost, int port) {
-        this(registry, bindHost, port, null);
+        this(registry, bindHost, port, null, null);
+    }
+
+    /** Open facade with an event stream (no auth) — loopback dev default. */
+    public HttpFacade(IoManager registry, String bindHost, int port,
+                      net.marcloud.mcp.core.ke.event.EventBus bus) {
+        this(registry, bindHost, port, null, bus);
     }
 
     /**
@@ -64,10 +72,23 @@ public final class HttpFacade {
      *     unauthenticated).
      */
     public HttpFacade(IoManager registry, String bindHost, int port, String authToken) {
+        this(registry, bindHost, port, authToken, null);
+    }
+
+    /**
+     * Full ctor. {@code bus} (nullable) wires the A.10 {@code GET /v1/stream} SSE
+     * feed; when null that route replies 503 honestly rather than pretending to
+     * stream. The SSE route runs through the same {@link #authorized} gate as every
+     * other route, so it inherits the bearer-token + non-loopback posture (SECURITY.md
+     * §23: a new outward surface must not bypass auth).
+     */
+    public HttpFacade(IoManager registry, String bindHost, int port, String authToken,
+                      net.marcloud.mcp.core.ke.event.EventBus bus) {
         this.registry = registry;
         this.bindHost = bindHost;
         this.port = port;
         this.authToken = (authToken == null || authToken.isBlank()) ? null : authToken;
+        this.sse = (bus == null) ? null : new SseStream(bus);
     }
 
     /** Start the HTTP server on a daemon-threaded executor. */
@@ -118,6 +139,8 @@ public final class HttpFacade {
                 sendJson(ex, 200, permissions());
             } else if (path.equals("/v1/screen") && method.equals("GET")) {
                 sendScreen(ex);
+            } else if (path.equals("/v1/stream") && method.equals("GET")) {
+                sendStream(ex);
             } else if (path.startsWith("/v1/tools/") && method.equals("POST")) {
                 callTool(ex, path.substring("/v1/tools/".length()));
             } else {
@@ -250,6 +273,37 @@ public final class HttpFacade {
         sendJson(ex, 400, Map.of("error", "no image content returned"));
     }
 
+    /**
+     * GET /v1/stream — A.10 Server-Sent Events feed. Sets the event-stream headers,
+     * then hands the response body to {@link SseStream#serve}, which blocks this
+     * serving thread pushing frames until the client disconnects. Auth already ran
+     * in {@link #handle}. Optional {@code ?kinds=tick,packet,world,other} filters.
+     */
+    private void sendStream(HttpExchange ex) throws IOException {
+        if (sse == null) {
+            sendJson(ex, 503, Map.of("error", "event stream not available (no EventBus wired)"));
+            return;
+        }
+        String query = ex.getRequestURI().getRawQuery();
+        String kinds = null;
+        if (query != null) {
+            for (String kv : query.split("&")) {
+                int eq = kv.indexOf('=');
+                if (eq > 0 && kv.substring(0, eq).equals("kinds")) {
+                    kinds = java.net.URLDecoder.decode(kv.substring(eq + 1), StandardCharsets.UTF_8);
+                }
+            }
+        }
+        ex.getResponseHeaders().set("Content-Type", "text/event-stream; charset=utf-8");
+        ex.getResponseHeaders().set("Cache-Control", "no-cache");
+        ex.getResponseHeaders().set("Connection", "keep-alive");
+        ex.getResponseHeaders().set("X-Accel-Buffering", "no"); // disable proxy buffering
+        ex.sendResponseHeaders(200, 0); // 0 = streaming/chunked body
+        try (OutputStream os = ex.getResponseBody()) {
+            sse.serve(os, kinds); // blocks until the client disconnects
+        }
+    }
+
     // ---- content rendering / io -------------------------------------------
 
     /** Turn tool result content into JSON-friendly entries (text inline, image as data-uri note). */
@@ -305,6 +359,8 @@ public final class HttpFacade {
                GET  /v1/permissions     current clearance + per-tool ring/allow
                POST /v1/tools/{name}    call a tool; JSON body = arguments
                GET  /v1/screen          raw PNG of the current game view
+               GET  /v1/stream          Server-Sent Events feed of live game events
+                                        (?kinds=tick,packet,world,other to filter)
 
                example: curl -s http://%s:%d/v1/models
                         curl -s -X POST http://%s:%d/v1/tools/scan_surroundings -d '{"radius":8}'

@@ -354,7 +354,9 @@ public final class McpCore {
                         + "' without auth. Set -Dmcp.core.httpToken=<secret> (Authorization: Bearer). "
                         + "See SECURITY.md.");
             } else {
-                httpFacade = new HttpFacade(registry, bind, httpPort, httpToken);
+                // Pass the EventBus so GET /v1/stream (A.10 SSE feed) can push live
+                // events; it routes through the same authorized handle as every route.
+                httpFacade = new HttpFacade(registry, bind, httpPort, httpToken, bus);
                 if (!httpToken.isBlank()) {
                     System.err.println("[MCP Core] REST facade auth ENABLED (Authorization: Bearer <token>).");
                 }
