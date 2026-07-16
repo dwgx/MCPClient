@@ -451,6 +451,23 @@ public final class McpCore {
                     + host + ":" + port + " (fail-closed).");
             net.marcloud.mcp.core.se.SeRemoteMonitor remote =
                     new net.marcloud.mcp.core.se.SeRemoteMonitor(host, port, token, 2000);
+            // Posture-split probe (A): if THIS game JVM was launched hardened but the
+            // separate authority process came up wide-open, the L4/L5 kill switches are
+            // silent no-ops and dangerous verbs are permitted across the wall. Warn
+            // loudly (a null posture just means unreachable — evaluate() already fails
+            // closed for that, so it is not a split). Warn-only for now, per owner.
+            if ("true".equalsIgnoreCase(System.getProperty("mcp.core.hardened", "false"))) {
+                String posture = remote.posture();
+                if (net.marcloud.mcp.core.alpc.AlpcProtocol.POSTURE_WIDE_OPEN.equals(posture)) {
+                    System.err.println("[SECURITY] POSTURE SPLIT: this game JVM is HARDENED "
+                            + "(-Dmcp.core.hardened=true) but the P-SECURE authority reports a "
+                            + "WIDE-OPEN posture. The authority owns the L4/L5 decision, so "
+                            + "dangerous verbs are PERMITTED across the wall and "
+                            + "disable_privilege / revoke_capability CANNOT tighten what it never "
+                            + "restricted. Launch the P-SECURE process (AlpcMain) with the SAME "
+                            + "-Dmcp.core.hardened=true.");
+                }
+            }
             if (objects != null) {
                 System.err.println("[MCP Core] L6 object-handles enforced LOCALLY in front of "
                         + "P-SECURE (in-JVM handle snapshots cannot cross the wall).");

@@ -135,6 +135,38 @@ public class SupervisedGateL4L5DenyTest {
     }
 
     /**
+     * L4 (regression): {@code act_set} drives the live player = server-visible world
+     * write, so it MUST carry SE_WORLD_WRITE. Before the fix it was a HIGH writer
+     * (L3) with CAP_WORLD_WRITE (L5) but NO L4 privilege, so {@code
+     * disable_privilege(SE_WORLD_WRITE)} could not stop the actuation surface. Here
+     * every privilege is granted but SE_WORLD_WRITE is disabled; SYSTEM integrity
+     * clears L3 HIGH, wildcard caps clear L5, R-1 clears the R1 ring — so ONLY L4 can
+     * deny. On the pre-fix code act_set has a null L4 privilege, the layer passes, the
+     * stub handler runs and isError is false, failing this test.
+     */
+    @Test
+    public void l4WorldWriteDisabledDeniesActSet() {
+        IoSupervisor exec = new IoSupervisor(2, 2000L);
+        SeClearancePolicy p = new SeClearancePolicy(Ring.R_MINUS_1, "tok");
+        java.util.Map<Privilege, Boolean> grants = new java.util.EnumMap<>(Privilege.class);
+        for (Privilege pr : Privilege.values()) {
+            grants.put(pr, true);
+        }
+        grants.put(Privilege.SE_WORLD_WRITE, false);
+        SeToken subj = new SeToken("t", Ring.R_MINUS_1, IntegrityLevel.SYSTEM,
+                new PrivilegeToken(grants), null); // null caps = wildcard, so L5 passes
+        IoManager reg = new IoManager(exec, new SeLocalMonitor(p, subj));
+        reg.register("act_set", tool("act_set"), null, "d", true, Ring.R1);
+
+        CallToolResult denied = reg.invoke("act_set", Map.of());
+        assertTrue("act_set denied at L4 (SE_WORLD_WRITE disabled)",
+                Boolean.TRUE.equals(denied.isError()));
+        assertTrue("deny names the privilege layer",
+                denied.content().toString().contains("L4 privilege"));
+        exec.shutdown();
+    }
+
+    /**
      * L3: a MEDIUM-integrity subject cannot run send_chat (writes a HIGH-integrity
      * resource) even at R-1 with all privileges + wildcard caps — no-write-up
      * catches it through the supervised boundary.

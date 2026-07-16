@@ -314,7 +314,8 @@ public final class ObserveTools {
         });
     }
 
-    private SyncToolSpecification packetView() {
+    /** Package-private for direct handler testing (mirrors ActTools.actSet et al.). */
+    SyncToolSpecification packetView() {
         Tool tool = Tool.builder()
                 .name("packet_view")
                 .title("Structured packet view")

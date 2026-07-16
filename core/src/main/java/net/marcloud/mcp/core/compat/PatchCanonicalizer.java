@@ -19,13 +19,15 @@ import java.nio.charset.StandardCharsets;
  * purpose (a ticket, a transcript) from ever verifying as a patch signature.
  *
  * <p>Covered fields, in fixed order: {@code targetClass}, {@code contentHash},
- * {@code keyId}, {@code status}, {@code kiRef}, {@code publisher}, {@code version}
- * (see {@link #signingInput} for why the last four are bound — red-team F1). These
- * bind the signature to WHAT the patch rewrites ({@code targetClass}), the declared
- * {@code contentHash}, the signing key ({@code keyId}), the engine-enforced
- * {@code status}, and the identity/provenance inputs. Note this is deliberately NOT
- * the pipe-delimited {@code derivePatchId} string — that is a content-address for
- * identity, not a signed, unambiguous byte layout.
+ * {@code keyId}, {@code status}, {@code kiRef}, {@code publisher}, {@code version},
+ * {@code supersedes}, {@code platformCondition} (see {@link #signingInput} for why the
+ * last six are bound — red-team F1 and its follow-up). These bind the signature to WHAT
+ * the patch rewrites ({@code targetClass}), the declared {@code contentHash}, the signing
+ * key ({@code keyId}), the engine-enforced {@code status}, the identity/provenance
+ * inputs, and the remaining two engine-decision fields ({@code supersedes} drives which
+ * predecessor is NOT armed; {@code platformCondition} drives whether the transform runs).
+ * Note this is deliberately NOT the pipe-delimited {@code derivePatchId} string — that is
+ * a content-address for identity, not a signed, unambiguous byte layout.
  *
  * <p><b>HONEST BOUNDARY (do not oversell — red-team finding #1):</b> {@code
  * contentHash} is the value the manifest carries, supplied by the patch author via
@@ -59,14 +61,24 @@ public final class PatchCanonicalizer {
      *
      * <p>Covered fields, in fixed order: domain tag, then length-prefixed
      * {@code targetClass}, {@code contentHash}, {@code keyId}, {@code status},
-     * {@code kiRef}, {@code publisher}, {@code version}. The last four were added to
-     * close red-team finding F1 (canonical input under-binding): before, a valid
-     * signature over the first three left {@code status} (an engine-enforced security
-     * gate) and the {@code patchId}-derive inputs ({@code kiRef}, {@code publisher})
-     * UNSIGNED — so a manifest signed while {@code DISABLED} could be re-presented as
-     * {@code VERIFIED}, and the same integrity triple could mint a different
-     * {@code patchId} for the online ticket channel. Binding them makes the signature
-     * cover every field the engine treats as a decision or that feeds patch identity.
+     * {@code kiRef}, {@code publisher}, {@code version}, {@code supersedes},
+     * {@code platformCondition}. {@code status}..{@code version} were added to close
+     * red-team finding F1 (canonical input under-binding): before, a valid signature
+     * over the first three left {@code status} (an engine-enforced security gate) and
+     * the {@code patchId}-derive inputs ({@code kiRef}, {@code publisher}) UNSIGNED — so
+     * a manifest signed while {@code DISABLED} could be re-presented as {@code VERIFIED},
+     * and the same integrity triple could mint a different {@code patchId} for the online
+     * ticket channel. {@code supersedes} and {@code platformCondition} are the F1
+     * FOLLOW-UP: F1 bound the identity/status fields but left these two engine-decision
+     * fields unsigned. {@code supersedes} feeds {@code supersededIds} (the engine does
+     * not arm a superseded predecessor), and {@code platformCondition} feeds
+     * {@code appliesToRuntime} (whether the transform actually runs); a data-channel MITM
+     * could rewrite either while the signature still verified — e.g. flip a
+     * {@code platformCondition} so a patch fires on a runtime it was never vetted for, or
+     * clear a {@code supersedes} to re-arm a retired predecessor. Binding them makes the
+     * signature cover every field the engine treats as a decision or that feeds patch
+     * identity. {@code supersedes} is nullable and canonicalized as {@code ""} when unset;
+     * {@code platformCondition} is never null (the manifest defaults it to {@code ""}).
      *
      * @param m     the bound manifest (targetClass + contentHash)
      * @param keyId the signing key identity (bound into the signature, so a signature
@@ -96,6 +108,16 @@ public final class PatchCanonicalizer {
         putLenPrefixed(out, m.kiRef());
         putLenPrefixed(out, m.publisher());
         putLenPrefixed(out, m.version());
+        // F1 follow-up: bind the two remaining engine-decision fields. supersedes drives
+        // supersededIds (the engine does not arm a superseded predecessor), and
+        // platformCondition feeds appliesToRuntime (whether the transform actually runs).
+        // Both were UNSIGNED before, so a data-channel MITM could rewrite either while a
+        // valid signature still verified. Order is fixed and both are appended together
+        // (one signature break, not two). supersedes is nullable -> canonicalize null as
+        // "" so unbound-supersedes manifests still round-trip; platformCondition is never
+        // null (the manifest defaults it to "").
+        putLenPrefixed(out, m.supersedes() == null ? "" : m.supersedes());
+        putLenPrefixed(out, m.platformCondition());
         return out.toByteArray();
     }
 

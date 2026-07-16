@@ -84,7 +84,9 @@ public class PermissionPolicyTest {
         assertEquals(Ring.R_MINUS_1, Ring.forBuiltin("eval_java", Ring.R3));
         assertEquals(Ring.R_MINUS_1, Ring.forBuiltin("redefine_class", Ring.R3));
         assertEquals(Ring.R0, Ring.forBuiltin("create_tool", Ring.R3));
-        assertEquals(Ring.R1, Ring.forBuiltin("send_raw_packet", Ring.R3));
+        // send_raw_packet compiles + runs caller Java (eval-class) → hypervisor ring,
+        // like eval_java, not the R1 network-send tier.
+        assertEquals(Ring.R_MINUS_1, Ring.forBuiltin("send_raw_packet", Ring.R3));
         assertEquals(Ring.R2, Ring.forBuiltin("capture_screen", Ring.R3));
         assertEquals(Ring.R3, Ring.forBuiltin("memory_write", Ring.R3));
         assertEquals("unknown falls back", Ring.R3, Ring.forBuiltin("nope_tool", Ring.R3));

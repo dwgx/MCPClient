@@ -136,6 +136,9 @@ public class ChatLogChipTest {
         Board.shutdown();
         Board.trace().clear();
         Board.init();
+        // E.3 (ADR-0003): init() now installs the official roster (incl. a ChatLogChip);
+        // clear it so this test adds and drives its OWN chip without a duplicate-id clash.
+        Board.features().clear();
         try {
             Matrix<Chip> features = Board.features();
             ChatLogChip chip = new ChatLogChip(); // binds Board.trace()

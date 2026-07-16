@@ -48,6 +48,8 @@ public final class AlpcProtocol {
     public static final String K_BUILTIN = "builtIn";
     public static final String K_TARGET = "target";
     public static final String K_TOKEN = "token";
+    public static final String K_PRIV = "priv";
+    public static final String K_CAP = "cap";
 
     // response keys
     public static final String K_ALLOW = "allow";
@@ -56,6 +58,7 @@ public final class AlpcProtocol {
     public static final String K_CLEARANCE = "clearance";
     public static final String K_RESULT = "result";
     public static final String K_RESTORABLE = "restorable";
+    public static final String K_POSTURE = "posture";
 
     // methods
     public static final String M_EVALUATE = "evaluate";
@@ -63,6 +66,21 @@ public final class AlpcProtocol {
     public static final String M_DROP_TO = "dropTo";
     public static final String M_TRY_RESTORE = "tryRestore";
     public static final String M_RESTORABLE = "restorable";
+
+    // ---- cross-wall kill switch (tighten-only; never enable/grant) ----
+    // The game JVM may ask the authority to DISABLE an L4 privilege or REVOKE an
+    // L5 capability (only ever narrows). There is deliberately NO enable/grant RPC:
+    // a compromised game process must not be able to re-open a verb the authority
+    // shut, so self-escalation stays LOCAL to the authority (AlpcMain) only.
+    public static final String M_DISABLE_PRIV = "disablePriv";
+    public static final String M_REVOKE_CAP = "revokeCap";
+    /** Report the authority's construction-time subject posture (see POSTURE_* below). */
+    public static final String M_POSTURE = "posture";
+
+    /** Posture strings the authority reports for M_POSTURE (matches AlpcMain branches). */
+    public static final String POSTURE_HARDENED = "hardened";
+    public static final String POSTURE_STRICT = "strict";
+    public static final String POSTURE_WIDE_OPEN = "wide-open";
 
     // ---- additive compat channel (v2: short-TTL Ed25519 tickets) ----
     // Methods / keys are purely additive. A compat-unaware authority hits the

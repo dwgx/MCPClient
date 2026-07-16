@@ -55,9 +55,10 @@ public final class AlpcMain {
             System.err.println("[P-SECURE] restore token: " + restore);
         }
         SeReferenceMonitor authority = buildAuthority(new SeClearancePolicy(clearance, restore));
+        String posture = postureOf();
 
         int port = Integer.getInteger("mcp.core.psecurePort", AlpcProtocol.DEFAULT_PORT);
-        AlpcServer server = new AlpcServer(authority, port, token);
+        AlpcServer server = new AlpcServer(authority, port, token, posture);
         server.start();
         System.err.println("[P-SECURE] authority up (clearance " + clearance.tag()
                 + "); Ctrl-C to stop.");
@@ -95,5 +96,23 @@ public final class AlpcMain {
         }
         System.err.println("[P-SECURE] authority posture: wide-open (dev default).");
         return new SeLocalMonitor(policy);
+    }
+
+    /**
+     * The posture string this process reports over {@link AlpcProtocol#M_POSTURE},
+     * selected from the SAME flags {@link #buildAuthority} branches on (kept in
+     * lock-step so the reported posture always matches the subject actually built).
+     * The game JVM compares this against its own {@code -Dmcp.core.hardened} at
+     * startup to catch a posture split (game hardened, authority wide-open).
+     */
+    public static String postureOf() {
+        if ("true".equalsIgnoreCase(System.getProperty("mcp.core.hardened", "false"))) {
+            return AlpcProtocol.POSTURE_HARDENED;
+        }
+        String caps = System.getProperty("mcp.core.caps", "wildcard");
+        if ("strict".equalsIgnoreCase(caps.trim())) {
+            return AlpcProtocol.POSTURE_STRICT;
+        }
+        return AlpcProtocol.POSTURE_WIDE_OPEN;
     }
 }

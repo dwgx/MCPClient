@@ -26,8 +26,11 @@ import org.junit.Test;
  */
 public class SendToolsW6Test {
 
+    /** The typed do_* send tools (renamed from send_* in W7; the 4 originals + 6 new). */
     private static final String[] SEND_TOOLS = {
-        "send_client_status", "send_held_item", "send_close_window", "send_dig"
+        "do_client_status", "do_select_slot", "do_close_container", "do_dig",
+        "do_set_abilities", "do_place_block", "do_click_slot", "do_set_creative_slot",
+        "do_use_entity", "do_entity_action"
     };
 
     private static SyncToolSpecification toolByName(ToolRegistry reg, String name) {
@@ -77,17 +80,19 @@ public class SendToolsW6Test {
     }
 
     /**
-     * The registered-tool side of the gate check: every send_* tool that ToolRegistry
-     * actually exposes is gated. (The table-side generic guard — "any declared send_*
-     * writing at HIGH must hold SE_NET_RAW" — lives in PolicySideTableDriftTest, which
-     * has package access to the Ring table.)
+     * The registered-tool side of the gate check: every tool ToolRegistry actually
+     * exposes that is a declared network sender ({@link SeToolRequirement#networkSendTools()})
+     * is privilege-gated. Uses the explicit send set, NOT a name prefix — a prefix
+     * ({@code startsWith("send_")}) silently stopped matching the tools once they were
+     * renamed to {@code do_}, which is exactly the drift this guard must not have.
+     * (The table-side bidirectional invariant lives in PolicySideTableDriftTest.)
      */
     @Test
     public void everyRegisteredSendToolIsPrivilegeGated() {
         ToolRegistry reg = registry();
         for (SyncToolSpecification spec : reg.all()) {
             String name = spec.tool().name();
-            if (!name.startsWith("send_")) {
+            if (!SeToolRequirement.networkSendTools().contains(name)) {
                 continue;
             }
             assertEquals(name + " is a registered send tool but declares no SE_NET_RAW"
@@ -98,24 +103,24 @@ public class SendToolsW6Test {
 
     @Test
     public void clientStatusRejectsUnknownStatusBeforeSending() {
-        CallToolResult r = toolByName(registry(), "send_client_status").callHandler()
-                .apply(null, new CallToolRequest("send_client_status", Map.of("status", "BOGUS")));
+        CallToolResult r = toolByName(registry(), "do_client_status").callHandler()
+                .apply(null, new CallToolRequest("do_client_status", Map.of("status", "BOGUS")));
         assertTrue("unknown status is a validation error", Boolean.TRUE.equals(r.isError()));
         assertTrue(r.content().toString().toLowerCase().contains("unknown status"));
     }
 
     @Test
     public void heldItemRejectsOutOfRangeSlot() {
-        CallToolResult r = toolByName(registry(), "send_held_item").callHandler()
-                .apply(null, new CallToolRequest("send_held_item", Map.of("slot", 12)));
+        CallToolResult r = toolByName(registry(), "do_select_slot").callHandler()
+                .apply(null, new CallToolRequest("do_select_slot", Map.of("slot", 12)));
         assertTrue("slot 12 is out of range", Boolean.TRUE.equals(r.isError()));
         assertTrue(r.content().toString().contains("0-8"));
     }
 
     @Test
     public void digRejectsUnknownStatus() {
-        CallToolResult r = toolByName(registry(), "send_dig").callHandler()
-                .apply(null, new CallToolRequest("send_dig", Map.of("status", "NOPE")));
+        CallToolResult r = toolByName(registry(), "do_dig").callHandler()
+                .apply(null, new CallToolRequest("do_dig", Map.of("status", "NOPE")));
         assertTrue(Boolean.TRUE.equals(r.isError()));
         assertTrue(r.content().toString().toLowerCase().contains("unknown status"));
     }
@@ -127,8 +132,8 @@ public class SendToolsW6Test {
      */
     @Test
     public void digBlockActionRefusesToFabricateOrigin() {
-        CallToolResult r = toolByName(registry(), "send_dig").callHandler()
-                .apply(null, new CallToolRequest("send_dig", Map.of("status", "START_DESTROY_BLOCK")));
+        CallToolResult r = toolByName(registry(), "do_dig").callHandler()
+                .apply(null, new CallToolRequest("do_dig", Map.of("status", "START_DESTROY_BLOCK")));
         assertTrue("missing coords on a block action must be an error, not (0,0,0)",
                 Boolean.TRUE.equals(r.isError()));
         String text = r.content().toString();

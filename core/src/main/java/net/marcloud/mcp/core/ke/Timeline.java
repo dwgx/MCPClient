@@ -20,6 +20,15 @@ import net.marcloud.mcp.core.ke.event.GameEvent;
  * is a safe, deep-copied snapshot — never a mutable game reference. This is the
  * {@code drivers}/tool-facing read model of the event stream.
  *
+ * <p><b>Packet events are excluded (Option C):</b> the ungated R3
+ * {@code timeline_tail} tool must not become a side channel for packet traffic.
+ * Raw Netty-tap packet events ({@code SeamPacketInboundEvent} /
+ * {@code SeamPacketOutboundEvent}) are therefore dropped in {@link #record} and
+ * never folded into the ring — packet content is exposed ONLY through the gated
+ * packet tools ({@code packets_tail} / {@code packet_get} / {@code packet_view}),
+ * so revoking {@code CAP_NETWORK_RECV_TAP} actually stops the leak. The timeline
+ * keeps non-packet observations (tick / chat / disconnect / hook, etc.).
+ *
  * <p><b>Threading:</b> {@link #record} is called from {@link EventBus#publish}
  * (game thread, Netty worker — wherever the event fired); {@link #tail} is read
  * from MCP tool threads. A single lock guards the ring, mirroring
@@ -55,6 +64,8 @@ public final class Timeline {
      * GameEvent} base type, so all current and future event subclasses are
      * captured without per-type wiring. The kind is the event's simple class name;
      * the summary is {@link #summarize(GameEvent)} (short + reference-free).
+     * Packet events are filtered out in {@link #record} (see class Javadoc,
+     * Option C), so subscribing to the base type does not leak packet traffic.
      */
     public void attach(EventBus bus) {
         if (bus == null) {
@@ -66,6 +77,18 @@ public final class Timeline {
     /** Fold one event into the ring. Never throws into the publisher. */
     public void record(GameEvent event) {
         if (event == null) {
+            return;
+        }
+        // SECURITY (Option C): the Timeline must NOT be a side channel for packet
+        // traffic. Raw Netty-tap packet events (inbound/outbound) carry a
+        // reference-free MessageSnapshot whose className + field digest would leak
+        // wire content through the ungated R3 {@code timeline_tail} tool — even
+        // after an operator revokes CAP_NETWORK_RECV_TAP. Packet content is exposed
+        // ONLY via the gated packet tools (packets_tail / packet_get / packet_view),
+        // so we drop these events here and keep the timeline to non-packet
+        // observations (tick / chat / disconnect / hook, etc.).
+        if (event instanceof net.marcloud.mcp.core.flt.seam.events.SeamPacketInboundEvent
+                || event instanceof net.marcloud.mcp.core.flt.seam.events.SeamPacketOutboundEvent) {
             return;
         }
         Entry e;

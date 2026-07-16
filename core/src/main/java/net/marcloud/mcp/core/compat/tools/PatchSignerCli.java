@@ -14,9 +14,10 @@ import net.marcloud.mcp.core.compat.TrustAnchors;
  * Offline patch-signing CLI — the "build-time signing" mechanism for compat patches. Every
  * patch must be signed to arm (in-code registration confers no trust); this tool produced
  * KI-4's shipped signature. It takes a patch's canonical signing inputs (targetClass, kiRef,
- * publisher, version, status, and an author-supplied transformHash) plus the kernel
- * PRIVATE key from a file, and emits the {@code ed25519:v1:<keyId>:<b64url>} signature
- * string an {@link Ed25519PatchSigner} verifies against the baked-in kernel public key.
+ * publisher, version, status, platformCondition, supersedes, and an author-supplied
+ * transformHash) plus the kernel PRIVATE key from a file, and emits the
+ * {@code ed25519:v1:<keyId>:<b64url>} signature string an {@link Ed25519PatchSigner}
+ * verifies against the baked-in kernel public key.
  *
  * <p><b>The private key lives OUTSIDE the repo.</b> This tool reads a PKCS#8 Ed25519
  * private key from a file path you pass on the command line; it is NEVER hardcoded and
@@ -25,8 +26,8 @@ import net.marcloud.mcp.core.compat.TrustAnchors;
  * moves this to an air-gapped HSM / KMS ceremony (see the tuf-role-alignment brief).
  *
  * <p><b>HONESTY (KI-10, do not oversell).</b> The signature binds the manifest LABEL
- * (targetClass, contentHash, keyId, status, kiRef, publisher, version), NOT the executed
- * transform bytes. {@code transformHash} here is AUTHOR-SUPPLIED — this tool does not (and
+ * (targetClass, contentHash, keyId, status, kiRef, publisher, version, platformCondition,
+ * supersedes), NOT the executed transform bytes. {@code transformHash} here is AUTHOR-SUPPLIED — this tool does not (and
  * cannot, without the transform bytecode) recompute it from what the patch's
  * {@code transform()} actually emits. So a valid signature authenticates the label, not
  * the payload. This is safe only because patches are still registered in-code; before any
@@ -42,9 +43,11 @@ import net.marcloud.mcp.core.compat.TrustAnchors;
  *       --kiref    KI-4 \
  *       --publisher kernel \
  *       --transform-hash &lt;sha256-hex-the-author-computed&gt; \
- *       [--keyid   mcp-kernel-ed25519-v1]   (default: the kernel keyId) \
- *       [--version 1.0.0.0] \
- *       [--status  VERIFIED]
+ *       [--keyid    mcp-kernel-ed25519-v1]   (default: the kernel keyId) \
+ *       [--version  1.0.0.0] \
+ *       [--status   VERIFIED] \
+ *       [--platform &lt;platformCondition&gt;]    (default: ""; MUST match the manifest — signed) \
+ *       [--supersedes &lt;patchId&gt;]            (default: none; MUST match the manifest — signed)
  * </pre>
  * The private-key file holds the base64 of a PKCS#8-encoded Ed25519 private key (the
  * {@code PRIVATE_PKCS8_B64} the keygen ceremony produced). On success the signature string
@@ -65,12 +68,15 @@ public final class PatchSignerCli {
         String keyId = a.getOrDefault("keyid", KernelTrustAnchor.KEY_ID);
         String version = a.getOrDefault("version", "1.0.0.0");
         String statusStr = a.getOrDefault("status", "VERIFIED");
-        // name/builtAt/platformCondition are required by the manifest builder but are NOT
-        // covered by the signing input (see PatchCanonicalizer), so placeholders here do
-        // not affect the produced signature. code is also uncovered.
+        // name/builtAt are required by the manifest builder but are NOT covered by the
+        // signing input (see PatchCanonicalizer), so placeholders here do not affect the
+        // produced signature. code is also uncovered. platformCondition and supersedes ARE
+        // covered (F1 follow-up), so --platform / --supersedes must match the shipped
+        // manifest exactly or the signature will not verify against it.
         String name = a.getOrDefault("name", target);
         String builtAt = a.getOrDefault("built-at", "1970-01-01T00:00:00Z");
         String platform = a.getOrDefault("platform", "");
+        String supersedes = a.get("supersedes"); // nullable: absent -> null (canonicalized "")
         String code = a.getOrDefault("code", "MCP-SIGN");
 
         PatchManifest.Status status;
@@ -89,6 +95,7 @@ public final class PatchSignerCli {
                 .code(code).name(name).version(version).kiRef(kiRef)
                 .targetClass(target).platformCondition(platform)
                 .publisher(publisher).builtAt(builtAt).status(status)
+                .supersedes(supersedes)
                 .build();
 
         Ed25519PatchSigner signer = new Ed25519PatchSigner(TrustAnchors.empty(), priv, keyId);

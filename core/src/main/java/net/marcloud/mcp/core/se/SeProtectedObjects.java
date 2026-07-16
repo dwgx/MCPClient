@@ -61,6 +61,22 @@ public final class SeProtectedObjects {
     private static final String COMPAT_PACKAGE = "net.marcloud.mcp.core.compat.";
 
     /**
+     * ALPC (P-SECURE transport + crypto) prefix — also whole-package protected.
+     * The {@code compat} trust spine is a thin wrapper: every Ed25519 <i>verdict</i>
+     * ({@code Ed25519PatchSigner.verify}, {@code TufTrust.isRootSignedToBakedTrust},
+     * {@code SnapshotVerifier}, {@code CompatAuthorityClient}) funnels through the
+     * single primitive {@code alpc.CompatCrypto.ed25519Verify}. Protecting only the
+     * {@code compat} callers while leaving the {@code alpc} delegate exposed was a
+     * refactor-induced coverage gap: {@code redefine_class} (a tool-mediated path
+     * this guard governs) could hot-swap {@code ed25519Verify} to always-true and
+     * disarm the entire signature/trust framework — the exact self-lobotomy the
+     * COMPAT_PACKAGE prefix documents as blocked. Covering the whole {@code alpc}
+     * package (CompatCrypto, CompatAuthority, TicketCompatAuthority, AlpcServer)
+     * closes it and protects transport/crypto classes added later automatically.
+     */
+    private static final String ALPC_PACKAGE = "net.marcloud.mcp.core.alpc.";
+
+    /**
      * Load-bearing classes outside the security package: the supervised-gate
      * machinery, the agent that holds Instrumentation, and the redefine/hook
      * plumbing itself. Redefining any of these could disable the guard.
@@ -95,7 +111,16 @@ public final class SeProtectedObjects {
             "net.marcloud.mcp.core.flt.seam.NettyTap",
             "net.marcloud.mcp.core.flt.seam.TickInjector",
             // C6 native debugger bridge (holds the JVMTI native binding)
-            "net.marcloud.mcp.core.kd.KdBridge");
+            "net.marcloud.mcp.core.kd.KdBridge",
+            // Auth-decision + tool-layer gate wrappers that live OUTSIDE the protected
+            // prefixes. The underlying KdBridge/MmAccess are protected, but the tool
+            // wrappers that gate them are one layer up in unprotected packages — a
+            // redefine of the wrapper's gate method (e.g. DebugTools.guard → no-op,
+            // HttpFacade.authorized → true) neutralizes the check without touching the
+            // protected core. Cover the wrappers too.
+            "net.marcloud.mcp.core.io.http.HttpFacade",
+            "net.marcloud.mcp.core.kd.DebugTools",
+            "net.marcloud.mcp.core.mm.MutateStateTools");
 
     /**
      * True if {@code className} must never be redefined/retransformed. Null or
@@ -107,7 +132,7 @@ public final class SeProtectedObjects {
         }
         String n = normalize(className);
         return n.startsWith(SECURITY_PACKAGE) || n.startsWith(OBJECT_PACKAGE)
-                || n.startsWith(COMPAT_PACKAGE)
+                || n.startsWith(COMPAT_PACKAGE) || n.startsWith(ALPC_PACKAGE)
                 || PROTECTED.contains(n);
     }
 

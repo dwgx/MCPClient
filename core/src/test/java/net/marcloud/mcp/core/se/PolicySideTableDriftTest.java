@@ -57,34 +57,83 @@ public class PolicySideTableDriftTest {
      * — the purpose-built kill switch for the send surface — while three green
      * assertions reported "no gate drift".
      *
-     * <p>Pinned here for the send surface, where the invariant is unambiguous: a
-     * tool whose name says it sends and that writes at HIGH integrity is putting
-     * packets on the wire, so it MUST carry {@link Privilege#SE_NET_RAW}. Adding the
-     * next {@code send_*} tool without its privilege entry fails this test.
+     * <p>Pinned against the EXPLICIT {@link SeToolRequirement#NETWORK_SEND_TOOLS} set,
+     * not a name prefix. The prefix heuristic ({@code startsWith("send_")}) was itself
+     * a latent hole: renaming the typed tools to the {@code do_} family silently
+     * stopped it matching them, so the guard would go green while covering nothing.
+     * A packet-sending tool is now a declared member of the set, whatever it is named.
      *
-     * <p>Known gap deliberately NOT asserted here: {@code act_set}/{@code act_cancel}
-     * are HIGH writers with no L4 privilege (pre-existing, from PHASE A). Widening
-     * this test to "every HIGH writer needs a privilege" would fail on them; that is
-     * an owner decision (which privilege they should carry), not a drive-by fix.
+     * <p><b>Bidirectional</b>, so neither drift direction can hide:
+     * <ul>
+     *   <li>forward — every member of the send set writes at HIGH and holds SE_NET_RAW
+     *       (so {@code disable_privilege(SE_NET_RAW)} is a real kill switch);</li>
+     *   <li>reverse — every SE_NET_RAW tool in the L4 table is listed in the send set
+     *       (so a new sender can't get the privilege without being declared a sender).</li>
+     * </ul>
+     *
+     * <p>The former {@code act_set}/{@code act_cancel} exemption is now closed: they
+     * were HIGH writers with no L4 privilege (the same drift the typed send tools had),
+     * and now carry {@link Privilege#SE_WORLD_WRITE}. The general "HIGH+ writer needs an
+     * L4 privilege" rule is asserted by {@link #everyHighIntegrityWriterDeclaresAnL4Privilege}.
      */
     @Test
-    public void everySendToolWritingAtHighDeclaresTheNetPrivilege() {
-        Set<String> offenders = new TreeSet<>();
-        for (String name : SeToolRequirement.l3WriteNames()) {
-            if (!name.startsWith("send_")) {
-                continue;
-            }
+    public void networkSendToolsHoldTheNetPrivilegeBothWays() {
+        // forward: each declared sender writes HIGH + holds SE_NET_RAW
+        Set<String> forwardOffenders = new TreeSet<>();
+        for (String name : SeToolRequirement.networkSendTools()) {
             SeToolRequirement req = SeToolRequirement.forTool(name, true);
-            if (req.writesResourceAt() != IntegrityLevel.HIGH) {
-                continue;
-            }
-            if (req.requiredPrivilege() != Privilege.SE_NET_RAW) {
-                offenders.add(name + "=" + req.requiredPrivilege());
+            if (req.writesResourceAt() != IntegrityLevel.HIGH
+                    || req.requiredPrivilege() != Privilege.SE_NET_RAW) {
+                forwardOffenders.add(name + "=(" + req.writesResourceAt()
+                        + "," + req.requiredPrivilege() + ")");
             }
         }
-        assertTrue("send_* tools writing at HIGH without SE_NET_RAW — disable_privilege"
+        assertTrue("declared network-send tools not gated HIGH+SE_NET_RAW — disable_privilege"
                 + "(SE_NET_RAW) would NOT stop them putting packets on the wire: "
-                + offenders, offenders.isEmpty());
+                + forwardOffenders, forwardOffenders.isEmpty());
+
+        // reverse: every SE_NET_RAW tool is a declared sender (can't get the privilege
+        // for the send surface without being listed as one)
+        Set<String> reverseOffenders = new TreeSet<>();
+        for (String name : SeToolRequirement.l4PrivilegeNames()) {
+            if (SeToolRequirement.forTool(name, true).requiredPrivilege() == Privilege.SE_NET_RAW
+                    && !SeToolRequirement.networkSendTools().contains(name)) {
+                reverseOffenders.add(name);
+            }
+        }
+        assertTrue("tools hold SE_NET_RAW but are not in NETWORK_SEND_TOOLS — declare them "
+                + "senders so the send-surface invariants cover them: " + reverseOffenders,
+                reverseOffenders.isEmpty());
+    }
+
+    /**
+     * The general form of the reverse invariant, now that the {@code act_*} exemption
+     * is closed: <b>any tool that writes a resource at HIGH integrity or above MUST
+     * carry an L4 privilege</b>. A HIGH+ write is a dangerous verb against the game
+     * classes, the network connection, or the JVM itself; the L4 privilege is the
+     * per-verb kill switch {@code disable_privilege} flips. A HIGH+ writer with a null
+     * privilege has no such switch — exactly the hole the W6 {@code send_*} tools and
+     * the PHASE-A {@code act_*} tools both shipped with.
+     *
+     * <p>LOW/MEDIUM writers (memory, narrative, tool self-modification) are correctly
+     * excluded: they gate on ring + integrity + capability, not a dangerous verb.
+     * Reverting the {@code act_set}/{@code act_cancel} L4 entries fails this test.
+     */
+    @Test
+    public void everyHighIntegrityWriterDeclaresAnL4Privilege() {
+        Set<String> offenders = new TreeSet<>();
+        for (String name : SeToolRequirement.l3WriteNames()) {
+            SeToolRequirement req = SeToolRequirement.forTool(name, true);
+            IntegrityLevel writes = req.writesResourceAt();
+            if (writes == null || writes.rank() < IntegrityLevel.HIGH.rank()) {
+                continue;
+            }
+            if (req.requiredPrivilege() == null) {
+                offenders.add(name + "=" + writes.label());
+            }
+        }
+        assertTrue("HIGH+ integrity writers with no L4 privilege — disable_privilege has "
+                + "no kill switch for these dangerous verbs: " + offenders, offenders.isEmpty());
     }
 
     /**

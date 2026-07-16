@@ -18,6 +18,8 @@ import java.util.List;
 import java.util.Map;
 
 import net.marcloud.mcp.core.io.http.Json;
+import net.marcloud.mcp.core.se.CapabilitySid;
+import net.marcloud.mcp.core.se.Privilege;
 import net.marcloud.mcp.core.se.SeAccessCheck;
 import net.marcloud.mcp.core.se.SeReferenceMonitor;
 import net.marcloud.mcp.core.se.Ring;
@@ -46,6 +48,8 @@ public final class AlpcServer {
     private final CompatAuthority compat;
     private final int port;
     private final String authToken;
+    /** The authority's construction-time subject posture, reported over M_POSTURE. */
+    private final String posture;
 
     private volatile ServerSocket serverSocket;
     private volatile boolean running;
@@ -57,6 +61,11 @@ public final class AlpcServer {
         this(authority, new DenyAllCompatAuthority(), port, authToken);
     }
 
+    /** Convenience overload carrying the posture string (no compat channel). */
+    public AlpcServer(SeReferenceMonitor authority, int port, String authToken, String posture) {
+        this(authority, new DenyAllCompatAuthority(), port, authToken, posture);
+    }
+
     /**
      * Additive overload: same L1-L5 authority plus an optional {@link CompatAuthority}
      * for the online patch-ticket channel. Pass {@link DenyAllCompatAuthority} to keep
@@ -64,10 +73,23 @@ public final class AlpcServer {
      */
     public AlpcServer(
             SeReferenceMonitor authority, CompatAuthority compat, int port, String authToken) {
+        this(authority, compat, port, authToken, AlpcProtocol.POSTURE_WIDE_OPEN);
+    }
+
+    /**
+     * Full overload carrying the authority's construction-time {@code posture} string
+     * (see {@code AlpcProtocol.POSTURE_*}), reported over {@link AlpcProtocol#M_POSTURE}
+     * so the game JVM can detect a posture split (e.g. game hardened but authority
+     * wide-open). Defaults to {@code wide-open} on the shorter overloads.
+     */
+    public AlpcServer(
+            SeReferenceMonitor authority, CompatAuthority compat, int port, String authToken,
+            String posture) {
         this.authority = authority;
         this.compat = compat == null ? new DenyAllCompatAuthority() : compat;
         this.port = port;
         this.authToken = authToken == null ? "" : authToken;
+        this.posture = posture == null ? AlpcProtocol.POSTURE_WIDE_OPEN : posture;
     }
 
     /** Bind + serve on a daemon thread. Pass port 0 for an ephemeral test port. */
@@ -230,6 +252,20 @@ public final class AlpcServer {
                     resp.put(AlpcProtocol.K_RESTORABLE, authority.restorable());
             case AlpcProtocol.M_COMPAT_HELLO -> handleCompatHello(req, resp);
             case AlpcProtocol.M_COMPAT_TICKET -> handleCompatTicket(req, resp);
+            // ---- cross-wall kill switch (tighten-only) ----
+            // disable/revoke narrow the authority's live subject. There is
+            // intentionally NO enable/grant RPC: re-opening a verb stays local to
+            // the authority so a compromised game process cannot self-escalate.
+            case AlpcProtocol.M_DISABLE_PRIV -> {
+                Privilege p = Privilege.parse(String.valueOf(req.get(AlpcProtocol.K_PRIV)));
+                resp.put(AlpcProtocol.K_RESULT, p != null && authority.disablePrivilege(p));
+            }
+            case AlpcProtocol.M_REVOKE_CAP -> {
+                CapabilitySid cap =
+                        CapabilitySid.parse(String.valueOf(req.get(AlpcProtocol.K_CAP)));
+                resp.put(AlpcProtocol.K_RESULT, cap != null && authority.revokeCapability(cap));
+            }
+            case AlpcProtocol.M_POSTURE -> resp.put(AlpcProtocol.K_POSTURE, posture);
             default -> {
                 resp.put(AlpcProtocol.K_ALLOW, false);
                 resp.put(AlpcProtocol.K_REASON, "unknown method: " + method);

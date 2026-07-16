@@ -69,18 +69,65 @@ public record SeToolRequirement(Ring requiredRing,
         return L4_PRIVILEGE.keySet();
     }
 
+    /**
+     * The explicit set of tools that put a packet on the wire — the authoritative,
+     * <b>prefix-independent</b> answer to "does this tool send network traffic?".
+     * Every member MUST carry {@link Privilege#SE_NET_RAW} (so
+     * {@code disable_privilege(SE_NET_RAW)} is a real kill switch for the whole send
+     * surface) and write at HIGH integrity; conversely every SE_NET_RAW tool MUST be
+     * listed here. Both directions are pinned by {@code PolicySideTableDriftTest}.
+     *
+     * <p>This replaces the old {@code name.startsWith("send_")} heuristic, which
+     * silently stopped matching when the typed tools were renamed to the {@code do_}
+     * family — a prefix is not a security property. Membership is declared, not inferred.
+     */
+    static final Set<String> NETWORK_SEND_TOOLS = Set.of(
+            // NOTE: send_raw_packet is deliberately NOT here. It compiles + runs caller
+            // Java (eval-class) and is gated as code-exec (SE_CREATE_TOOL), not SE_NET_RAW,
+            // so the bidirectional SE_NET_RAW invariant must not expect it. The pure typed
+            // senders below are the SE_NET_RAW surface.
+            "send_chat",
+            "do_client_status",
+            "do_select_slot",
+            "do_close_container",
+            "do_dig",
+            "do_set_abilities",
+            "do_place_block",
+            "do_click_slot",
+            "do_set_creative_slot",
+            "do_use_entity",
+            "do_entity_action");
+
+    /**
+     * The declared network-send tool set (see {@link #NETWORK_SEND_TOOLS}). Public
+     * because ToolRegistry-side tests in another package check registered tools
+     * against it; the L3/L4 key views stay package-private (drift test is same-package).
+     */
+    public static Set<String> networkSendTools() {
+        return NETWORK_SEND_TOOLS;
+    }
+
     // ---- L3: the integrity of the resource each mutating tool writes ----
     // Read-only / bookkeeping tools are absent (writesResourceAt == null → no L3 gate).
     private static final java.util.Map<String, IntegrityLevel> L3_WRITES = java.util.Map.ofEntries(
             java.util.Map.entry("redefine_class", IntegrityLevel.HIGH),   // rewrites net.minecraft.* (HIGH)
             java.util.Map.entry("eval_java", IntegrityLevel.SYSTEM),      // arbitrary in-proc code
-            java.util.Map.entry("send_raw_packet", IntegrityLevel.HIGH),  // network connection
+            // send_raw_packet compiles + runs caller Java (eval-class), so it writes at
+            // SYSTEM like eval_java — NOT the HIGH network-connection tier of the typed
+            // do_* senders. See Ring.java + L4 below (SE_CREATE_TOOL) + NETWORK_SEND_TOOLS.
+            java.util.Map.entry("send_raw_packet", IntegrityLevel.SYSTEM),
             java.util.Map.entry("send_chat", IntegrityLevel.HIGH),
-            // typed send_* tools (W6): outward packet sends, same integrity as send_raw_packet
-            java.util.Map.entry("send_client_status", IntegrityLevel.HIGH),
-            java.util.Map.entry("send_held_item", IntegrityLevel.HIGH),
-            java.util.Map.entry("send_close_window", IntegrityLevel.HIGH),
-            java.util.Map.entry("send_dig", IntegrityLevel.HIGH),
+            // typed do_* tools (W6/W7): outward packet sends, same integrity as send_raw_packet
+            java.util.Map.entry("do_client_status", IntegrityLevel.HIGH),
+            java.util.Map.entry("do_select_slot", IntegrityLevel.HIGH),
+            java.util.Map.entry("do_close_container", IntegrityLevel.HIGH),
+            java.util.Map.entry("do_dig", IntegrityLevel.HIGH),
+            java.util.Map.entry("do_set_abilities", IntegrityLevel.HIGH),
+            java.util.Map.entry("do_place_block", IntegrityLevel.HIGH),
+            java.util.Map.entry("do_click_slot", IntegrityLevel.HIGH),
+            java.util.Map.entry("do_set_creative_slot", IntegrityLevel.HIGH),
+            java.util.Map.entry("do_use_entity", IntegrityLevel.HIGH),
+            java.util.Map.entry("do_entity_action", IntegrityLevel.HIGH),
             // GUI interaction drives real handlers (windowClick → server, button actions)
             java.util.Map.entry("gui_click_element", IntegrityLevel.HIGH),
             java.util.Map.entry("gui_type_text", IntegrityLevel.HIGH),
@@ -124,17 +171,35 @@ public record SeToolRequirement(Ring requiredRing,
     private static final java.util.Map<String, Privilege> L4_PRIVILEGE = java.util.Map.ofEntries(
             java.util.Map.entry("redefine_class", Privilege.SE_DEBUG_CLASS),
             java.util.Map.entry("eval_java", Privilege.SE_CREATE_TOOL),  // HIGH#4: arbitrary in-proc code needs L4
-            java.util.Map.entry("send_raw_packet", Privilege.SE_NET_RAW),
+            // send_raw_packet compiles + runs caller Java = code-exec, gated like
+            // eval_java (SE_CREATE_TOOL), NOT SE_NET_RAW. disable_privilege(SE_CREATE_TOOL)
+            // — the code-exec kill switch — must shut it off, same as eval_java/create_tool.
+            java.util.Map.entry("send_raw_packet", Privilege.SE_CREATE_TOOL),
             java.util.Map.entry("send_chat", Privilege.SE_NET_RAW),
-            // typed send_* tools: they put packets on the wire exactly like
+            // typed do_* tools: they put packets on the wire exactly like
             // send_raw_packet, so disable_privilege(SE_NET_RAW) MUST shut them off too.
-            java.util.Map.entry("send_client_status", Privilege.SE_NET_RAW),
-            java.util.Map.entry("send_held_item", Privilege.SE_NET_RAW),
-            java.util.Map.entry("send_close_window", Privilege.SE_NET_RAW),
-            java.util.Map.entry("send_dig", Privilege.SE_NET_RAW),
+            // Membership is also asserted structurally via NETWORK_SEND_TOOLS below.
+            java.util.Map.entry("do_client_status", Privilege.SE_NET_RAW),
+            java.util.Map.entry("do_select_slot", Privilege.SE_NET_RAW),
+            java.util.Map.entry("do_close_container", Privilege.SE_NET_RAW),
+            java.util.Map.entry("do_dig", Privilege.SE_NET_RAW),
+            java.util.Map.entry("do_set_abilities", Privilege.SE_NET_RAW),
+            java.util.Map.entry("do_place_block", Privilege.SE_NET_RAW),
+            java.util.Map.entry("do_click_slot", Privilege.SE_NET_RAW),
+            java.util.Map.entry("do_set_creative_slot", Privilege.SE_NET_RAW),
+            java.util.Map.entry("do_use_entity", Privilege.SE_NET_RAW),
+            java.util.Map.entry("do_entity_action", Privilege.SE_NET_RAW),
             java.util.Map.entry("gui_click_element", Privilege.SE_GUI_INTERACT),
             java.util.Map.entry("gui_type_text", Privilege.SE_GUI_INTERACT),
             java.util.Map.entry("gui_press_key", Privilege.SE_GUI_INTERACT),
+            // act_set/act_cancel drive the live player (move/look/dig/attack) — they
+            // produce server-visible world/player state, so they need SE_WORLD_WRITE
+            // enabled. Same class of gap the W6 send_* tools had: HIGH writers (L3) that
+            // shipped with no L4 privilege, so disable_privilege had no kill switch for
+            // the actuation surface. SE_NET_RAW is wrong here (that gates raw packet
+            // crafting); SE_GUI_INTERACT is wrong too (that gates the GUI-widget surface).
+            java.util.Map.entry("act_set", Privilege.SE_WORLD_WRITE),
+            java.util.Map.entry("act_cancel", Privilege.SE_WORLD_WRITE),
             java.util.Map.entry("create_tool", Privilege.SE_CREATE_TOOL),
             java.util.Map.entry("rollback_tool", Privilege.SE_CREATE_TOOL),
             java.util.Map.entry("capture_screen", Privilege.SE_SCREEN_CAP),

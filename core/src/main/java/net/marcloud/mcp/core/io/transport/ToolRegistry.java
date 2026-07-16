@@ -62,6 +62,14 @@ public final class ToolRegistry {
         tools.add(sendHeldItem());
         tools.add(sendCloseWindow());
         tools.add(sendDig());
+        // W7: six more typed do_* tools. The two entity ones resolve a live Entity
+        // by id on the game thread (LLM only has the id); the rest build from scalars.
+        tools.add(doSetAbilities());
+        tools.add(doPlaceBlock());
+        tools.add(doClickSlot());
+        tools.add(doSetCreativeSlot());
+        tools.add(doUseEntity());
+        tools.add(doEntityAction());
         return tools;
     }
 
@@ -105,6 +113,24 @@ public final class ToolRegistry {
     private static Integer argInt(Map<String, Object> args, String key) {
         Object v = (args == null) ? null : args.get(key);
         return v instanceof Number n ? n.intValue() : null;
+    }
+
+    private static int argIntOr(Map<String, Object> args, String key, int fallback) {
+        Integer v = argInt(args, key);
+        return v == null ? fallback : v;
+    }
+
+    private static boolean argBool(Map<String, Object> args, String key, boolean fallback) {
+        Object v = (args == null) ? null : args.get(key);
+        if (v instanceof Boolean b) {
+            return b;
+        }
+        return v == null ? fallback : Boolean.parseBoolean(v.toString());
+    }
+
+    private static float argFloat(Map<String, Object> args, String key, float fallback) {
+        Object v = (args == null) ? null : args.get(key);
+        return v instanceof Number n ? n.floatValue() : fallback;
     }
 
     /**
@@ -570,7 +596,7 @@ public final class ToolRegistry {
 
     private SyncToolSpecification sendClientStatus() {
         Tool tool = Tool.builder()
-                .name("send_client_status")
+                .name("do_client_status")
                 .title("Send client status")
                 .description("[requires: connected-to-server] Send a C16 client-status packet. "
                         + "status: PERFORM_RESPAWN (respawn after death / leave the end), "
@@ -601,7 +627,7 @@ public final class ToolRegistry {
 
     private SyncToolSpecification sendHeldItem() {
         Tool tool = Tool.builder()
-                .name("send_held_item")
+                .name("do_select_slot")
                 .title("Change held hotbar slot")
                 .description("[requires: connected-to-server] Send a C09 held-item-change: select "
                         + "hotbar slot 0-8 as the active held item.")
@@ -627,7 +653,7 @@ public final class ToolRegistry {
 
     private SyncToolSpecification sendCloseWindow() {
         Tool tool = Tool.builder()
-                .name("send_close_window")
+                .name("do_close_container")
                 .title("Close a container window")
                 .description("[requires: connected-to-server] Send a C0D close-window packet for the "
                         + "given windowId (0 = the player's own inventory).")
@@ -650,7 +676,7 @@ public final class ToolRegistry {
 
     private SyncToolSpecification sendDig() {
         Tool tool = Tool.builder()
-                .name("send_dig")
+                .name("do_dig")
                 .title("Send player digging")
                 .description("[requires: connected-to-server, in-world] Send a C07 player-digging packet. "
                         + "status: START_DESTROY_BLOCK / STOP_DESTROY_BLOCK / ABORT_DESTROY_BLOCK (mining a "
@@ -709,6 +735,314 @@ public final class ToolRegistry {
             return sendTyped(new net.minecraft.network.play.client.C07PacketPlayerDigging(
                     action, new net.minecraft.util.BlockPos(x, y, z), face),
                     "dig " + action.name());
+        });
+    }
+
+    // ===== W7: six more typed do_* tools =====
+
+    /** Resolve an ItemStack from item id-or-name + count + meta; null id → null stack (empty hand). */
+    private static net.minecraft.item.ItemStack resolveStack(String itemId, int count, int meta) {
+        if (itemId == null || itemId.isBlank()) {
+            return null;
+        }
+        net.minecraft.item.Item item = net.minecraft.item.Item.getByNameOrId(itemId.trim());
+        if (item == null) {
+            return null;
+        }
+        return new net.minecraft.item.ItemStack(item, count, meta);
+    }
+
+    private SyncToolSpecification doSetAbilities() {
+        Tool tool = Tool.builder()
+                .name("do_set_abilities")
+                .title("Set player abilities")
+                .description("[requires: connected-to-server, in-world] Send a C13 player-abilities packet "
+                        + "(flying/allow-flying/invulnerable/creative + fly/walk speed). Only include the "
+                        + "flags you want to set; omitted booleans keep the server's current view is NOT "
+                        + "assumed — you must pass the full intended state. flying/allowFlying/invulnerable/"
+                        + "creative are booleans (default false); flySpeed/walkSpeed are floats (defaults "
+                        + "0.05 / 0.1). Servers commonly reject client-asserted flight; this is mainly for "
+                        + "creative/allowed contexts.")
+                .annotations(ToolAnnotations.builder().title("Set player abilities")
+                        .readOnlyHint(false).destructiveHint(true)
+                        .idempotentHint(true).openWorldHint(true).build())
+                .inputSchema(objectSchema(Map.of(
+                        "flying", Map.of("type", "boolean", "description", "currently flying"),
+                        "allowFlying", Map.of("type", "boolean", "description", "may toggle flight"),
+                        "invulnerable", Map.of("type", "boolean", "description", "damage disabled"),
+                        "creative", Map.of("type", "boolean", "description", "creative-mode abilities"),
+                        "flySpeed", Map.of("type", "number", "description", "fly speed (default 0.05)"),
+                        "walkSpeed", Map.of("type", "number", "description", "walk speed (default 0.1)")),
+                        List.of()))
+                .build();
+        return new SyncToolSpecification(tool, (exchange, request) -> {
+            Map<String, Object> a = request.arguments();
+            net.minecraft.entity.player.PlayerCapabilities caps =
+                    new net.minecraft.entity.player.PlayerCapabilities();
+            caps.isFlying = argBool(a, "flying", false);
+            caps.allowFlying = argBool(a, "allowFlying", false);
+            caps.disableDamage = argBool(a, "invulnerable", false);
+            caps.isCreativeMode = argBool(a, "creative", false);
+            caps.setFlySpeed(argFloat(a, "flySpeed", 0.05f));
+            caps.setPlayerWalkSpeed(argFloat(a, "walkSpeed", 0.1f));
+            return sendTyped(new net.minecraft.network.play.client.C13PacketPlayerAbilities(caps),
+                    "set_abilities flying=" + caps.isFlying);
+        });
+    }
+
+    private SyncToolSpecification doSetCreativeSlot() {
+        Tool tool = Tool.builder()
+                .name("do_set_creative_slot")
+                .title("Set creative inventory slot")
+                .description("[requires: connected-to-server, creative mode] Send a C10 creative-inventory "
+                        + "action: place an item stack into inventory slot 'slot'. item is an item id or "
+                        + "name (e.g. 'minecraft:diamond' or '264'); count/meta default 1/0. Omit item (or "
+                        + "empty) to CLEAR the slot (null stack). Server ignores this outside creative mode.")
+                .annotations(ToolAnnotations.builder().title("Set creative inventory slot")
+                        .readOnlyHint(false).destructiveHint(true)
+                        .idempotentHint(true).openWorldHint(true).build())
+                .inputSchema(objectSchema(Map.of(
+                        "slot", Map.of("type", "integer", "description", "inventory slot id"),
+                        "item", stringProp("item id or name; omit/empty = clear slot"),
+                        "count", Map.of("type", "integer", "description", "stack size (default 1)"),
+                        "meta", Map.of("type", "integer", "description", "damage/meta (default 0)")),
+                        List.of("slot")))
+                .build();
+        return new SyncToolSpecification(tool, (exchange, request) -> {
+            Map<String, Object> a = request.arguments();
+            Integer slot = argInt(a, "slot");
+            if (slot == null) {
+                return error("slot (integer) is required");
+            }
+            String item = argString(a, "item");
+            net.minecraft.item.ItemStack stack = resolveStack(item,
+                    argIntOr(a, "count", 1), argIntOr(a, "meta", 0));
+            if (item != null && !item.isBlank() && stack == null) {
+                return error("unknown item '" + item + "'");
+            }
+            return sendTyped(new net.minecraft.network.play.client.C10PacketCreativeInventoryAction(
+                    slot, stack), "set_creative_slot " + slot);
+        });
+    }
+    private SyncToolSpecification doPlaceBlock() {
+        Tool tool = Tool.builder()
+                .name("do_place_block")
+                .title("Place block / use item on block")
+                .description("[requires: connected-to-server, in-world] Send a C08 block-placement: use the "
+                        + "held item against the block at pos (x,y,z) on the given face. face is UP/DOWN/"
+                        + "NORTH/SOUTH/EAST/WEST. hitX/hitY/hitZ (0..1, default 0.5) are the in-face hit "
+                        + "offset. Optional item id/name+count/meta describes the held stack the server "
+                        + "should see; omit to send an empty stack (server uses your actual held item). "
+                        + "A block action targets a specific block, so x,y,z are required.")
+                .annotations(ToolAnnotations.builder().title("Place block")
+                        .readOnlyHint(false).destructiveHint(true)
+                        .idempotentHint(false).openWorldHint(true).build())
+                .inputSchema(objectSchema(Map.of(
+                        "x", Map.of("type", "integer", "description", "block x"),
+                        "y", Map.of("type", "integer", "description", "block y"),
+                        "z", Map.of("type", "integer", "description", "block z"),
+                        "face", stringProp("UP|DOWN|NORTH|SOUTH|EAST|WEST"),
+                        "hitX", Map.of("type", "number", "description", "in-face x 0..1 (default 0.5)"),
+                        "hitY", Map.of("type", "number", "description", "in-face y 0..1 (default 0.5)"),
+                        "hitZ", Map.of("type", "number", "description", "in-face z 0..1 (default 0.5)"),
+                        "item", stringProp("held item id or name (optional)"),
+                        "count", Map.of("type", "integer", "description", "held count (default 1)"),
+                        "meta", Map.of("type", "integer", "description", "held meta (default 0)")),
+                        List.of("x", "y", "z", "face")))
+                .build();
+        return new SyncToolSpecification(tool, (exchange, request) -> {
+            Map<String, Object> a = request.arguments();
+            Integer x = argInt(a, "x");
+            Integer y = argInt(a, "y");
+            Integer z = argInt(a, "z");
+            if (x == null || y == null || z == null) {
+                return error("x, y and z are required (a block placement targets a specific block)");
+            }
+            String faceArg = argString(a, "face");
+            if (faceArg == null) {
+                return error("face is required (UP|DOWN|NORTH|SOUTH|EAST|WEST)");
+            }
+            net.minecraft.util.EnumFacing face;
+            try {
+                face = net.minecraft.util.EnumFacing.valueOf(faceArg.trim().toUpperCase(java.util.Locale.ROOT));
+            } catch (IllegalArgumentException e) {
+                return error("unknown face '" + faceArg + "'");
+            }
+            String item = argString(a, "item");
+            net.minecraft.item.ItemStack stack = resolveStack(item,
+                    argIntOr(a, "count", 1), argIntOr(a, "meta", 0));
+            if (item != null && !item.isBlank() && stack == null) {
+                return error("unknown item '" + item + "'");
+            }
+            return sendTyped(new net.minecraft.network.play.client.C08PacketPlayerBlockPlacement(
+                    new net.minecraft.util.BlockPos(x, y, z), face.getIndex(), stack,
+                    argFloat(a, "hitX", 0.5f), argFloat(a, "hitY", 0.5f), argFloat(a, "hitZ", 0.5f)),
+                    "place_block " + x + "," + y + "," + z);
+        });
+    }
+
+    private SyncToolSpecification doClickSlot() {
+        Tool tool = Tool.builder()
+                .name("do_click_slot")
+                .title("Click a container slot")
+                .description("[requires: connected-to-server, container open] Send a C0E click-window: "
+                        + "windowId (0 = own inventory), slotId, button (0=left,1=right), mode "
+                        + "(0=pickup,1=shift,2=hotbar-swap,3=middle,4=drop,5=drag,6=double), actionNumber "
+                        + "(transaction id, must match the container's counter), and the clicked item "
+                        + "(item id/name+count/meta; omit for an empty slot). Container-protocol primitive; "
+                        + "a wrong actionNumber makes the server reject the transaction.")
+                .annotations(ToolAnnotations.builder().title("Click a container slot")
+                        .readOnlyHint(false).destructiveHint(true)
+                        .idempotentHint(false).openWorldHint(true).build())
+                .inputSchema(objectSchema(Map.of(
+                        "windowId", Map.of("type", "integer", "description", "window id (0 = own inventory)"),
+                        "slotId", Map.of("type", "integer", "description", "slot index"),
+                        "button", Map.of("type", "integer", "description", "0=left, 1=right (default 0)"),
+                        "mode", Map.of("type", "integer", "description", "click mode 0-6 (default 0)"),
+                        "actionNumber", Map.of("type", "integer", "description", "transaction id (default 0)"),
+                        "item", stringProp("clicked item id/name; omit = empty"),
+                        "count", Map.of("type", "integer", "description", "count (default 1)"),
+                        "meta", Map.of("type", "integer", "description", "meta (default 0)")),
+                        List.of("windowId", "slotId")))
+                .build();
+        return new SyncToolSpecification(tool, (exchange, request) -> {
+            Map<String, Object> a = request.arguments();
+            Integer windowId = argInt(a, "windowId");
+            Integer slotId = argInt(a, "slotId");
+            if (windowId == null || slotId == null) {
+                return error("windowId and slotId (integers) are required");
+            }
+            String item = argString(a, "item");
+            net.minecraft.item.ItemStack stack = resolveStack(item,
+                    argIntOr(a, "count", 1), argIntOr(a, "meta", 0));
+            if (item != null && !item.isBlank() && stack == null) {
+                return error("unknown item '" + item + "'");
+            }
+            return sendTyped(new net.minecraft.network.play.client.C0EPacketClickWindow(
+                    windowId, slotId, argIntOr(a, "button", 0), argIntOr(a, "mode", 0),
+                    stack, (short) argIntOr(a, "actionNumber", 0)),
+                    "click_slot win=" + windowId + " slot=" + slotId);
+        });
+    }
+    /**
+     * Resolve a live {@link net.minecraft.entity.Entity} by id on the GAME THREAD
+     * (world/entity state is not thread-safe). Returns null if not in world or no
+     * such entity. The Entity reference is used only to build the packet inside the
+     * same game-thread call and never escapes to a worker thread.
+     */
+    private net.minecraft.entity.Entity resolveEntityOnGameThread(int entityId) throws Exception {
+        return net.marcloud.mcp.core.GameBridge.onGameThread(() -> {
+            net.minecraft.client.multiplayer.WorldClient w = ctx.game().world();
+            return w == null ? null : w.getEntityByID(entityId);
+        });
+    }
+
+    private SyncToolSpecification doUseEntity() {
+        Tool tool = Tool.builder()
+                .name("do_use_entity")
+                .title("Use or attack an entity")
+                .description("[requires: connected-to-server, in-world] Send a C02 use-entity: interact "
+                        + "with or attack the entity with the given entityId. action is INTERACT (right-"
+                        + "click), ATTACK (left-click), or INTERACT_AT (right-click at a precise point — "
+                        + "then hitX/hitY/hitZ give the local hit vector). The entity is resolved live by "
+                        + "id on the game thread; an unknown id is an honest error, never a fabricated send.")
+                .annotations(ToolAnnotations.builder().title("Use or attack an entity")
+                        .readOnlyHint(false).destructiveHint(true)
+                        .idempotentHint(false).openWorldHint(true).build())
+                .inputSchema(objectSchema(Map.of(
+                        "entityId", Map.of("type", "integer", "description", "target entity id"),
+                        "action", stringProp("INTERACT | ATTACK | INTERACT_AT"),
+                        "hitX", Map.of("type", "number", "description", "INTERACT_AT local hit x"),
+                        "hitY", Map.of("type", "number", "description", "INTERACT_AT local hit y"),
+                        "hitZ", Map.of("type", "number", "description", "INTERACT_AT local hit z")),
+                        List.of("entityId", "action")))
+                .build();
+        return new SyncToolSpecification(tool, (exchange, request) -> {
+            Map<String, Object> a = request.arguments();
+            Integer entityId = argInt(a, "entityId");
+            if (entityId == null) {
+                return error("entityId (integer) is required");
+            }
+            String actionArg = argString(a, "action");
+            if (actionArg == null) {
+                return error("action is required (INTERACT | ATTACK | INTERACT_AT)");
+            }
+            net.minecraft.network.play.client.C02PacketUseEntity.Action action;
+            try {
+                action = net.minecraft.network.play.client.C02PacketUseEntity.Action
+                        .valueOf(actionArg.trim().toUpperCase(java.util.Locale.ROOT));
+            } catch (IllegalArgumentException e) {
+                return error("unknown action '" + actionArg + "' (INTERACT|ATTACK|INTERACT_AT)");
+            }
+            net.minecraft.network.play.client.C02PacketUseEntity packet;
+            try {
+                net.minecraft.entity.Entity target = resolveEntityOnGameThread(entityId);
+                if (target == null) {
+                    return error("no entity with id " + entityId + " (not in world, or id unknown)");
+                }
+                if (action == net.minecraft.network.play.client.C02PacketUseEntity.Action.INTERACT_AT) {
+                    net.minecraft.util.Vec3 hit = new net.minecraft.util.Vec3(
+                            argFloat(a, "hitX", 0f), argFloat(a, "hitY", 0f), argFloat(a, "hitZ", 0f));
+                    packet = new net.minecraft.network.play.client.C02PacketUseEntity(target, hit);
+                } else {
+                    packet = new net.minecraft.network.play.client.C02PacketUseEntity(target, action);
+                }
+            } catch (Exception e) {
+                return error("use_entity failed resolving entity " + entityId + ": " + e);
+            }
+            return sendTyped(packet, "use_entity " + action.name() + " #" + entityId);
+        });
+    }
+
+    private SyncToolSpecification doEntityAction() {
+        Tool tool = Tool.builder()
+                .name("do_entity_action")
+                .title("Player entity action")
+                .description("[requires: connected-to-server, in-world] Send a C0B entity-action for the "
+                        + "local player: START_SNEAKING/STOP_SNEAKING, START_SPRINTING/STOP_SPRINTING, "
+                        + "STOP_SLEEPING, RIDING_JUMP (auxData = jump boost 0-100), or OPEN_INVENTORY. "
+                        + "entityId defaults to the local player; auxData defaults 0 (only meaningful for "
+                        + "RIDING_JUMP). The entity is resolved live by id on the game thread.")
+                .annotations(ToolAnnotations.builder().title("Player entity action")
+                        .readOnlyHint(false).destructiveHint(true)
+                        .idempotentHint(false).openWorldHint(true).build())
+                .inputSchema(objectSchema(Map.of(
+                        "action", stringProp("START_SNEAKING|STOP_SNEAKING|STOP_SLEEPING|START_SPRINTING|"
+                                + "STOP_SPRINTING|RIDING_JUMP|OPEN_INVENTORY"),
+                        "entityId", Map.of("type", "integer", "description", "entity id (default local player)"),
+                        "auxData", Map.of("type", "integer", "description", "RIDING_JUMP boost 0-100 (default 0)")),
+                        List.of("action")))
+                .build();
+        return new SyncToolSpecification(tool, (exchange, request) -> {
+            Map<String, Object> a = request.arguments();
+            String actionArg = argString(a, "action");
+            if (actionArg == null) {
+                return error("action is required");
+            }
+            net.minecraft.network.play.client.C0BPacketEntityAction.Action action;
+            try {
+                action = net.minecraft.network.play.client.C0BPacketEntityAction.Action
+                        .valueOf(actionArg.trim().toUpperCase(java.util.Locale.ROOT));
+            } catch (IllegalArgumentException e) {
+                return error("unknown action '" + actionArg + "'");
+            }
+            Integer entityId = argInt(a, "entityId");
+            int aux = argIntOr(a, "auxData", 0);
+            net.minecraft.network.play.client.C0BPacketEntityAction packet;
+            try {
+                net.minecraft.entity.Entity target = (entityId == null)
+                        ? net.marcloud.mcp.core.GameBridge.onGameThread(() -> ctx.game().player())
+                        : resolveEntityOnGameThread(entityId);
+                if (target == null) {
+                    return error(entityId == null
+                            ? "not in world (no local player to act as)"
+                            : "no entity with id " + entityId);
+                }
+                packet = new net.minecraft.network.play.client.C0BPacketEntityAction(target, action, aux);
+            } catch (Exception e) {
+                return error("entity_action failed: " + e);
+            }
+            return sendTyped(packet, "entity_action " + action.name());
         });
     }
 }

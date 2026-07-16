@@ -216,6 +216,66 @@ public final class Ed25519PatchSignerTest {
         assertFalse("kiRef re-label must invalidate the signature (F1)", v.verify(relabeled));
     }
 
+    // ---- red-team F1 FOLLOW-UP: supersedes + platformCondition now signed ----
+
+    @Test
+    public void f1followup_supersedesTamperBreaksSignature() {
+        // Sign a manifest that supersedes patch-X, then re-present the SAME signature over
+        // a manifest that supersedes patch-Y. supersedes drives the engine's supersededIds
+        // (a superseded predecessor is not armed), so an MITM rewrite must not verify.
+        // Before this fix supersedes was UNSIGNED -> verify returned true (bug); now it denies.
+        Ed25519PatchSigner tool = new Ed25519PatchSigner(TrustAnchors.empty(), KP_A.getPrivate(), KEY_A);
+        PatchManifest signed = tool.sign(base().supersedes("patch-X").build(),
+                PatchManifest.sha256Hex("the-transform-bytes"));
+        Ed25519PatchSigner v = verifierTrusting(KEY_A, KP_A.getPublic());
+        assertTrue("the honestly-signed supersedes=patch-X manifest verifies", v.verify(signed));
+        // Reuse the SAME signature string over a manifest that supersedes patch-Y.
+        PatchManifest tampered = base().supersedes("patch-Y").build()
+                .withTransform(PatchManifest.sha256Hex("the-transform-bytes"), signed.signature());
+        assertFalse("supersedes rewrite must invalidate the signature (F1 follow-up)",
+                v.verify(tampered));
+    }
+
+    @Test
+    public void f1followup_platformConditionTamperBreaksSignature() {
+        // base() sets platformCondition="LWJGL3". Sign it, then re-present the same
+        // signature over a manifest whose platformCondition was flipped. platformCondition
+        // feeds appliesToRuntime (whether the transform runs at all), so a rewrite that
+        // makes a patch fire on a runtime it was never vetted for must not verify.
+        PatchManifest signed = signWith(KP_A, KEY_A); // platformCondition="LWJGL3"
+        Ed25519PatchSigner v = verifierTrusting(KEY_A, KP_A.getPublic());
+        assertTrue(v.verify(signed));
+        PatchManifest tampered = base().platformCondition("any").build()
+                .withTransform(PatchManifest.sha256Hex("the-transform-bytes"), signed.signature());
+        assertFalse("platformCondition rewrite must invalidate the signature (F1 follow-up)",
+                v.verify(tampered));
+    }
+
+    @Test
+    public void f1followup_supersedesChangesCanonicalBytes() {
+        // Pure canonical form: two manifests differing ONLY in supersedes must produce
+        // different signing inputs. Before this fix the field was not emitted -> bytes
+        // were equal (bug); now they must differ.
+        PatchManifest x = base().supersedes("patch-X").build().withTransform("h", null);
+        PatchManifest y = base().supersedes("patch-Y").build().withTransform("h", null);
+        byte[] a = PatchCanonicalizer.signingInput(x, "kid");
+        byte[] b = PatchCanonicalizer.signingInput(y, "kid");
+        assertFalse("supersedes must be part of the canonical signing input",
+                java.util.Arrays.equals(a, b));
+    }
+
+    @Test
+    public void f1followup_platformConditionChangesCanonicalBytes() {
+        // Two manifests differing ONLY in platformCondition must produce different signing
+        // inputs. Before this fix the field was not emitted -> bytes were equal (bug).
+        PatchManifest x = base().platformCondition("LWJGL3").build().withTransform("h", null);
+        PatchManifest y = base().platformCondition("LWJGL2").build().withTransform("h", null);
+        byte[] a = PatchCanonicalizer.signingInput(x, "kid");
+        byte[] b = PatchCanonicalizer.signingInput(y, "kid");
+        assertFalse("platformCondition must be part of the canonical signing input",
+                java.util.Arrays.equals(a, b));
+    }
+
     // ---- red-team F7/F8: keyId charset + signature length ----
 
     @Test

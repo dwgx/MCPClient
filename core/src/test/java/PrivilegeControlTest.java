@@ -38,17 +38,19 @@ public class PrivilegeControlTest {
     @Test
     public void disablePrivilegePersistsAndDeniesAtL4() {
         SeLocalMonitor e = engine();
-        // Baseline: wide-open, send_raw_packet (needs SE_NET_RAW enabled) is allowed.
-        assertTrue("wide-open allows send_raw_packet",
-                e.evaluate(e.currentSubject(), req("send_raw_packet")).allow());
+        // Baseline: wide-open, send_chat (needs SE_NET_RAW enabled) is allowed. (Uses
+        // send_chat, not send_raw_packet: the latter is now code-exec-gated on
+        // SE_CREATE_TOOL, so send_chat is the pure SE_NET_RAW vehicle for this test.)
+        assertTrue("wide-open allows send_chat",
+                e.evaluate(e.currentSubject(), req("send_chat")).allow());
 
         assertTrue("disable succeeds on granted privilege",
                 e.disablePrivilege(Privilege.SE_NET_RAW));
 
         // The disable must PERSIST across a fresh currentSubject() (this is the GAP-2
         // fix — the old always-fresh-wide-open subject would re-allow here).
-        SeAccessCheck denied = e.evaluate(e.currentSubject(), req("send_raw_packet"));
-        assertFalse("send_raw_packet denied after disable", denied.allow());
+        SeAccessCheck denied = e.evaluate(e.currentSubject(), req("send_chat"));
+        assertFalse("send_chat denied after disable", denied.allow());
         assertEquals("L4 privilege", denied.layer());
 
         // Another unrelated tool is unaffected.
@@ -57,8 +59,8 @@ public class PrivilegeControlTest {
 
         // Re-enable restores it.
         assertTrue(e.enablePrivilege(Privilege.SE_NET_RAW));
-        assertTrue("re-enable re-allows send_raw_packet",
-                e.evaluate(e.currentSubject(), req("send_raw_packet")).allow());
+        assertTrue("re-enable re-allows send_chat",
+                e.evaluate(e.currentSubject(), req("send_chat")).allow());
     }
 
     // ---- L5: revoke a capability → L5 deny → grant → allow (through engine) ----

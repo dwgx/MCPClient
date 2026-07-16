@@ -107,7 +107,7 @@ public final class Ki1MipmapZeroFillPatch implements CompatPatch {
      */
     static final String KERNEL_SIGNATURE =
             "ed25519:v1:mcp-kernel-ed25519-v1:"
-            + "57Z3PjtHe7e4KCunyp32hHhuuRhgsGtDZVFX9erMZgEcEhS9J-VfAOqhIwhK0Hmz92XeoXO4tONUruxdYbMyBQ";
+            + "f_HHYBWtWj-8le4-Zw7jIdvNpROdz4h5BN_V1G05eM-309x6ytR1D3BSRGq0nxf0R8U9tBVbwbL4R3mex4bkBQ";
 
     private final PatchManifest manifest;
 

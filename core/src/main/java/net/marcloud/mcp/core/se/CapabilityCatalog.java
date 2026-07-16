@@ -35,14 +35,28 @@ public final class CapabilityCatalog {
             Map.entry("gui_snapshot_image", Set.of(CAP_SCREEN_CAP)),
             Map.entry("recent_packets", Set.of(CAP_NETWORK_RECV_TAP)),
             Map.entry("disconnect_report", Set.of(CAP_NETWORK_RECV_TAP)),
+            // PHASE-P journal readers over the SAME PacketJournal — packet_view exposes
+            // strictly MORE (typed pos/health/world-edit fields). Without these, revoke_
+            // capability(CAP_NETWORK_RECV_TAP) could not shut off the packet-tap surface.
+            Map.entry("packets_tail", Set.of(CAP_NETWORK_RECV_TAP)),
+            Map.entry("packet_get", Set.of(CAP_NETWORK_RECV_TAP)),
+            Map.entry("packet_view", Set.of(CAP_NETWORK_RECV_TAP)),
             // outward network effects
             Map.entry("send_chat", Set.of(CAP_NETWORK_SEND)),
-            Map.entry("send_raw_packet", Set.of(CAP_NETWORK_SEND)),
-            // typed send_* tools (W6): each builds a specific C-packet and sends it
-            Map.entry("send_client_status", Set.of(CAP_NETWORK_SEND)),
-            Map.entry("send_held_item", Set.of(CAP_NETWORK_SEND)),
-            Map.entry("send_close_window", Set.of(CAP_NETWORK_SEND)),
-            Map.entry("send_dig", Set.of(CAP_NETWORK_SEND)),
+            // send_raw_packet compiles + runs caller Java (eval-class) → CAP_TOOL_CREATE
+            // like eval_java, not the weaker CAP_NETWORK_SEND of the typed do_* senders.
+            Map.entry("send_raw_packet", Set.of(CAP_TOOL_CREATE)),
+            // typed do_* tools (W6/W7): each builds a specific C-packet and sends it
+            Map.entry("do_client_status", Set.of(CAP_NETWORK_SEND)),
+            Map.entry("do_select_slot", Set.of(CAP_NETWORK_SEND)),
+            Map.entry("do_close_container", Set.of(CAP_NETWORK_SEND)),
+            Map.entry("do_dig", Set.of(CAP_NETWORK_SEND)),
+            Map.entry("do_set_abilities", Set.of(CAP_NETWORK_SEND)),
+            Map.entry("do_place_block", Set.of(CAP_NETWORK_SEND)),
+            Map.entry("do_click_slot", Set.of(CAP_NETWORK_SEND)),
+            Map.entry("do_set_creative_slot", Set.of(CAP_NETWORK_SEND)),
+            Map.entry("do_use_entity", Set.of(CAP_NETWORK_SEND)),
+            Map.entry("do_entity_action", Set.of(CAP_NETWORK_SEND)),
             // GUI action tools drive real click/type/key handlers = world/UI mutation
             // (server-visible effects). Without an L5 entry a builtin needs no capability,
             // so caps=strict default-deny would be bypassed. See CAP_WORLD_WRITE.

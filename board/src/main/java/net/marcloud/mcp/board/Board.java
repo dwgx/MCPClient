@@ -59,6 +59,11 @@ public final class Board {
         net.marcloud.mcp.board.link.BoardPort port =
                 net.marcloud.mcp.board.link.McpLink.publishBoardPort();
         Backplane.register("board", port);
+
+        // PHASE E.3 (ADR-0003): install the built-in chip roster so a fresh board is
+        // useful out of the box. Additive to this frozen (§L2) facade — no signature
+        // change. Honors the mcp.board.officialChips opt-out and is idempotent.
+        net.marcloud.mcp.board.chips.OfficialChips.install(FEATURES, TRACE);
     }
 
     /**

@@ -171,6 +171,50 @@ public final class SeRemoteMonitor implements SeReferenceMonitor {
         return SeToken.wideOpen().withClearance(clearance());
     }
 
+    // ---- cross-wall kill switch (tighten-only) ----------------------------
+    // These NARROW the authority's live subject over the wall. enablePrivilege /
+    // grantCapability are deliberately NOT overridden — they keep the interface's
+    // inherited false no-op, so a game process can never re-open a verb the
+    // authority shut (self-escalation stays local to the authority). Fail-closed:
+    // a null reply (authority unreachable) returns false, i.e. "did not narrow".
+
+    @Override
+    public boolean disablePrivilege(Privilege p) {
+        if (p == null) {
+            return false;
+        }
+        Map<String, Object> r = call(Map.of(
+                AlpcProtocol.K_METHOD, AlpcProtocol.M_DISABLE_PRIV,
+                AlpcProtocol.K_PRIV, p.name()));
+        return r != null && Boolean.TRUE.equals(r.get(AlpcProtocol.K_RESULT));
+    }
+
+    @Override
+    public boolean revokeCapability(CapabilitySid sid) {
+        if (sid == null) {
+            return false;
+        }
+        Map<String, Object> r = call(Map.of(
+                AlpcProtocol.K_METHOD, AlpcProtocol.M_REVOKE_CAP,
+                AlpcProtocol.K_CAP, sid.name()));
+        return r != null && Boolean.TRUE.equals(r.get(AlpcProtocol.K_RESULT));
+    }
+
+    /**
+     * Ask the authority for its construction-time subject posture (one of
+     * {@code AlpcProtocol.POSTURE_*}); null if unreachable. Used by the game JVM at
+     * startup to detect a posture split (e.g. this JVM is hardened but the authority
+     * process came up wide-open — a dangerous no-op kill switch).
+     */
+    public String posture() {
+        Map<String, Object> r = call(Map.of(AlpcProtocol.K_METHOD, AlpcProtocol.M_POSTURE));
+        if (r == null) {
+            return null;
+        }
+        Object p = r.get(AlpcProtocol.K_POSTURE);
+        return p == null ? null : String.valueOf(p);
+    }
+
     // ---- transport (fail-closed) ------------------------------------------
 
     private synchronized Map<String, Object> call(Map<String, Object> params) {

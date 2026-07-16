@@ -69,6 +69,9 @@ public class SampleChipsTest {
         Board.shutdown();
         Board.trace().clear();
         Board.init();
+        // E.3 (ADR-0003): init() now installs the official roster (incl. a TickCounterChip);
+        // clear it so this test adds and drives its OWN chip without a duplicate-id clash.
+        Board.features().clear();
         try {
             Matrix<Chip> features = Board.features();
             TickCounterChip chip = new TickCounterChip(); // binds Board.trace()

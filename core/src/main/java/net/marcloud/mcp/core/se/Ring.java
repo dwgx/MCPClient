@@ -87,17 +87,29 @@ public enum Ring {
             // R-1 hypervisor: arbitrary code / rewrite the running game
             Map.entry("eval_java", R_MINUS_1),
             Map.entry("redefine_class", R_MINUS_1),
+            // send_raw_packet compiles + reflectively runs caller-supplied Java (loadNew
+            // + run()) — the SAME arbitrary-in-proc-code power class as eval_java, not a
+            // mere network-effect tool. It is gated as code-exec (R-1 + SYSTEM +
+            // SE_CREATE_TOOL + CAP_TOOL_CREATE), NOT at the weaker R1/SE_NET_RAW send
+            // tier the typed do_* tools use. (The board PacketSendSignal veto still fires
+            // on the actual send at runtime; that is an advisory layer, not the gate.)
+            Map.entry("send_raw_packet", R_MINUS_1),
             // R0 kernel: modify the agent's own tools
             Map.entry("create_tool", R0),
             Map.entry("rollback_tool", R0),
             // R1 system: outward game/network effects
-            Map.entry("send_raw_packet", R1),
             Map.entry("send_chat", R1),
-            // typed send_* tools (W6): outward network effects, same ring as send_raw_packet
-            Map.entry("send_client_status", R1),
-            Map.entry("send_held_item", R1),
-            Map.entry("send_close_window", R1),
-            Map.entry("send_dig", R1),
+            // typed do_* tools (W6/W7): outward network effects, same ring as send_raw_packet
+            Map.entry("do_client_status", R1),
+            Map.entry("do_select_slot", R1),
+            Map.entry("do_close_container", R1),
+            Map.entry("do_dig", R1),
+            Map.entry("do_set_abilities", R1),
+            Map.entry("do_place_block", R1),
+            Map.entry("do_click_slot", R1),
+            Map.entry("do_set_creative_slot", R1),
+            Map.entry("do_use_entity", R1),
+            Map.entry("do_entity_action", R1),
             // R2 observe: live game/GL reads on the game thread
             Map.entry("scan_surroundings", R2),
             Map.entry("world_view", R2),
