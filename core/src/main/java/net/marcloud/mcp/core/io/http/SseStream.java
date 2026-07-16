@@ -152,11 +152,18 @@ public final class SseStream {
                 m.put("fields", snap.fields()); // already an immutable reference-free copy
             }
         } else {
-            String s = String.valueOf(ev);
-            if (s.length() > 300) {
-                s = s.substring(0, 300);
+            // Prefer the event's own reference-free typed projection; fall back to a
+            // truncated toString only when a subclass offers none.
+            Map<String, Object> typed = ev.streamSummary();
+            if (typed != null && !typed.isEmpty()) {
+                m.put("fields", typed);
+            } else {
+                String s = String.valueOf(ev);
+                if (s.length() > 300) {
+                    s = s.substring(0, 300);
+                }
+                m.put("summary", s);
             }
-            m.put("summary", s);
         }
         return frame("event", Json.write(m));
     }

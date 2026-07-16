@@ -35,4 +35,19 @@ public abstract class GameEvent {
     public long tickId() {
         return tickId;
     }
+
+    /**
+     * An optional clean, <b>reference-free</b> field projection of this event for
+     * the SSE feed ({@code GET /v1/stream}) and other structured consumers. The
+     * base returns {@code null}, meaning "no typed projection — fall back to a
+     * {@code toString()} summary". Subclasses that can render safe scalar fields
+     * (never a live {@code Packet}/{@code Entity}/{@code ByteBuf}) override this to
+     * make their frames self-describing instead of {@code Type@hash}. Keep it cheap:
+     * it may run on the game/Netty thread inside {@code publish}.
+     *
+     * @return an ordered map of primitive/String/enum-name values, or {@code null}
+     */
+    public java.util.Map<String, Object> streamSummary() {
+        return null;
+    }
 }

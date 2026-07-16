@@ -80,6 +80,9 @@ public class SseStreamTest {
             assertTrue("tick event pushed as a frame carrying its tickId: " + tickData,
                     tickData != null && tickData.contains("4242")
                             && tickData.contains("\"kind\":\"tick\""));
+            // clean projection (not toString@hash): TickEvent.streamSummary() emits fields
+            assertTrue("tick frame carries a typed fields projection, not toString: " + tickData,
+                    tickData.contains("\"fields\"") && tickData.contains("\"phase\""));
 
             // closing the client stream must remove the subscription (no leak)
             resp.body().close();

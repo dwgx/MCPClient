@@ -48,4 +48,13 @@ public final class TickEvent extends GameEvent {
     public long tickCount() {
         return tickId;
     }
+
+    /** Clean SSE projection: the tick id + phase (reference-free). */
+    @Override
+    public java.util.Map<String, Object> streamSummary() {
+        java.util.Map<String, Object> m = new java.util.LinkedHashMap<>();
+        m.put("tick", tickId);
+        m.put("phase", phase.name());
+        return m;
+    }
 }

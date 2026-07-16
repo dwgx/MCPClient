@@ -24,4 +24,13 @@ public final class PacketReceivedEvent extends GameEvent {
     public String packetType() {
         return packet == null ? "null" : packet.getClass().getSimpleName();
     }
+
+    /** Clean SSE projection: direction + packet simple name (reference-free). */
+    @Override
+    public java.util.Map<String, Object> streamSummary() {
+        java.util.Map<String, Object> m = new java.util.LinkedHashMap<>();
+        m.put("dir", "IN");
+        m.put("packet", packetType());
+        return m;
+    }
 }

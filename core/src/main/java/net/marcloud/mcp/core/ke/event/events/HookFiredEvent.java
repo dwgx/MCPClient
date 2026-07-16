@@ -68,4 +68,14 @@ public final class HookFiredEvent extends GameEvent {
                 .map(a -> a == null ? "null" : a.getClass().getSimpleName())
                 .toList();
     }
+
+    /** Clean SSE projection: hook target + method + arg TYPE names (never values, L7). */
+    @Override
+    public java.util.Map<String, Object> streamSummary() {
+        java.util.Map<String, Object> m = new java.util.LinkedHashMap<>();
+        m.put("targetClass", targetClass);
+        m.put("method", method);
+        m.put("argTypes", argTypes());
+        return m;
+    }
 }

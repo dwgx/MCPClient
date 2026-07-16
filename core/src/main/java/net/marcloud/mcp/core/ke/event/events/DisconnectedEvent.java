@@ -25,4 +25,12 @@ public final class DisconnectedEvent extends GameEvent {
     public String reasonText() {
         return reason == null ? "(no reason)" : reason.getUnformattedText();
     }
+
+    /** Clean SSE projection: the plain-text reason (reference-free). */
+    @Override
+    public java.util.Map<String, Object> streamSummary() {
+        java.util.Map<String, Object> m = new java.util.LinkedHashMap<>();
+        m.put("reason", reasonText());
+        return m;
+    }
 }
