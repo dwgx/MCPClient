@@ -12,6 +12,7 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import net.marcloud.mcp.core.se.CapabilityCatalog;
 import net.marcloud.mcp.core.se.CapabilitySid;
 import net.marcloud.mcp.core.se.IntegrityLevel;
+import net.marcloud.mcp.core.se.Privilege;
 import net.marcloud.mcp.core.se.Ring;
 import net.marcloud.mcp.core.se.SeToolRequirement;
 import org.junit.Test;
@@ -50,18 +51,48 @@ public class SendToolsW6Test {
         }
     }
 
+    /**
+     * Every typed send tool must be gated on ALL FOUR security dimensions, at the
+     * same level as send_raw_packet. The L4 privilege is the one that makes
+     * {@code disable_privilege(SE_NET_RAW)} — the purpose-built kill switch for the
+     * send surface — actually shut these off; without it a "disabled" send surface
+     * still puts packets on the wire.
+     */
     @Test
-    public void everySendToolIsGatedInAllThreeTables() {
+    public void everySendToolIsGatedOnAllFourDimensions() {
         for (String name : SEND_TOOLS) {
-            // Ring R1 (outward network effect), like send_raw_packet
-            assertEquals(name + " must be ring R1", Ring.R1, Ring.forBuiltin(name, Ring.R3));
-            // CapabilityCatalog: CAP_NETWORK_SEND
-            assertTrue(name + " must require CAP_NETWORK_SEND",
-                    CapabilityCatalog.requiredFor(name, true).contains(CapabilitySid.CAP_NETWORK_SEND));
-            // SeToolRequirement: declares an integrity write (HIGH) — non-null
+            SeToolRequirement req = SeToolRequirement.forTool(name, true);
+            // L2 ring: R1 (outward network effect), like send_raw_packet
+            assertEquals(name + " must be ring R1", Ring.R1, req.requiredRing());
+            // L3 integrity: writes the network connection at HIGH
             assertEquals(name + " must write at HIGH integrity like send_raw_packet",
-                    IntegrityLevel.HIGH,
-                    SeToolRequirement.forTool(name, true).writesResourceAt());
+                    IntegrityLevel.HIGH, req.writesResourceAt());
+            // L4 privilege: SE_NET_RAW, so disable_privilege(SE_NET_RAW) denies it
+            assertEquals(name + " must require SE_NET_RAW so disable_privilege shuts it off",
+                    Privilege.SE_NET_RAW, req.requiredPrivilege());
+            // L5 capability: CAP_NETWORK_SEND
+            assertTrue(name + " must require CAP_NETWORK_SEND",
+                    req.requiredCaps().contains(CapabilitySid.CAP_NETWORK_SEND));
+        }
+    }
+
+    /**
+     * The registered-tool side of the gate check: every send_* tool that ToolRegistry
+     * actually exposes is gated. (The table-side generic guard — "any declared send_*
+     * writing at HIGH must hold SE_NET_RAW" — lives in PolicySideTableDriftTest, which
+     * has package access to the Ring table.)
+     */
+    @Test
+    public void everyRegisteredSendToolIsPrivilegeGated() {
+        ToolRegistry reg = registry();
+        for (SyncToolSpecification spec : reg.all()) {
+            String name = spec.tool().name();
+            if (!name.startsWith("send_")) {
+                continue;
+            }
+            assertEquals(name + " is a registered send tool but declares no SE_NET_RAW"
+                            + " — disable_privilege(SE_NET_RAW) would not stop it",
+                    Privilege.SE_NET_RAW, SeToolRequirement.forTool(name, true).requiredPrivilege());
         }
     }
 
@@ -87,5 +118,21 @@ public class SendToolsW6Test {
                 .apply(null, new CallToolRequest("send_dig", Map.of("status", "NOPE")));
         assertTrue(Boolean.TRUE.equals(r.isError()));
         assertTrue(r.content().toString().toLowerCase().contains("unknown status"));
+    }
+
+    /**
+     * A block action must never default its target to (0,0,0): that would silently
+     * mine the world origin on a live server. Fails on the pre-fix code, which
+     * defaulted each missing axis to 0 and sent the packet.
+     */
+    @Test
+    public void digBlockActionRefusesToFabricateOrigin() {
+        CallToolResult r = toolByName(registry(), "send_dig").callHandler()
+                .apply(null, new CallToolRequest("send_dig", Map.of("status", "START_DESTROY_BLOCK")));
+        assertTrue("missing coords on a block action must be an error, not (0,0,0)",
+                Boolean.TRUE.equals(r.isError()));
+        String text = r.content().toString();
+        assertTrue(text, text.contains("required"));
+        assertTrue("must say why, not just fail", text.contains("0,0,0"));
     }
 }

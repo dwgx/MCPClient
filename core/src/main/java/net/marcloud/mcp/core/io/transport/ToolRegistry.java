@@ -681,9 +681,22 @@ public final class ToolRegistry {
             } catch (IllegalArgumentException e) {
                 return error("unknown status '" + status + "'");
             }
-            int x = argInt(args, "x") == null ? 0 : argInt(args, "x");
-            int y = argInt(args, "y") == null ? 0 : argInt(args, "y");
-            int z = argInt(args, "z") == null ? 0 : argInt(args, "z");
+            Integer xa = argInt(args, "x");
+            Integer ya = argInt(args, "y");
+            Integer za = argInt(args, "z");
+            // The three block statuses act on a specific block: never invent (0,0,0)
+            // and mine at the world origin on a live server. The item statuses
+            // (DROP_*/RELEASE_USE_ITEM) genuinely ignore the position on the wire.
+            boolean needsPos = action == net.minecraft.network.play.client.C07PacketPlayerDigging.Action.START_DESTROY_BLOCK
+                    || action == net.minecraft.network.play.client.C07PacketPlayerDigging.Action.STOP_DESTROY_BLOCK
+                    || action == net.minecraft.network.play.client.C07PacketPlayerDigging.Action.ABORT_DESTROY_BLOCK;
+            if (needsPos && (xa == null || ya == null || za == null)) {
+                return error("x, y and z are required for " + action.name()
+                        + " (a block action targets a specific block; refusing to default to 0,0,0)");
+            }
+            int x = xa == null ? 0 : xa;
+            int y = ya == null ? 0 : ya;
+            int z = za == null ? 0 : za;
             net.minecraft.util.EnumFacing face = net.minecraft.util.EnumFacing.UP;
             String faceArg = argString(args, "face");
             if (faceArg != null) {

@@ -126,6 +126,12 @@ public record SeToolRequirement(Ring requiredRing,
             java.util.Map.entry("eval_java", Privilege.SE_CREATE_TOOL),  // HIGH#4: arbitrary in-proc code needs L4
             java.util.Map.entry("send_raw_packet", Privilege.SE_NET_RAW),
             java.util.Map.entry("send_chat", Privilege.SE_NET_RAW),
+            // typed send_* tools: they put packets on the wire exactly like
+            // send_raw_packet, so disable_privilege(SE_NET_RAW) MUST shut them off too.
+            java.util.Map.entry("send_client_status", Privilege.SE_NET_RAW),
+            java.util.Map.entry("send_held_item", Privilege.SE_NET_RAW),
+            java.util.Map.entry("send_close_window", Privilege.SE_NET_RAW),
+            java.util.Map.entry("send_dig", Privilege.SE_NET_RAW),
             java.util.Map.entry("gui_click_element", Privilege.SE_GUI_INTERACT),
             java.util.Map.entry("gui_type_text", Privilege.SE_GUI_INTERACT),
             java.util.Map.entry("gui_press_key", Privilege.SE_GUI_INTERACT),

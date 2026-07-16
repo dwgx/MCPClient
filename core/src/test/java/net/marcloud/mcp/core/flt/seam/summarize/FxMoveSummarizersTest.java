@@ -62,6 +62,34 @@ public class FxMoveSummarizersTest {
     }
 
     @Test
+    public void lookOnlyPacketMustNotFabricatePositionDeltas() {
+        // S16PacketEntityLook.readPacketData reads ONLY yaw/pitch/onGround — it never
+        // touches posX/Y/Z. Emitting dx/dy/dz=0 would assert "did not move", a claim
+        // the wire never made. Fails on the pre-fix code, which emitted them always.
+        S14PacketEntity.S16PacketEntityLook p =
+                new S14PacketEntity.S16PacketEntityLook(3, (byte) 64, (byte) 0, true);
+        Map<String, Object> m = reg.projectStructured(p);
+        assertTrue("look-only packet carries no position: dx must be absent", !m.containsKey("dx"));
+        assertTrue("look-only packet carries no position: dy must be absent", !m.containsKey("dy"));
+        assertTrue("look-only packet carries no position: dz must be absent", !m.containsKey("dz"));
+        assertEquals("but it does carry look", 90.0, ((Number) m.get("yaw")).doubleValue(), 0.5);
+        assertEquals(Boolean.TRUE, m.get("onGround"));
+        assertTrue("the String summary must not claim a delta either",
+                !reg.summarize(p).contains("dPos"));
+    }
+
+    @Test
+    public void baseEntityPacketCarriesNothingButItsIdentity() {
+        // Base S14PacketEntity.readPacketData reads ONLY entityId — no pos, no look,
+        // no onGround. Its projection must therefore be empty, not zeros.
+        S14PacketEntity p = new S14PacketEntity(11);
+        Map<String, Object> m = reg.projectStructured(p);
+        assertTrue("base S14 carries no position", !m.containsKey("dx"));
+        assertTrue("base S14 carries no look", !m.containsKey("yaw"));
+        assertTrue("base S14 carries no onGround", !m.containsKey("onGround"));
+    }
+
+    @Test
     public void lookMoveDecodesDeltaAndAngle() {
         // full look+move: yaw byte 64 -> 90 deg
         S14PacketEntity.S17PacketEntityLookMove p =

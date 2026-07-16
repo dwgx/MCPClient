@@ -146,38 +146,70 @@ final class FxMoveSummarizers {
 
     /**
      * Shared summarizer for the S14 entity-move family (base + S15/S16/S17). Surfaces
-     * the position deltas (raw/32 blocks) and look (raw*360/256 degrees) that the
-     * concrete subclass actually carries, plus onGround. The entity id is only
-     * resolvable via getEntity(World) (needs a live world), so it is honestly omitted
-     * rather than fabricated.
+     * ONLY what the concrete subclass actually reads off the wire — the honesty rule
+     * that governs every summarizer here:
+     *
+     * <ul>
+     *   <li>position deltas (raw/32 blocks): only S15 rel-move and S17 look+move
+     *       decode {@code posX/posY/posZ}; the base S14 and S16 look-only packets do
+     *       NOT, so emitting {@code dx/dy/dz} for them would assert "did not move" —
+     *       a claim the wire never made;</li>
+     *   <li>look (raw*360/256 degrees): gated on {@link S14PacketEntity#func_149060_h()},
+     *       true only for S16/S17;</li>
+     *   <li>onGround: the base S14 does not read it either.</li>
+     * </ul>
+     *
+     * <p>The entity id is only resolvable via {@code getEntity(World)} (needs a live
+     * world), so it is honestly omitted rather than fabricated.
      */
     static final class EntityMove implements PacketSummarizer {
         @Override public boolean handles(String cn) {
             return cn != null && cn.startsWith("net.minecraft.network.play.server.S14PacketEntity");
         }
+
+        /** True only for the subclasses whose readPacketData actually decodes posX/Y/Z. */
+        private static boolean carriesPosition(S14PacketEntity s) {
+            return s instanceof S14PacketEntity.S15PacketEntityRelMove
+                    || s instanceof S14PacketEntity.S17PacketEntityLookMove;
+        }
+
+        /** True for every subclass; only the bare base S14 carries no onGround. */
+        private static boolean carriesGround(S14PacketEntity s) {
+            return s.getClass() != S14PacketEntity.class;
+        }
+
         @Override public String summarize(Object p) {
             S14PacketEntity s = (S14PacketEntity) p;
-            boolean hasLook = s.func_149060_h();
-            String kind = s.getClass().getSimpleName();
-            String base = kind + " dPos=" + Summ.f3(s.func_149062_c() / 32.0) + ","
-                    + Summ.f3(s.func_149061_d() / 32.0) + "," + Summ.f3(s.func_149064_e() / 32.0)
-                    + " ground=" + s.getOnGround();
-            if (hasLook) {
-                base += " yaw=" + Summ.f1(Summ.angle(s.func_149066_f()))
-                        + " pitch=" + Summ.f1(Summ.angle(s.func_149063_g()));
+            StringBuilder sb = new StringBuilder(s.getClass().getSimpleName());
+            if (carriesPosition(s)) {
+                sb.append(" dPos=").append(Summ.f3(s.func_149062_c() / 32.0))
+                        .append(',').append(Summ.f3(s.func_149061_d() / 32.0))
+                        .append(',').append(Summ.f3(s.func_149064_e() / 32.0));
             }
-            return base;
+            if (s.func_149060_h()) {
+                sb.append(" yaw=").append(Summ.f1(Summ.angle(s.func_149066_f())))
+                        .append(" pitch=").append(Summ.f1(Summ.angle(s.func_149063_g())));
+            }
+            if (carriesGround(s)) {
+                sb.append(" ground=").append(s.getOnGround());
+            }
+            return sb.toString();
         }
+
         @Override public Map<String, Object> project(Object p) {
             S14PacketEntity s = (S14PacketEntity) p;
-            PacketView.Builder v = PacketView.of()
-                    .putRounded("dx", s.func_149062_c() / 32.0, 3)
-                    .putRounded("dy", s.func_149061_d() / 32.0, 3)
-                    .putRounded("dz", s.func_149064_e() / 32.0, 3)
-                    .put("onGround", s.getOnGround());
+            PacketView.Builder v = PacketView.of();
+            if (carriesPosition(s)) {
+                v.putRounded("dx", s.func_149062_c() / 32.0, 3)
+                        .putRounded("dy", s.func_149061_d() / 32.0, 3)
+                        .putRounded("dz", s.func_149064_e() / 32.0, 3);
+            }
             if (s.func_149060_h()) {
                 v.putRounded("yaw", Summ.angle(s.func_149066_f()), 1)
                         .putRounded("pitch", Summ.angle(s.func_149063_g()), 1);
+            }
+            if (carriesGround(s)) {
+                v.put("onGround", s.getOnGround());
             }
             return v.buildMap();
         }

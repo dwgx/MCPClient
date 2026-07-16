@@ -42,10 +42,11 @@ public interface PacketSummarizer {
      * default.
      *
      * <p><b>Default: {@code null}</b> — "no structured projection". A summarizer that
-     * only produces a String (the B/C tier, and any legacy summarizer) leaves this
-     * unimplemented; the registry then reports no typed fields for that packet, and
-     * {@code packet_view} falls back to the String summary alone. A-tier summarizers
-     * override this to expose typed fields.
+     * only produces a String (the C tier, and any legacy summarizer) leaves this
+     * unimplemented; the registry then reports no typed fields for that packet and
+     * {@code packet_view} OMITS the entry entirely ({@code packets_tail} still shows
+     * it via the String summary). A- and B-tier summarizers override this — A-tier
+     * with the full field set, B-tier with a modest one.
      *
      * @return an ordered JSON-ready field map, or {@code null} if this summarizer
      *         offers no structured projection

@@ -319,14 +319,16 @@ public final class ObserveTools {
                 .name("packet_view")
                 .title("Structured packet view")
                 .description("[requires: netty-tap] Read-only: recent packets that carry a STRUCTURED, "
-                        + "typed projection (the high-value A-tier packets — position, health, world "
-                        + "edits, inventory, entity spawns, etc.), oldest first. Each: {seq, tickId, "
-                        + "dir(IN/OUT), class, simpleName, fields:{...typed key/values...}}. Unlike "
-                        + "packets_tail (a String summary per packet), this hands you parsed fields you "
-                        + "can read directly — no string parsing. Filter with 'dir' (IN|OUT), 'class' "
-                        + "(class-name substring), 'sinceSeq' (only seq > this), and 'limit' (default 50). "
-                        + "Packets with no typed projection (low-value / not yet modeled) are omitted; "
-                        + "use packets_tail to see those.")
+                        + "typed projection, oldest first. Each: {seq, tickId, dir(IN/OUT), class, "
+                        + "simpleName, fields:{...typed key/values...}}. Unlike packets_tail (a String "
+                        + "summary per packet), this hands you parsed fields you can read directly — no "
+                        + "string parsing. Covers the high-value packets (position, health, world edits, "
+                        + "inventory, entity spawns) AND the high-frequency ones (entity moves, sounds, "
+                        + "particles) — so on a busy server the movement/FX traffic can fill the window: "
+                        + "narrow with 'class' (class-name substring) to see what you care about. Also "
+                        + "filter with 'dir' (IN|OUT), 'sinceSeq' (only seq > this, for incremental "
+                        + "polling), and 'limit' (default 50). Packets with no typed projection are "
+                        + "omitted; use packets_tail to see those.")
                 .inputSchema(Map.of(
                         "type", "object",
                         "properties", Map.of(

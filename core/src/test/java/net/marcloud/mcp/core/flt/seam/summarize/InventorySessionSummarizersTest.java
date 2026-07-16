@@ -99,6 +99,20 @@ public class InventorySessionSummarizersTest {
     }
 
     @Test
+    public void clearTitleMustNotFabricateTimes() {
+        // S45PacketTitle.readPacketData reads times ONLY for Type.TIMES; a CLEAR/RESET
+        // carries neither message nor times. The pre-fix code branched on message==null
+        // and so emitted fadeIn/stay/fadeOut=0 for CLEAR — three invented defaults.
+        S45PacketTitle p = new S45PacketTitle(S45PacketTitle.Type.CLEAR, null);
+        Map<String, Object> m = reg.projectStructured(p);
+        assertEquals("CLEAR", m.get("type"));
+        assertTrue("CLEAR carries no times: fadeIn must be absent", !m.containsKey("fadeIn"));
+        assertTrue("CLEAR carries no times: stay must be absent", !m.containsKey("stay"));
+        assertTrue("CLEAR carries no times: fadeOut must be absent", !m.containsKey("fadeOut"));
+        assertTrue("CLEAR carries no message", !m.containsKey("message"));
+    }
+
+    @Test
     public void clientStatusSurfacesEnum() {
         C16PacketClientStatus p = new C16PacketClientStatus(
                 C16PacketClientStatus.EnumState.PERFORM_RESPAWN);

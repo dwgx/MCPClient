@@ -2,6 +2,7 @@ package net.marcloud.mcp.core.flt.seam.summarize;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import java.util.Map;
@@ -114,11 +115,19 @@ public class WorldMovementSummarizersTest {
         assertEquals(Boolean.FALSE, m.get("sneaking"));
     }
 
+    /**
+     * The two halves of the SPI are independent: a packet with only a String
+     * summarizer must project null, while still summarizing. (The previous version of
+     * this test asserted only that summarize() was non-blank — which passes on
+     * pre-W2.1 code because the generic summarizer returns the simple name for
+     * anything, i.e. it was vacuous.)
+     */
     @Test
-    public void unprojectedWorldPacketFallsToStringOnly() {
-        // sanity: a wired A-tier packet still yields a String summary even if some
-        // field is edge; and generic-only packets project null (covered elsewhere).
-        S41PacketServerDifficulty p = new S41PacketServerDifficulty(EnumDifficulty.NORMAL, false);
-        assertFalse(reg.summarize(p).isBlank());
+    public void stringOnlySummarizerProjectsNullWhileStillSummarizing() {
+        net.minecraft.network.play.server.S00PacketKeepAlive p =
+                new net.minecraft.network.play.server.S00PacketKeepAlive(7);
+        assertNull("KeepAlive has no project() override -> no typed view",
+                reg.projectStructured(p));
+        assertFalse("but it still has a String summary", reg.summarize(p).isBlank());
     }
 }

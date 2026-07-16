@@ -79,21 +79,39 @@ final class SessionSummarizers {
         @Override public boolean handles(String cn) {
             return "net.minecraft.network.play.server.S45PacketTitle".equals(cn);
         }
+        /** The wire reads a message ONLY for TITLE/SUBTITLE (S45PacketTitle.readPacketData). */
+        private static boolean carriesMessage(S45PacketTitle s) {
+            return s.getType() == S45PacketTitle.Type.TITLE
+                    || s.getType() == S45PacketTitle.Type.SUBTITLE;
+        }
+
+        /** The wire reads fade/stay times ONLY for TIMES; CLEAR/RESET carry neither. */
+        private static boolean carriesTimes(S45PacketTitle s) {
+            return s.getType() == S45PacketTitle.Type.TIMES;
+        }
+
         @Override public String summarize(Object p) {
             S45PacketTitle s = (S45PacketTitle) p;
             String type = Summ.enumName(s.getType());
-            if (s.getMessage() != null) {
-                return "title type=" + type + " msg=\"" + Summ.clip(s.getMessage().getUnformattedText(), 80) + "\"";
+            if (carriesMessage(s)) {
+                String msg = s.getMessage() == null ? "" : s.getMessage().getUnformattedText();
+                return "title type=" + type + " msg=\"" + Summ.clip(msg, 80) + "\"";
             }
-            return "title type=" + type + " fadeIn=" + s.getFadeInTime()
-                    + " stay=" + s.getDisplayTime() + " fadeOut=" + s.getFadeOutTime();
+            if (carriesTimes(s)) {
+                return "title type=" + type + " fadeIn=" + s.getFadeInTime()
+                        + " stay=" + s.getDisplayTime() + " fadeOut=" + s.getFadeOutTime();
+            }
+            // CLEAR / RESET carry nothing beyond the type — do not invent times.
+            return "title type=" + type;
         }
+
         @Override public Map<String, Object> project(Object p) {
             S45PacketTitle s = (S45PacketTitle) p;
             PacketView.Builder v = PacketView.of().put("type", Summ.enumName(s.getType()));
-            if (s.getMessage() != null) {
+            if (carriesMessage(s) && s.getMessage() != null) {
                 v.put("message", s.getMessage().getUnformattedText());
-            } else {
+            }
+            if (carriesTimes(s)) {
                 v.put("fadeIn", s.getFadeInTime()).put("stay", s.getDisplayTime())
                         .put("fadeOut", s.getFadeOutTime());
             }
