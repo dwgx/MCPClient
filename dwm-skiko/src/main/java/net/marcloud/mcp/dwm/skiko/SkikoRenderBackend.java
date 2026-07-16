@@ -40,8 +40,9 @@ import net.marcloud.mcp.dwm.gl.GlStateGuard;
  * GrContext::resetContext, exactly what the proven Compose backend did).
  *
  * <p><b>FBO wrap.</b> onAttach reads the currently-bound framebuffer id + size from the
- * host, builds a {@link BackendRenderTarget#makeGL} over it with stencil 8 (Skia needs
- * stencil), and a {@link Surface} with {@code BOTTOM_LEFT} origin. Resize rebuilds the
+ * host, builds a {@link BackendRenderTarget#makeGL} over it with stencil 0 (MC's FBO has
+ * no stencil attachment and clipRect AA needs none), and a {@link Surface} with {@code
+ * BOTTOM_LEFT} origin. Resize rebuilds the
  * target. Native load is triggered on first Skia touch ({@code org.jetbrains.skiko.Library}
  * extraction, launch flags {@code -Dskiko.renderApi=OPENGL} + optional {@code
  * -Dskiko.library.path}).
@@ -133,13 +134,18 @@ public final class SkikoRenderBackend implements RenderBackend {
         }
     }
 
-    /** (Re)build the Skia surface over MC's FBO. RGBA8, stencil 8, BOTTOM_LEFT origin. */
+    /** (Re)build the Skia surface over MC's FBO. RGBA8, stencil 0, BOTTOM_LEFT origin. */
     private void buildSurface() {
         closeSurface();
         if (ctx == null) {
             return;
         }
-        rt = BackendRenderTarget.Companion.makeGL(fbW, fbH, 0, 8, mcFbId, GR_GL_RGBA8);
+        // Stencil bits = 0: MC's framebufferMc has NO stencil attachment (createFramebuffer
+        // allocates a DEPTH24 renderbuffer only), and SkikoDrawContext clips with clipRect AA
+        // (analytic coverage) not clipRRect (which alone would need a stencil buffer).
+        // Requesting a stencil the real FBO lacks can make makeFromBackendRenderTarget return
+        // null (inert overlay) or corrupt GL state; 0 matches the actual FBO.
+        rt = BackendRenderTarget.Companion.makeGL(fbW, fbH, 0, 0, mcFbId, GR_GL_RGBA8);
         surface = Surface.Companion.makeFromBackendRenderTarget(
                 ctx, rt,
                 SurfaceOrigin.BOTTOM_LEFT,
@@ -195,6 +201,17 @@ public final class SkikoRenderBackend implements RenderBackend {
         ctx = null;
     }
 
+    /**
+     * Whether the live FBO id should replace the currently-wrapped one. Only a positive id
+     * (a real framebufferMc) can move the target; a queried id {@code <= 0} is "unknown"
+     * ({@code -1} sentinel) or the default framebuffer ({@code 0}), never MC's own FBO, so
+     * adopting it would rebuild the surface over the wrong target and drop a valid wrap.
+     * Pure integer decision, split out for headless coverage of the guard.
+     */
+    static boolean fbTargetMoved(int liveFbId, int wrappedFbId) {
+        return liveFbId > 0 && liveFbId != wrappedFbId;
+    }
+
     @Override
     public void beginFrame(FrameInput in, FrameMetrics metrics) {
         int w = Math.max(1, metrics.widthPx());
@@ -202,11 +219,18 @@ public final class SkikoRenderBackend implements RenderBackend {
         // Re-query the live FBO id each frame: MC can recreate framebufferMc (resize,
         // display-mode change, resource reload). Rebuild the surface if id OR size moved,
         // else Skia wraps a stale/free'd FBO (blank overlay or GL errors).
-        int liveFb = Math.max(0, host.currentFramebufferId());
-        if (w != fbW || h != fbH || liveFb != mcFbId) {
+        // A queried id <= 0 is "unknown/default" (the host returns -1 when it cannot resolve
+        // the binding; 0 is the default framebuffer, never MC's framebufferMc). Do NOT adopt
+        // it as the wrap target: that would rebuild over the wrong FBO and drop the valid
+        // surface. Keep the last valid mcFbId; only a positive id can move the target.
+        int rawFb = host.currentFramebufferId();
+        boolean fbMoved = fbTargetMoved(rawFb, mcFbId);
+        if (fbMoved || w != fbW || h != fbH) {
             fbW = w;
             fbH = h;
-            mcFbId = liveFb;
+            if (fbMoved) {
+                mcFbId = rawFb;
+            }
             buildSurface();
         }
         if (!loggedFirstFrame) {

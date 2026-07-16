@@ -37,8 +37,16 @@ set "ARGS=%~dp0jvm-args-mcp.txt"
 
 set "BACKEND=%~1"
 
-REM Base classpath: game + kernel. Overlay backend jars appended when present.
+REM Base classpath: game + kernel + board. Overlay backend jars appended when present.
+REM board is REQUIRED for the kernel-state overlay: core publishes the live posture
+REM snapshot to net.marcloud.mcp.board.Backplane and the DWM panel reads it back. board
+REM is compile-`provided`, so it is in NO fat jar — without it on -cp, both sides hit
+REM ClassNotFound and the panel shows "kernel: offline". One copy on -cp is loaded by the
+REM system classloader (shared with the -javaagent core), so both ends see the same map.
+set "BOARD_JAR=%~dp0..\board\target\board-1.8.9.jar"
 set "CP=%GAME_JAR%;%CORE_JAR%"
+if exist "%BOARD_JAR%" set "CP=%CP%;%BOARD_JAR%"
+if not exist "%BOARD_JAR%" echo [run-mcp-overlay] WARNING: board jar missing ^(%BOARD_JAR%^) - kernel-state panel will show "offline". Build with scripts\build-jars.bat.
 set "BACKEND_OPT="
 if not "%BACKEND%"=="" set "BACKEND_OPT=-Dmcp.core.overlay.backend=%BACKEND%"
 

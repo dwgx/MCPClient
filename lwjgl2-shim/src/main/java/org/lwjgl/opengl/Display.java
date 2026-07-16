@@ -5,7 +5,6 @@ import java.util.Arrays;
 import java.util.Locale;
 
 import org.lwjgl.LWJGLException;
-import org.lwjgl.glfw.Callbacks;
 import org.lwjgl.glfw.GLFW;
 import org.lwjgl.glfw.GLFWErrorCallback;
 import org.lwjgl.glfw.GLFWFramebufferSizeCallback;
@@ -432,15 +431,26 @@ public final class Display {
         if (!isCreated()) {
             return;
         }
-        // Tear down input first: Keyboard/Mouse.destroy() free their own GLFW
-        // callbacks and reset their 'created' flags. Doing this before
-        // glfwFreeCallbacks avoids a double-free of the key/char/mouse callbacks
-        // and leaves the input subsystem in a clean state so a later re-create works.
+        // Tear down input first: Keyboard/Mouse.destroy() free their OWN GLFW callbacks
+        // (GLFWKeyboardImplementation.destroyKeyboard frees keyCallback/charCallback;
+        // the mouse impl frees its cursor-pos/button/scroll callbacks) and reset their
+        // 'created' flags.
         Keyboard.destroy();
         Mouse.destroy();
-        Callbacks.glfwFreeCallbacks(window);
-        framebufferSizeCallback = null;
-        windowFocusCallback = null;
+        // Free ONLY the two callbacks Display itself registered (framebufferSize +
+        // windowFocus). Do NOT call Callbacks.glfwFreeCallbacks(window): that frees EVERY
+        // callback on the window — including the key/char/mouse ones Keyboard/Mouse.destroy
+        // just freed — a double-free of already-deleted JNI global refs that crashes the
+        // JVM on shutdown (EXCEPTION_ACCESS_VIOLATION in jni_DeleteGlobalRef). Freeing our
+        // own two explicitly also fixes a real leak: they were previously only nulled.
+        if (framebufferSizeCallback != null) {
+            framebufferSizeCallback.free();
+            framebufferSizeCallback = null;
+        }
+        if (windowFocusCallback != null) {
+            windowFocusCallback.free();
+            windowFocusCallback = null;
+        }
         GLFW.glfwDestroyWindow(window);
         GLFW.glfwTerminate();
         GLFWErrorCallback cb = GLFW.glfwSetErrorCallback(null);

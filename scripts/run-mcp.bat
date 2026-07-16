@@ -26,8 +26,12 @@ REM     detachable-auxiliary contract). This plain run does NOT arm the overlay
 REM     (-Dmcp.core.overlay is unset); use run-mcp-overlay.bat to arm it. Build via
 REM     scripts\build-jars.bat. ---
 set "DWM_JAR=%~dp0..\dwm-gl\target\dwm-gl-1.8.9-all.jar"
+REM board carries the Backplane the kernel-state overlay publishes/reads through; it is
+REM compile-`provided` (in no fat jar), so add it to -cp when present (see run-mcp-overlay.bat).
+set "BOARD_JAR=%~dp0..\board\target\board-1.8.9.jar"
 set "CP=%GAME_JAR%;%CORE_JAR%"
-if exist "%DWM_JAR%" set "CP=%GAME_JAR%;%CORE_JAR%;%DWM_JAR%"
+if exist "%BOARD_JAR%" set "CP=%CP%;%BOARD_JAR%"
+if exist "%DWM_JAR%" set "CP=%CP%;%DWM_JAR%"
 if exist "%DWM_JAR%" echo [run-mcp] DWM GL backend present, added to classpath ^(overlay NOT armed^).
 
 REM --- Working dir must be the game dir (assets, saves). ---

@@ -152,6 +152,58 @@ public class GlStateGuardShadowTest {
         assertTrue("colorMask alpha shadow restored", getBoolean(colorMask, "alpha"));
     }
 
+    /**
+     * SCISSOR regression (the skiko black-screen fix). Scissor is raw GL, not a
+     * GlStateManager shadow, so this asserts the guard SNAPSHOTS the scissor enable + box
+     * (the enter() observation the leave() raw-restore depends on). A guard that dropped
+     * the scissor snapshot/restore — the exact gap that let Skia leave a small scissor box
+     * enabled and clip MC's full-screen blit to black — would not carry these fields, so
+     * the round-trip below fails. The raw-GL glScissor/glEnable restore itself is verified
+     * live (headless has no GL context), but this pins that the observed state is captured.
+     */
+    @Test
+    public void snapshotsScissorEnableAndBoxForRawRestore() {
+        GlStateGuard guard = new GlStateGuard();
+        // Simulate enter() having observed scissor ENABLED with a small box — the poison
+        // state Skia leaves behind that blacks the frame if not restored.
+        guard.setScissorSnapshotForTest(true, 10, 20, 64, 48);
+        assertTrue("guard must carry the observed scissor-enabled state for leave() to restore",
+                guard.savedScissorEnabledForTest());
+        int[] box = guard.savedScissorBoxForTest();
+        assertEquals("scissor box x snapshotted", 10, box[0]);
+        assertEquals("scissor box y snapshotted", 20, box[1]);
+        assertEquals("scissor box w snapshotted", 64, box[2]);
+        assertEquals("scissor box h snapshotted", 48, box[3]);
+        // And the disabled case round-trips too (MC's normal full-screen state).
+        guard.setScissorSnapshotForTest(false, 0, 0, 854, 480);
+        assertFalse("disabled scissor state carried for restore", guard.savedScissorEnabledForTest());
+    }
+
+    /**
+     * VERTEX/ELEMENT BUFFER regression — the CONFIRMED skiko black-screen root cause. A live
+     * GL probe read GL_ARRAY_BUFFER_BINDING=1 / GL_ELEMENT_ARRAY_BUFFER_BINDING=3 after a
+     * skiko frame; MC's Framebuffer.framebufferRender draws its offscreen texture to the
+     * screen with a client-memory Tessellator quad (glVertexPointer into RAM), which reads
+     * garbage if a non-zero VBO is still bound → invisible quad → black screen while the
+     * offscreen FBO held the correct menu (proven live: capture_screen showed the menu +
+     * panel while the physical window was black). The guard must snapshot these at enter()
+     * and rebind them (normally 0) at leave(). This asserts the snapshot round-trips; the
+     * raw glBindBuffer restore itself is verified live (headless has no GL context).
+     */
+    @Test
+    public void snapshotsVertexAndElementBufferBindingsForRawRestore() {
+        GlStateGuard guard = new GlStateGuard();
+        // Simulate enter() having observed Skia's bound VBO/IBO — the poison that blacks the
+        // MC framebuffer quad.
+        guard.setBufferSnapshotForTest(1, 3);
+        assertEquals("array buffer binding snapshotted for restore", 1, guard.savedArrayBufferForTest());
+        assertEquals("element buffer binding snapshotted for restore", 3, guard.savedElementBufferForTest());
+        // MC's normal state is 0 (client-memory arrays) — round-trips too.
+        guard.setBufferSnapshotForTest(0, 0);
+        assertEquals("zero array binding carried", 0, guard.savedArrayBufferForTest());
+        assertEquals("zero element binding carried", 0, guard.savedElementBufferForTest());
+    }
+
     // ---- reflection helpers ---------------------------------------------------------
 
     private Object staticField(String name) throws Exception {

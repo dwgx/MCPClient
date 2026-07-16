@@ -275,6 +275,13 @@ public final class McpCore {
         // inbound chat, block-change). Board absent ⇒ silent no-op, like the clock bridge.
         new net.marcloud.mcp.core.link.BoardWorldEventBridge(bus).attach();
 
+        // Publish a LIVE kernel-state snapshot supplier to the board Backplane so the DWM
+        // overlay can render the 7-layer posture without importing a single core type.
+        // Reflective register (core never imports board): board absent ⇒ ClassNotFound ⇒
+        // silent no-op, exactly like BoardClockBridge. The supplier re-reads currentSubject
+        // on every call, so runtime disable_privilege/revoke_capability show up next frame.
+        publishKernelState(engine);
+
         // DWM overlay (OPT-IN via -Dmcp.core.overlay=true). Reflectively discovers
         // whichever optional overlay backend jar is on the game classpath (pure-Java
         // dwm-gl, or imgui); if present, installs the render-frame seam
@@ -401,6 +408,29 @@ public final class McpCore {
      *       (only someone who saw the log can restore).</li>
      * </ul>
      */
+    /**
+     * Register a live kernel-state snapshot supplier on the board {@code Backplane} under
+     * {@link net.marcloud.mcp.core.link.KernelStatePort#KEY}, so the DWM overlay can render
+     * the 7-layer posture with zero compile-time coupling. Done by reflection — core never
+     * imports board — so board's absence (ClassNotFound) or any fault is a silent no-op,
+     * exactly like {@code BoardClockBridge}. The published value is a
+     * {@code Supplier<Map<String,String>>} (pure JDK types the overlay already has).
+     */
+    private static void publishKernelState(SeReferenceMonitor engine) {
+        try {
+            net.marcloud.mcp.core.link.KernelStatePort port =
+                    new net.marcloud.mcp.core.link.KernelStatePort(engine);
+            java.util.function.Supplier<java.util.Map<String, String>> supplier = port::snapshot;
+            Class<?> backplane = Class.forName("net.marcloud.mcp.board.Backplane");
+            backplane.getMethod("register", String.class, Object.class)
+                    .invoke(null, net.marcloud.mcp.core.link.KernelStatePort.KEY, supplier);
+        } catch (ClassNotFoundException e) {
+            // board not on the classpath — overlay/kernel-state feature simply absent.
+        } catch (Throwable t) {
+            System.err.println("[MCP Core] kernel-state publish failed (overlay shows no live state): " + t);
+        }
+    }
+
     private static SeClearancePolicy buildPolicy() {
         Ring clearance = Ring.R_MINUS_1;
         String c = System.getProperty("mcp.core.clearance");

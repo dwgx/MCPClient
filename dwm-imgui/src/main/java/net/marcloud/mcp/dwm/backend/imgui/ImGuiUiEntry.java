@@ -5,7 +5,7 @@ import java.util.function.LongConsumer;
 import net.marcloud.mcp.dwm.backend.BackendHost;
 import net.marcloud.mcp.dwm.backend.DefaultBackendRegistry;
 import net.marcloud.mcp.dwm.component.Component;
-import net.marcloud.mcp.dwm.component.DemoPanel;
+import net.marcloud.mcp.dwm.component.KernelStatePanel;
 import net.marcloud.mcp.dwm.component.FrameComponentContext;
 import net.marcloud.mcp.dwm.compositor.Compositor;
 import net.marcloud.mcp.dwm.compositor.UiComposer;
@@ -38,7 +38,7 @@ public final class ImGuiUiEntry {
             Compositor compositor = new Compositor();
             FrameComponentContext ctx = new FrameComponentContext(
                     MaterialMdcTheme.darkTheme(), compositor.store(), WidgetId.root("overlay"));
-            Component root = new DemoPanel();
+            Component root = new KernelStatePanel();
             UiComposer composer = new UiComposer(host, registry, compositor, ctx, root);
             GameInput input = new GameInput();
             FrameClock clock = new FrameClock();

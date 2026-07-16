@@ -53,11 +53,11 @@ public final class GlRenderBackend implements RenderBackend {
     @Override
     public BackendCaps caps() {
         // per-corner radius IS now supported (GlDrawContext walks a per-corner triangle-fan
-        // perimeter), so advertise it true. No native path/clip-beyond-scissor/layer-opacity
-        // /shadow; scissor clip IS supported but the SPI's 'clip' cap advertises
-        // rounded/arbitrary clip which we approximate with a rect scissor — keep it false so
-        // callers do not assume rounded clipping. A generous max texture size placeholder.
-        return new BackendCaps(false, true, true, true, false, 4096);
+        // perimeter), so advertise it true. No native path/layer-opacity/shadow. clip=false:
+        // gl only does a RECTANGULAR glScissor, not the rounded/arbitrary clip the SPI's
+        // 'clip' cap advertises, so keep it false — callers must not assume rounded clipping
+        // (the comment always said false; the flag now matches it). Generous max tex size.
+        return new BackendCaps(false, false, true, true, false, 4096);
     }
 
     @Override
