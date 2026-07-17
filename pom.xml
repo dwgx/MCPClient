@@ -17,9 +17,6 @@
         <module>board</module>
         <module>pg</module>
         <module>dwm</module>
-        <module>dwm-gl</module>
-        <module>dwm-imgui</module>
-        <module>dwm-skiko</module>
     </modules>
 
     <properties>

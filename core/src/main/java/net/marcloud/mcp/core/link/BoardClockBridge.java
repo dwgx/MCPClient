@@ -21,7 +21,7 @@ import net.marcloud.mcp.core.ke.event.events.TickEvent;
  * subsystems). Everything is fault-isolated: a reflection miss or a board-side
  * throw can never disturb the game/publish thread.
  *
- * <p>Discovery mirrors {@code McpLink}/{@code HotkeyCoordinator}: resolve the
+ * <p>Discovery mirrors {@code McpLink}: resolve the
  * board port off the {@code Backplane} by string key, drive it by reflected method
  * names, cache the reflected handles after the first success.
  */

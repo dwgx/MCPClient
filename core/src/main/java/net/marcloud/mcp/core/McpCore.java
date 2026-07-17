@@ -282,16 +282,6 @@ public final class McpCore {
         // on every call, so runtime disable_privilege/revoke_capability show up next frame.
         publishKernelState(engine);
 
-        // DWM launcher (OPT-IN via -Dmcp.core.overlay=true). The launcher is now a single
-        // real GuiScreen ({@code DesktopGuiScreen} in dwm-skiko) opened by an independent
-        // hotkey system (RSHIFT), NOT a bytecode-injected render-frame painter. This wires
-        // the hotkey heartbeat onto the existing tick seam and binds RSHIFT to the launcher
-        // reflectively (core never compile-links dwm). dwm-skiko absent / off flag / any
-        // fault => silent no-op, game unaffected (detachable-auxiliary contract). See
-        // ADR/handoff: the old three-pipeline overlay (RenderFrameInjector + raw-poll input
-        // + empty DesktopScreen) was replaced by the reference-client GuiScreen pattern.
-        new net.marcloud.mcp.core.hotkey.HotkeyCoordinator(bus).attach();
-
         // C6 CONTROL-EXEC: native JVMTI debugger. Graceful no-op without
         // -agentpath:core-jvmti.dll — the debug_* tools still register and report
         // honestly (no dead tools). Debug events also flow onto the EventBus.
