@@ -134,6 +134,19 @@ public final class SkikoDrawContext implements DrawContext {
     }
 
     @Override
+    public void roundedRectStroke(float x, float y, float w, float h, float radius,
+                                  float thickness, int argb) {
+        if (canvas == null) {
+            return;
+        }
+        // True rounded outline: a STROKE-mode RRect with the same radius as the fill, so the
+        // border hugs the rounded corners instead of poking sharp corners past them (the white
+        // corner bug). Radius clamped to half the short side, matching roundedRect.
+        float r = Math.min(radius, Math.min(w, h) * 0.5f);
+        canvas.drawRRect(x, y, x + w, y + h, new float[] {r}, stroke(argb, thickness));
+    }
+
+    @Override
     public void line(float x0, float y0, float x1, float y1, float thickness, int argb) {
         if (canvas == null) {
             return;

@@ -29,6 +29,19 @@ public interface DrawContext {
 
     void rectStroke(float x, float y, float w, float h, float thickness, int argb);
 
+    /**
+     * Stroke a ROUNDED rectangle's outline — the missing primitive that forced components to
+     * fake a rounded border with the SHARP {@link #rectStroke}, poking white/opaque corners
+     * past the fill's rounded corners. Backends with a native rounded stroke (Skia) draw a
+     * true rounded outline; the {@code default} degrades to {@link #rectStroke} for backends
+     * that lack one (visually identical to the old behaviour, so no regression — callers that
+     * WANT clean corners get them on the high-fidelity backends without any backend crashing).
+     */
+    default void roundedRectStroke(float x, float y, float w, float h, float radius,
+                                   float thickness, int argb) {
+        rectStroke(x, y, w, h, thickness, argb);
+    }
+
     void line(float x0, float y0, float x1, float y1, float thickness, int argb);
 
     void text(FontHandle font, float sizePx, float x, float y, int argb, CharSequence s);

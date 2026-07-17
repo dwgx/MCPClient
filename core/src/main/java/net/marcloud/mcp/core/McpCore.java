@@ -282,15 +282,15 @@ public final class McpCore {
         // on every call, so runtime disable_privilege/revoke_capability show up next frame.
         publishKernelState(engine);
 
-        // DWM overlay (OPT-IN via -Dmcp.core.overlay=true). Reflectively discovers
-        // whichever optional overlay backend jar is on the game classpath (pure-Java
-        // dwm-gl, or imgui); if present, installs the render-frame seam
-        // (EntityRenderer.updateCameraAndRender exit) and drives one overlay frame per
-        // game frame. Absent jar / off flag / any fault => silent no-op, game unaffected
-        // (detachable-auxiliary contract). The overlay resolves its own GLFW window
-        // handle, so 0 is passed here.
-        net.marcloud.mcp.core.flt.seam.RenderOverlayCoordinator.tryInstall(
-                net.marcloud.mcp.core.boot.AgentAccess.instrumentation(), 0L);
+        // DWM launcher (OPT-IN via -Dmcp.core.overlay=true). The launcher is now a single
+        // real GuiScreen ({@code DesktopGuiScreen} in dwm-skiko) opened by an independent
+        // hotkey system (RSHIFT), NOT a bytecode-injected render-frame painter. This wires
+        // the hotkey heartbeat onto the existing tick seam and binds RSHIFT to the launcher
+        // reflectively (core never compile-links dwm). dwm-skiko absent / off flag / any
+        // fault => silent no-op, game unaffected (detachable-auxiliary contract). See
+        // ADR/handoff: the old three-pipeline overlay (RenderFrameInjector + raw-poll input
+        // + empty DesktopScreen) was replaced by the reference-client GuiScreen pattern.
+        new net.marcloud.mcp.core.hotkey.HotkeyCoordinator(bus).attach();
 
         // C6 CONTROL-EXEC: native JVMTI debugger. Graceful no-op without
         // -agentpath:core-jvmti.dll — the debug_* tools still register and report

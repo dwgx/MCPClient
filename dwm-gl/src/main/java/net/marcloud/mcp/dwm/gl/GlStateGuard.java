@@ -7,6 +7,7 @@ import org.lwjgl.opengl.GL13;
 import org.lwjgl.opengl.GL15;
 import org.lwjgl.opengl.GL20;
 import org.lwjgl.opengl.GL30;
+import org.lwjgl.opengl.GL33;
 
 /**
  * The project-level "killer", now fully implemented in Java: after the overlay's raw
@@ -397,6 +398,21 @@ public final class GlStateGuard {
             for (int i = 0; i < maxVertexAttribs; i++) {
                 GL20.glDisableVertexAttribArray(i);
             }
+            // Unbind sampler objects on the low texture units. THE "settings/singleplayer
+            // screen corruption" fix: Skia (GL 3.3) binds a SAMPLER OBJECT to unit 0 and
+            // leaves it bound; glPushAttrib/glPushClientAttrib do NOT save sampler-object
+            // bindings (samplers are a GL 3.3 object, not part of any legacy attrib group),
+            // so the robust bracket misses it. MC 1.8.9 is fixed-function and never uses
+            // sampler objects — it relies on per-texture glTexParameter — so a leftover bound
+            // sampler overrides MC's filtering/wrapping and corrupts textured UI on some
+            // screens. Unbind on the units MC touches (0..3 covers its fixed-function use).
+            // Live-proven: unit 0 held Skia's sampler 1; units 1..7 were clean.
+            int savedUnit = GL11.glGetInteger(GL13.GL_ACTIVE_TEXTURE);
+            for (int u = 0; u < 4; u++) {
+                GL13.glActiveTexture(GL13.GL_TEXTURE0 + u);
+                GL33.glBindSampler(u, 0);
+            }
+            GL13.glActiveTexture(savedUnit);
             // Restore MC's fixed-function matrices. THE "splash flung to the edge" fix: Skia
             // left MODELVIEW/PROJECTION in its own state; load MC's snapshot back so relative
             // GlStateManager.translate/rotate/scale (main-menu splash, tooltips) build on the

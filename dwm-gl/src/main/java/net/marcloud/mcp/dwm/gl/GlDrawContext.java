@@ -133,6 +133,27 @@ public final class GlDrawContext implements DrawContext {
     }
 
     @Override
+    public void roundedRectStroke(float x, float y, float w, float h, float radius,
+                                  float thickness, int argb) {
+        float r = clampRadius(radius, w, h);
+        if (r <= 0.5f) {
+            rectStroke(x, y, w, h, thickness, argb);
+            return;
+        }
+        // Walk the same rounded perimeter the fill uses, as a closed line loop — the border
+        // hugs the rounded corners instead of poking sharp corners past them (the white corner
+        // bug). Uniform radius = the per-corner walk with all four radii equal.
+        color(argb);
+        GL11.glLineWidth(Math.max(1f, thickness));
+        float[] perimeter = roundedPerimeter(x, y, w, h, r, r, r, r);
+        GL11.glBegin(GL11.GL_LINE_LOOP);
+        for (int i = 0; i + 1 < perimeter.length; i += 2) {
+            GL11.glVertex2f(perimeter[i], perimeter[i + 1]);
+        }
+        GL11.glEnd();
+    }
+
+    @Override
     public void line(float x0, float y0, float x1, float y1, float thickness, int argb) {
         color(argb);
         GL11.glLineWidth(Math.max(1f, thickness));

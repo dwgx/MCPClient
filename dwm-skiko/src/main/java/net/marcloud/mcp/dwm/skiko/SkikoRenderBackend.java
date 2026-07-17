@@ -175,6 +175,30 @@ public final class SkikoRenderBackend implements RenderBackend {
         rt = null;
     }
 
+    /**
+     * Rebuild the Skia {@link DirectContext} — used on resize/FBO-move so Skia's GL resource
+     * cache is not left keyed to framebufferMc's deleted GL objects (which causes the fresh
+     * surface to discard MC's world pixels: the resize black-world bug). The surface/rt are
+     * torn down first (they belong to the old ctx), then the ctx is abandoned+recreated, then
+     * the caller rebuilds the surface over the new ctx. Fault-isolated: a rebuild failure
+     * leaves ctx null and {@link #buildSurface} then no-ops (inert overlay, never a crash).
+     */
+    private void rebuildContext() {
+        closeSurface(); // surface/rt are owned by the old ctx — drop them before abandoning it
+        try {
+            if (ctx != null) {
+                ctx.close();
+            }
+        } catch (Throwable ignored) {
+        }
+        ctx = null;
+        try {
+            ctx = DirectContext.Companion.makeGL();
+        } catch (Throwable t) {
+            System.err.println("[SkikoRenderBackend] rebuildContext faulted (overlay inert): " + t);
+        }
+    }
+
     @Override
     public void onDetach() {
         closeSurface();
@@ -212,6 +236,17 @@ public final class SkikoRenderBackend implements RenderBackend {
         return liveFbId > 0 && liveFbId != wrappedFbId;
     }
 
+    /**
+     * Whether {@code beginFrame} must rebuild the wrapped target this frame — a pure decision
+     * split out for headless coverage (the live rebuild itself needs GL). True when the FBO id
+     * moved ({@link #fbTargetMoved}) OR the framebuffer size changed (a resize). A resize alone
+     * forces a rebuild even when the FBO id is unchanged/unknown, because MC recreated
+     * framebufferMc's backing GL objects at the new size.
+     */
+    static boolean shouldRebuild(int liveFbId, int wrappedFbId, int newW, int newH, int curW, int curH) {
+        return fbTargetMoved(liveFbId, wrappedFbId) || newW != curW || newH != curH;
+    }
+
     @Override
     public void beginFrame(FrameInput in, FrameMetrics metrics) {
         int w = Math.max(1, metrics.widthPx());
@@ -225,12 +260,22 @@ public final class SkikoRenderBackend implements RenderBackend {
         // surface. Keep the last valid mcFbId; only a positive id can move the target.
         int rawFb = host.currentFramebufferId();
         boolean fbMoved = fbTargetMoved(rawFb, mcFbId);
-        if (fbMoved || w != fbW || h != fbH) {
+        if (shouldRebuild(rawFb, mcFbId, w, h, fbW, fbH)) {
             fbW = w;
             fbH = h;
             if (fbMoved) {
                 mcFbId = rawFb;
             }
+            // On a genuine resize (or FBO move) MC has DELETED and recreated framebufferMc's
+            // GL objects (new color texture + depth RB, often a new/recycled FBO name). The
+            // persistent DirectContext's GL resource cache is still keyed to the OLD objects,
+            // so a fresh Surface wrapped by the stale ctx renders the overlay but its first
+            // pass over the recreated target discards the world+HUD pixels MC just drew into
+            // it — the "world goes black, overlay perfect, only after resize" symptom (the
+            // Surface is built ONCE at onAttach otherwise, before any world exists, so it never
+            // recurs without a resize). Rebuilding the DirectContext alongside the surface gives
+            // Skia a cache correctly associated with the new framebufferMc and stops the discard.
+            rebuildContext();
             buildSurface();
         }
         if (!loggedFirstFrame) {
