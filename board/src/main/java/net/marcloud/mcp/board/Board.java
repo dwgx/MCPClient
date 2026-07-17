@@ -64,6 +64,12 @@ public final class Board {
         // useful out of the box. Additive to this frozen (§L2) facade — no signature
         // change. Honors the mcp.board.officialChips opt-out and is idempotent.
         net.marcloud.mcp.board.chips.OfficialChips.install(FEATURES, TRACE);
+
+        // ChipBridge (2026-07-17, owner-authorized): publish the live roster (read) + a
+        // toggle-by-id command (write) so the zero-core dwm launcher can enumerate and drive
+        // real chips reflectively. Additive registration only — hard-scoped to the public
+        // frozen Chip API; the write is marshalled to the game thread inside the port.
+        net.marcloud.mcp.board.chips.ChipBridgePort.publish(FEATURES);
     }
 
     /**

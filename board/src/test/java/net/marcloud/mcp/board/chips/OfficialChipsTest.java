@@ -50,14 +50,25 @@ public class OfficialChipsTest {
 
         int n = OfficialChips.install(matrix, trace);
 
-        assertEquals("default-on installs the two demonstrator chips", 2, n);
-        assertTrue(matrix.size() >= 2);
+        assertEquals("default-on installs the full roster: 2 demonstrators + 3 feature chips", 5, n);
+        assertTrue(matrix.size() >= 5);
+        // The two demonstrator chips are installed ENABLED.
         Chip chatLog = matrix.byId(new ChatLogChip(trace).id());
         Chip ticker = matrix.byId(new TickCounterChip(trace).id());
         assertNotNull("ChatLogChip must be installed", chatLog);
         assertNotNull("TickCounterChip must be installed", ticker);
-        assertTrue("installed chips must be enabled", chatLog.isEnabled());
-        assertTrue("installed chips must be enabled", ticker.isEnabled());
+        assertTrue("demonstrator chips must be enabled", chatLog.isEnabled());
+        assertTrue("demonstrator chips must be enabled", ticker.isEnabled());
+        // The three feature chips are installed DISABLED (opt-in).
+        Chip fullbright = matrix.byId(new FullbrightChip().id());
+        Chip coords = matrix.byId(new CoordinatesHudChip().id());
+        Chip fps = matrix.byId(new FpsMeterChip().id());
+        assertNotNull("FullbrightChip must be installed", fullbright);
+        assertNotNull("CoordinatesHudChip must be installed", coords);
+        assertNotNull("FpsMeterChip must be installed", fps);
+        assertFalse("feature chips are opt-in (installed disabled)", fullbright.isEnabled());
+        assertFalse("feature chips are opt-in (installed disabled)", coords.isEnabled());
+        assertFalse("feature chips are opt-in (installed disabled)", fps.isEnabled());
     }
 
     @Test
@@ -91,9 +102,9 @@ public class OfficialChipsTest {
         Trace trace = new Trace();
         int first = OfficialChips.install(matrix, trace);
         int second = OfficialChips.install(matrix, trace);
-        assertEquals(2, first);
+        assertEquals(5, first);
         assertEquals("second install must add nothing (ids already present)", 0, second);
-        assertEquals("no duplicate chips", 2, matrix.size());
+        assertEquals("no duplicate chips", 5, matrix.size());
     }
 
     @Test

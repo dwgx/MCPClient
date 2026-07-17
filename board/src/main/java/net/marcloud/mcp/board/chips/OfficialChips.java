@@ -13,10 +13,12 @@ import net.marcloud.mcp.board.Trace;
  * pending an ADR + owner sign-off. Until then this class is wired only from tests;
  * Board.init() does not yet call it.
  *
- * <p>Currently installs the two demonstrator chips that already exist and are
- * covered by tests: {@link ChatLogChip} (observes outgoing chat on the
- * {@link Trace}) and {@link TickCounterChip} (counts ticks). Both are neutral,
- * diagnostic-category features — nothing that changes gameplay.
+ * <p>Installs two demonstrator chips enabled — {@link ChatLogChip} (observes
+ * outgoing chat on the {@link Trace}) and {@link TickCounterChip} (counts ticks) —
+ * plus three neutral, reversible, LOCAL-only feature chips added DISABLED (opt-in):
+ * {@link FullbrightChip} (local gamma, restored on disable), {@link CoordinatesHudChip}
+ * and {@link FpsMeterChip} (pure observers). None sends a packet, writes save data, or
+ * changes any server-visible state — nothing that alters gameplay for other players.
  *
  * <p><b>Opt-out:</b> honors the system property {@code mcp.board.officialChips}.
  * Default (unset / any value other than the opt-outs) installs the roster; the
@@ -60,6 +62,13 @@ public final class OfficialChips {
         int installed = 0;
         installed += addAndEnable(matrix, new ChatLogChip(trace));
         installed += addAndEnable(matrix, new TickCounterChip(trace));
+        // Neutral, reversible, local-only feature chips so the launcher roster is not bare:
+        // fullbright (local gamma, restored on disable), coordinates HUD + FPS meter (pure
+        // observers). None sends a packet, writes save data, or changes server-visible state.
+        // Added DISABLED (not addAndEnable) — a fresh launcher shows them off, user opts in.
+        installed += addDisabled(matrix, new FullbrightChip());
+        installed += addDisabled(matrix, new CoordinatesHudChip());
+        installed += addDisabled(matrix, new FpsMeterChip());
         return installed;
     }
 
@@ -89,6 +98,19 @@ public final class OfficialChips {
         }
         matrix.add(chip);
         chip.setEnabled(true);
+        return 1;
+    }
+
+    /**
+     * Add {@code chip} to {@code matrix} (unless its id is already present) but leave it
+     * DISABLED — for opt-in feature chips the launcher shows off by default. Returns 1 if
+     * newly added, 0 if it was already there.
+     */
+    private static int addDisabled(Matrix<Chip> matrix, Chip chip) {
+        if (matrix.contains(chip.id())) {
+            return 0;
+        }
+        matrix.add(chip);
         return 1;
     }
 }
