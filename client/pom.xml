@@ -26,7 +26,10 @@
             <artifactId>lwjgl2-shim</artifactId>
         </dependency>
 
-        <!-- LWJGL3 native binaries (runtime only), Windows-first. -->
+        <!-- LWJGL3 native binaries (runtime only). Both platforms ship in the same
+             fat jar: LWJGL picks the matching set at runtime from os.name/os.arch,
+             so one MCP-1.8.9.jar runs on Windows x64 and macOS arm64 alike. Add
+             natives-linux / natives-macos (Intel) here the same way if needed. -->
         <dependency>
             <groupId>org.lwjgl</groupId>
             <artifactId>lwjgl</artifactId>
@@ -55,6 +58,37 @@
             <groupId>org.lwjgl</groupId>
             <artifactId>lwjgl-stb</artifactId>
             <classifier>natives-windows</classifier>
+            <scope>runtime</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.lwjgl</groupId>
+            <artifactId>lwjgl</artifactId>
+            <classifier>natives-macos-arm64</classifier>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.lwjgl</groupId>
+            <artifactId>lwjgl-glfw</artifactId>
+            <classifier>natives-macos-arm64</classifier>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.lwjgl</groupId>
+            <artifactId>lwjgl-opengl</artifactId>
+            <classifier>natives-macos-arm64</classifier>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.lwjgl</groupId>
+            <artifactId>lwjgl-openal</artifactId>
+            <classifier>natives-macos-arm64</classifier>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.lwjgl</groupId>
+            <artifactId>lwjgl-stb</artifactId>
+            <classifier>natives-macos-arm64</classifier>
             <scope>runtime</scope>
         </dependency>
 

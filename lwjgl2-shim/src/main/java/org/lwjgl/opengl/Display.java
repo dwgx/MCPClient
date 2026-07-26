@@ -38,6 +38,15 @@ public final class Display {
     private static int width = 854;
     private static int height = 480;
 
+    /*
+     * Framebuffer pixels per window unit. 1.0 everywhere except HiDPI displays,
+     * where macOS hands back a Retina framebuffer twice the window size. GLFW
+     * reports cursor positions in window units but we report the framebuffer size
+     * as the display size, so the input backend has to bridge the two.
+     */
+    private static float pixelScaleX = 1.0F;
+    private static float pixelScaleY = 1.0F;
+
     /* Saved windowed placement so we can restore after leaving fullscreen. */
     private static int windowedWidth = 854;
     private static int windowedHeight = 480;
@@ -114,6 +123,30 @@ public final class Display {
 
     public static int getHeight() {
         return height;
+    }
+
+    /** Recompute the framebuffer/window ratio; call whenever either changes. */
+    private static void updatePixelScale() {
+        if (window == -1L) {
+            pixelScaleX = 1.0F;
+            pixelScaleY = 1.0F;
+            return;
+        }
+        int[] ww = new int[1];
+        int[] wh = new int[1];
+        GLFW.glfwGetWindowSize(window, ww, wh);
+        pixelScaleX = ww[0] > 0 ? (float) width / ww[0] : 1.0F;
+        pixelScaleY = wh[0] > 0 ? (float) height / wh[0] : 1.0F;
+    }
+
+    /** Framebuffer pixels per horizontal window unit (2.0 on a Retina display). */
+    public static float getPixelScaleX() {
+        return pixelScaleX;
+    }
+
+    /** Framebuffer pixels per vertical window unit (2.0 on a Retina display). */
+    public static float getPixelScaleY() {
+        return pixelScaleY;
     }
 
     public static boolean isActive() {
@@ -193,12 +226,14 @@ public final class Display {
         GLFW.glfwGetFramebufferSize(window, fbw, fbh);
         width = fbw[0] <= 0 ? 1 : fbw[0];
         height = fbh[0] <= 0 ? 1 : fbh[0];
+        updatePixelScale();
 
         framebufferSizeCallback = GLFWFramebufferSizeCallback.create(new GLFWFramebufferSizeCallback() {
             public void invoke(long win, int w, int h) {
                 if (win == window && w > 0 && h > 0) {
                     width = w;
                     height = h;
+                    updatePixelScale();
                     resized = true;
                 }
             }
@@ -443,11 +478,14 @@ public final class Display {
         // just freed — a double-free of already-deleted JNI global refs that crashes the
         // JVM on shutdown (EXCEPTION_ACCESS_VIOLATION in jni_DeleteGlobalRef). Freeing our
         // own two explicitly also fixes a real leak: they were previously only nulled.
+        // Unbind before freeing so GLFW never holds a pointer to a released closure.
         if (framebufferSizeCallback != null) {
+            GLFW.glfwSetFramebufferSizeCallback(window, null);
             framebufferSizeCallback.free();
             framebufferSizeCallback = null;
         }
         if (windowFocusCallback != null) {
+            GLFW.glfwSetWindowFocusCallback(window, null);
             windowFocusCallback.free();
             windowFocusCallback = null;
         }

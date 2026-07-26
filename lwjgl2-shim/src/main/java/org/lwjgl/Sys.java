@@ -5,6 +5,9 @@ import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
 
+import org.lwjgl.glfw.GLFW;
+import org.lwjgl.opengl.Display;
+
 /**
  * LWJGL2 org.lwjgl.Sys re-implemented for the LWJGL3 runtime.
  * Independently written; timing is nanoTime-based and version defers to real LWJGL3.
@@ -36,9 +39,40 @@ public final class Sys {
         return (System.nanoTime() - TIMER_OFFSET) & 0x7FFFFFFFFFFFFFFFL;
     }
 
+    /**
+     * Clipboard text, or null when empty or unavailable. LWJGL2 exposed this and
+     * LWJGL3 moved it onto GLFW.
+     */
+    public static String getClipboard() {
+        if (!Display.isCreated()) {
+            return null;
+        }
+        try {
+            return GLFW.glfwGetClipboardString(Display.getWindowHandle());
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    // Deliberately no setClipboard(): LWJGL2 had no clipboard setter, and this
+    // shim reimplements the LWJGL2 ABI rather than extending it. A patch layer
+    // that needs to write the clipboard calls GLFW.glfwSetClipboardString
+    // directly — LWJGL3 is on the classpath anyway.
+
     public static boolean openURL(String url) {
         if (url == null) {
             return false;
+        }
+        // macOS: java.awt.Desktop dispatches to AppKit on the main thread, which
+        // GLFW already owns under -XstartOnFirstThread — browsing from there can
+        // wedge the game loop. Shell out to `open` instead; AWT is never touched.
+        if (LWJGLUtil.getPlatform() == LWJGLUtil.PLATFORM_MACOSX) {
+            try {
+                new ProcessBuilder("open", url).start();
+                return true;
+            } catch (IOException e) {
+                return false;
+            }
         }
         try {
             if (Desktop.isDesktopSupported()) {
