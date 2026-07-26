@@ -14,26 +14,130 @@
     <packaging>jar</packaging>
 
     <properties>
-        <maven.compiler.release>25</maven.compiler.release>
+        <!-- Java 8: dwm subclasses GuiScreen, so it shares the client's bytecode level. -->
+        <maven.compiler.release>8</maven.compiler.release>
+
+        <!-- qml4j is consumed as a PUBLISHED Maven Central artifact, never vendored.
+             Following a new upstream release is this one line. Changes needed inside
+             qml4j itself go through the dwgx/qml4j topic stack and up to TIMER-err;
+             forking it here would end our ability to track upstream. -->
+        <qml4j.version>0.2.24</qml4j.version>
+        <!-- Must match what qml4j 0.2.24 compiled against. -->
+        <skija.version>0.143.16</skija.version>
+
+        <!-- Live GL IT is opt-in; see the failsafe config below. -->
+        <dwm.live.skip>true</dwm.live.skip>
+        <!-- Overridden to -XstartOnFirstThread by the macos-live-gl profile. -->
+        <dwm.live.argLine></dwm.live.argLine>
     </properties>
 
     <description>
-        DWM — the UI subsystem placeholder, codenamed after Windows' Desktop Window
-        Manager (the NT/hardware metaphor the project uses: core=NT kernel, board=PCB,
-        compat=AppCompat). Reserved as the seat of the in-game UI layer.
+        DWM — the in-game UI subsystem, codenamed after Windows' Desktop Window Manager
+        (the NT/hardware metaphor: core=NT kernel, board=PCB, compat=AppCompat).
 
-        CONCEPT-ONLY, INTENTIONALLY EMPTY. All prior UI implementations (the DWM MD3
-        component tree, the dwm-gl / dwm-skiko / dwm-imgui render backends, the qml4j
-        desktop) were removed; this module now carries no code — only the architectural
-        intent. Recoverable in git: see branches backup/qml4j-desktop and
-        backup/overlay-guiscreen. See dwm/README.md for the design intent.
+        Implemented on qml4j (QML scene graph rendered by Skija/Skia). Per the module
+        contract it stays a detachable AUXILIARY layer: zero security power, imports no
+        core class, discovered by Board through the reflective Backplane, and the UI is a
+        real GuiScreen so MC's own screen lifecycle owns render/input/resize/focus.
 
-        Contract if ever re-implemented: a detachable AUXILIARY layer with zero
-        security power, importing no core class, discovered by Board via the reflective
-        Backplane. Delete dwm and everything still compiles.
+        Every native and qml4j type is confined to the single adapter package
+        net.marcloud.mcp.dwm.qml; the rest of the module talks to the ui.* SPI. See
+        dwm/README.md for the design intent and docs/macos/dwm-qml4j-plan.md for the
+        rollout.
     </description>
 
-    <!-- No dependencies: an empty concept module compiles to an empty jar. When the UI
-         layer is re-implemented, the render backend + game/client deps return here (or,
-         better, in a dedicated backend module) behind a RenderBackend/DrawContext SPI. -->
+    <dependencies>
+        <!-- The QML engine + scene graph. Window-agnostic: it creates no window and calls
+             no GLFW, which is what lets us drive it from inside MC's own GL context. -->
+        <dependency>
+            <groupId>io.github.timer-err</groupId>
+            <artifactId>qml4j-core</artifactId>
+            <version>${qml4j.version}</version>
+        </dependency>
+
+        <!-- Skia bindings. qml4j declares skija-shared as provided, so the host picks it
+             up explicitly along with the platform natives below. -->
+        <dependency>
+            <groupId>io.github.humbleui</groupId>
+            <artifactId>skija-shared</artifactId>
+            <version>${skija.version}</version>
+        </dependency>
+
+        <!-- Skia natives for both platforms in the same jar, the way client ships LWJGL's:
+             the loader picks by os.name/os.arch at runtime, so one artifact runs on
+             Windows x64 and macOS arm64. Deliberately NOT os-activated profiles, which
+             would make the output depend on which machine built it. -->
+        <dependency>
+            <groupId>io.github.humbleui</groupId>
+            <artifactId>skija-windows-x64</artifactId>
+            <version>${skija.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.github.humbleui</groupId>
+            <artifactId>skija-macos-arm64</artifactId>
+            <version>${skija.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- The game. provided: dwm renders inside the running client and is never
+             shaded with a copy of it (the arrangement board uses). -->
+        <dependency>
+            <groupId>net.marcloud.mcp.189</groupId>
+            <artifactId>client</artifactId>
+            <version>${project.version}</version>
+            <scope>provided</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <version>4.13.2</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- The live GL integration test (QmlPipelineLiveIT) needs a display and native
+                 Skia, so it runs under failsafe and is skipped by default:
+                 ./mvnw -pl dwm -am verify -Ddwm.live=false to run it.
+                 It self-skips via Assume when there is no display, so enabling it on a
+                 headless runner is safe. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <version>3.2.5</version>
+                <configuration>
+                    <skipITs>${dwm.live.skip}</skipITs>
+                    <!-- macOS: GLFW must own the main thread, and AWT must not start AppKit
+                         beside it (see docs/macos/known-issues.md MK-1). Harmless elsewhere:
+                         -XstartOnFirstThread is only added by the profile below. -->
+                    <argLine>-Djava.awt.headless=true ${dwm.live.argLine}</argLine>
+                </configuration>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>integration-test</goal>
+                            <goal>verify</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
+    <profiles>
+        <profile>
+            <id>macos-live-gl</id>
+            <activation>
+                <os>
+                    <family>mac</family>
+                </os>
+            </activation>
+            <properties>
+                <dwm.live.argLine>-XstartOnFirstThread</dwm.live.argLine>
+            </properties>
+        </profile>
+    </profiles>
 </project>
