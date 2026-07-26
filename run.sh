@@ -7,8 +7,27 @@
 set -e
 HERE="$(cd "$(dirname "$0")" && pwd)"
 
-# Point JAVA_HOME at JDK 25 if not already set
-JAVA="${JAVA_HOME:+$JAVA_HOME/bin/}java"
+# Locate a JDK 25. The argfile passes flags (--sun-misc-unsafe-memory-access,
+# --enable-native-access) that older JVMs reject outright, so falling back to
+# whatever `java` is on PATH fails with an unhelpful "Unrecognized option".
+pick_java() {
+  for cand in \
+      "${JAVA_HOME:+$JAVA_HOME/bin/java}" \
+      "$(/usr/libexec/java_home -v 25 2>/dev/null)/bin/java" \
+      "$HOME"/.jdks/jdk-25*/Contents/Home/bin/java \
+      "$HOME"/.jdks/jdk-25*/bin/java; do
+    [ -x "$cand" ] || continue
+    case "$("$cand" -version 2>&1 | head -1)" in
+      *\"25*) echo "$cand"; return 0 ;;
+    esac
+  done
+  command -v java
+}
+JAVA="$(pick_java)"
+case "$("$JAVA" -version 2>&1 | head -1)" in
+  *\"25*) ;;
+  *) echo "warning: $JAVA is not JDK 25 — the argfile in jvm-args-jdk25.txt will be rejected" >&2 ;;
+esac
 
 JAR="$HERE/client/target/MCP-1.8.9.jar"
 ARGS="$HERE/jvm-args-jdk25.txt"

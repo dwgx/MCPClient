@@ -40,6 +40,17 @@ public final class Sys {
         if (url == null) {
             return false;
         }
+        // macOS: java.awt.Desktop dispatches to AppKit on the main thread, which
+        // GLFW already owns under -XstartOnFirstThread — browsing from there can
+        // wedge the game loop. Shell out to `open` instead; AWT is never touched.
+        if (LWJGLUtil.getPlatform() == LWJGLUtil.PLATFORM_MACOSX) {
+            try {
+                new ProcessBuilder("open", url).start();
+                return true;
+            } catch (IOException e) {
+                return false;
+            }
+        }
         try {
             if (Desktop.isDesktopSupported()) {
                 Desktop desktop = Desktop.getDesktop();

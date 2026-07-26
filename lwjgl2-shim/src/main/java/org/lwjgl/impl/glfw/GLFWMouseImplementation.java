@@ -79,8 +79,10 @@ public class GLFWMouseImplementation implements MouseImplementation {
 
         this.posCallback = GLFWCursorPosCallback.create(new GLFWCursorPosCallback() {
             public void invoke(long window, double xpos, double ypos) {
-                int x = (int) xpos;
-                int y = Display.getHeight() - 1 - (int) ypos; // flip to GL origin
+                // GLFW reports window units; Display reports framebuffer pixels.
+                // They differ on HiDPI (Retina = 2x), so scale before flipping.
+                int x = (int) (xpos * Display.getPixelScaleX());
+                int y = Display.getHeight() - 1 - (int) (ypos * Display.getPixelScaleY()); // flip to GL origin
                 int dx = x - lastX;
                 int dy = y - lastY;
                 if (dx != 0 || dy != 0) {
@@ -180,11 +182,16 @@ public class GLFWMouseImplementation implements MouseImplementation {
     }
 
     public void setCursorPosition(int x, int y) {
-        // Facade supplies GL (bottom-left) coordinates; GLFW expects top-left.
+        // Facade supplies GL (bottom-left) framebuffer coordinates; GLFW expects
+        // top-left window units, so undo both the flip and the HiDPI scale.
         // Keep our tracking in sync so the next motion does not report a jump.
         this.lastX = x;
         this.lastY = y;
-        GLFW.glfwSetCursorPos(this.windowHandle, x, Display.getHeight() - 1 - y);
+        double sx = Display.getPixelScaleX();
+        double sy = Display.getPixelScaleY();
+        GLFW.glfwSetCursorPos(this.windowHandle,
+            x / (sx == 0.0D ? 1.0D : sx),
+            (Display.getHeight() - 1 - y) / (sy == 0.0D ? 1.0D : sy));
     }
 
     public void grabMouse(boolean grab) {

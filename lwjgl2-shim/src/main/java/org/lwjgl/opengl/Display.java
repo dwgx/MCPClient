@@ -5,7 +5,6 @@ import java.util.Arrays;
 import java.util.Locale;
 
 import org.lwjgl.LWJGLException;
-import org.lwjgl.glfw.Callbacks;
 import org.lwjgl.glfw.GLFW;
 import org.lwjgl.glfw.GLFWErrorCallback;
 import org.lwjgl.glfw.GLFWFramebufferSizeCallback;
@@ -38,6 +37,15 @@ public final class Display {
     /* Framebuffer dimensions (what getWidth/getHeight report, matching LWJGL2 pixel semantics). */
     private static int width = 854;
     private static int height = 480;
+
+    /*
+     * Framebuffer pixels per window unit. 1.0 everywhere except HiDPI displays,
+     * where macOS hands back a Retina framebuffer twice the window size. GLFW
+     * reports cursor positions in window units but we report the framebuffer size
+     * as the display size, so the input backend has to bridge the two.
+     */
+    private static float pixelScaleX = 1.0F;
+    private static float pixelScaleY = 1.0F;
 
     /* Saved windowed placement so we can restore after leaving fullscreen. */
     private static int windowedWidth = 854;
@@ -117,6 +125,30 @@ public final class Display {
         return height;
     }
 
+    /** Recompute the framebuffer/window ratio; call whenever either changes. */
+    private static void updatePixelScale() {
+        if (window == -1L) {
+            pixelScaleX = 1.0F;
+            pixelScaleY = 1.0F;
+            return;
+        }
+        int[] ww = new int[1];
+        int[] wh = new int[1];
+        GLFW.glfwGetWindowSize(window, ww, wh);
+        pixelScaleX = ww[0] > 0 ? (float) width / ww[0] : 1.0F;
+        pixelScaleY = wh[0] > 0 ? (float) height / wh[0] : 1.0F;
+    }
+
+    /** Framebuffer pixels per horizontal window unit (2.0 on a Retina display). */
+    public static float getPixelScaleX() {
+        return pixelScaleX;
+    }
+
+    /** Framebuffer pixels per vertical window unit (2.0 on a Retina display). */
+    public static float getPixelScaleY() {
+        return pixelScaleY;
+    }
+
     public static boolean isActive() {
         return focused;
     }
@@ -194,12 +226,14 @@ public final class Display {
         GLFW.glfwGetFramebufferSize(window, fbw, fbh);
         width = fbw[0] <= 0 ? 1 : fbw[0];
         height = fbh[0] <= 0 ? 1 : fbh[0];
+        updatePixelScale();
 
         framebufferSizeCallback = GLFWFramebufferSizeCallback.create(new GLFWFramebufferSizeCallback() {
             public void invoke(long win, int w, int h) {
                 if (win == window && w > 0 && h > 0) {
                     width = w;
                     height = h;
+                    updatePixelScale();
                     resized = true;
                 }
             }
@@ -433,14 +467,24 @@ public final class Display {
             return;
         }
         // Tear down input first: Keyboard/Mouse.destroy() free their own GLFW
-        // callbacks and reset their 'created' flags. Doing this before
-        // glfwFreeCallbacks avoids a double-free of the key/char/mouse callbacks
-        // and leaves the input subsystem in a clean state so a later re-create works.
+        // callbacks and reset their 'created' flags, leaving the input subsystem
+        // clean so a later re-create works.
         Keyboard.destroy();
         Mouse.destroy();
-        Callbacks.glfwFreeCallbacks(window);
-        framebufferSizeCallback = null;
-        windowFocusCallback = null;
+        // Free only the two callbacks this class owns. Callbacks.glfwFreeCallbacks
+        // would walk every callback still registered on the window — including the
+        // input ones just freed above, whose closures are gone — and NPE inside
+        // Callback.free() on the way out of the game.
+        if (framebufferSizeCallback != null) {
+            GLFW.glfwSetFramebufferSizeCallback(window, null);
+            framebufferSizeCallback.free();
+            framebufferSizeCallback = null;
+        }
+        if (windowFocusCallback != null) {
+            GLFW.glfwSetWindowFocusCallback(window, null);
+            windowFocusCallback.free();
+            windowFocusCallback = null;
+        }
         GLFW.glfwDestroyWindow(window);
         GLFW.glfwTerminate();
         GLFWErrorCallback cb = GLFW.glfwSetErrorCallback(null);
