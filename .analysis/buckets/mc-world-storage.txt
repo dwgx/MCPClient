@@ -1,0 +1,14 @@
+client/src/main/java/net/minecraft/world/storage/DerivedWorldInfo.java
+client/src/main/java/net/minecraft/world/storage/IPlayerFileData.java
+client/src/main/java/net/minecraft/world/storage/ISaveFormat.java
+client/src/main/java/net/minecraft/world/storage/ISaveHandler.java
+client/src/main/java/net/minecraft/world/storage/IThreadedFileIO.java
+client/src/main/java/net/minecraft/world/storage/MapData.java
+client/src/main/java/net/minecraft/world/storage/MapStorage.java
+client/src/main/java/net/minecraft/world/storage/SaveDataMemoryStorage.java
+client/src/main/java/net/minecraft/world/storage/SaveFormatComparator.java
+client/src/main/java/net/minecraft/world/storage/SaveFormatOld.java
+client/src/main/java/net/minecraft/world/storage/SaveHandler.java
+client/src/main/java/net/minecraft/world/storage/SaveHandlerMP.java
+client/src/main/java/net/minecraft/world/storage/ThreadedFileIOBase.java
+client/src/main/java/net/minecraft/world/storage/WorldInfo.java

@@ -26,3 +26,9 @@ Thumbs.db
 logs/
 */logs/
 */run/
+
+# Generated code graph (regenerate: tools/codegraph/build_codegraph.py)
+.codegraph/
+
+# JVM crash logs
+hs_err_pid*.log

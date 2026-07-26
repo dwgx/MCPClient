@@ -1,0 +1,142 @@
+[
+ {
+  "area": "net/minecraft/client/gui#1",
+  "slug": "mc-client-gui-1",
+  "n_files": 52,
+  "n_lines": 13467,
+  "tier": "A"
+ },
+ {
+  "area": "net/minecraft/client/renderer#1",
+  "slug": "mc-client-renderer-1",
+  "n_files": 63,
+  "n_lines": 13455,
+  "tier": "A"
+ },
+ {
+  "area": "net/minecraft/client",
+  "slug": "mc-client",
+  "n_files": 42,
+  "n_lines": 10461,
+  "tier": "A"
+ },
+ {
+  "area": "net/minecraft/client/gui#2",
+  "slug": "mc-client-gui-2",
+  "n_files": 45,
+  "n_lines": 7928,
+  "tier": "A"
+ },
+ {
+  "area": "net/minecraft/client/renderer/entity",
+  "slug": "mc-client-renderer-entity",
+  "n_files": 81,
+  "n_lines": 7467,
+  "tier": "B"
+ },
+ {
+  "area": "net/minecraft/network/play/server",
+  "slug": "mc-network-play-server",
+  "n_files": 71,
+  "n_lines": 6696,
+  "tier": "A"
+ },
+ {
+  "area": "net/minecraft/network",
+  "slug": "mc-network",
+  "n_files": 34,
+  "n_lines": 5231,
+  "tier": "A"
+ },
+ {
+  "area": "net/minecraft/client/model",
+  "slug": "mc-client-model",
+  "n_files": 52,
+  "n_lines": 5173,
+  "tier": "B"
+ },
+ {
+  "area": "net/minecraft/client/resources",
+  "slug": "mc-client-resources",
+  "n_files": 49,
+  "n_lines": 4305,
+  "tier": "A"
+ },
+ {
+  "area": "net/minecraft/client/stream",
+  "slug": "mc-client-stream",
+  "n_files": 10,
+  "n_lines": 3811,
+  "tier": "B"
+ },
+ {
+  "area": "org/lwjgl",
+  "slug": "shim",
+  "n_files": 25,
+  "n_lines": 3745,
+  "tier": "A"
+ },
+ {
+  "area": "net/minecraft/client/particle",
+  "slug": "mc-client-particle",
+  "n_files": 35,
+  "n_lines": 3692,
+  "tier": "B"
+ },
+ {
+  "area": "net/minecraft/client/network",
+  "slug": "mc-client-network",
+  "n_files": 6,
+  "n_lines": 2972,
+  "tier": "A"
+ },
+ {
+  "area": "net/minecraft/client/gui/inventory",
+  "slug": "mc-client-gui-inventory",
+  "n_files": 12,
+  "n_lines": 2866,
+  "tier": "A"
+ },
+ {
+  "area": "net/minecraft/network/play",
+  "slug": "mc-network-play",
+  "n_files": 25,
+  "n_lines": 2302,
+  "tier": "A"
+ },
+ {
+  "area": "net/minecraft/client/renderer/texture",
+  "slug": "mc-client-renderer-texture",
+  "n_files": 16,
+  "n_lines": 2209,
+  "tier": "A"
+ },
+ {
+  "area": "net/minecraft/client/renderer/block/model",
+  "slug": "mc-client-renderer-block-model",
+  "n_files": 12,
+  "n_lines": 2051,
+  "tier": "B"
+ },
+ {
+  "area": "net/minecraft/client/multiplayer",
+  "slug": "mc-client-multiplayer",
+  "n_files": 8,
+  "n_lines": 2011,
+  "tier": "A"
+ },
+ {
+  "area": "paulscode",
+  "slug": "paulscode",
+  "n_files": 3,
+  "n_lines": 1391,
+  "tier": "B"
+ },
+ {
+  "area": "net/minecraft/client/renderer#2",
+  "slug": "mc-client-renderer-2",
+  "n_files": 9,
+  "n_lines": 1029,
+  "tier": "A"
+ }
+]

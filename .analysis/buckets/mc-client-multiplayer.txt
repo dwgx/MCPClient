@@ -1,0 +1,8 @@
+client/src/main/java/net/minecraft/client/multiplayer/ChunkProviderClient.java
+client/src/main/java/net/minecraft/client/multiplayer/GuiConnecting.java
+client/src/main/java/net/minecraft/client/multiplayer/PlayerControllerMP.java
+client/src/main/java/net/minecraft/client/multiplayer/ServerAddress.java
+client/src/main/java/net/minecraft/client/multiplayer/ServerData.java
+client/src/main/java/net/minecraft/client/multiplayer/ServerList.java
+client/src/main/java/net/minecraft/client/multiplayer/ThreadLanServerPing.java
+client/src/main/java/net/minecraft/client/multiplayer/WorldClient.java

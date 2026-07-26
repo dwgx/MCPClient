@@ -1,0 +1,5 @@
+client/src/main/java/net/minecraft/entity/player/EntityPlayer.java
+client/src/main/java/net/minecraft/entity/player/EntityPlayerMP.java
+client/src/main/java/net/minecraft/entity/player/EnumPlayerModelParts.java
+client/src/main/java/net/minecraft/entity/player/InventoryPlayer.java
+client/src/main/java/net/minecraft/entity/player/PlayerCapabilities.java

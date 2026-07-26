@@ -1,0 +1,10 @@
+client/src/main/java/net/minecraft/client/stream/BroadcastController.java
+client/src/main/java/net/minecraft/client/stream/ChatController.java
+client/src/main/java/net/minecraft/client/stream/IStream.java
+client/src/main/java/net/minecraft/client/stream/IngestServerTester.java
+client/src/main/java/net/minecraft/client/stream/Metadata.java
+client/src/main/java/net/minecraft/client/stream/MetadataAchievement.java
+client/src/main/java/net/minecraft/client/stream/MetadataCombat.java
+client/src/main/java/net/minecraft/client/stream/MetadataPlayerDeath.java
+client/src/main/java/net/minecraft/client/stream/NullStream.java
+client/src/main/java/net/minecraft/client/stream/TwitchStream.java

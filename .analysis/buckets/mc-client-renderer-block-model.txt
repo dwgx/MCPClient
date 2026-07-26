@@ -1,0 +1,12 @@
+client/src/main/java/net/minecraft/client/renderer/block/model/BakedQuad.java
+client/src/main/java/net/minecraft/client/renderer/block/model/BlockFaceUV.java
+client/src/main/java/net/minecraft/client/renderer/block/model/BlockPart.java
+client/src/main/java/net/minecraft/client/renderer/block/model/BlockPartFace.java
+client/src/main/java/net/minecraft/client/renderer/block/model/BlockPartRotation.java
+client/src/main/java/net/minecraft/client/renderer/block/model/BreakingFour.java
+client/src/main/java/net/minecraft/client/renderer/block/model/FaceBakery.java
+client/src/main/java/net/minecraft/client/renderer/block/model/ItemCameraTransforms.java
+client/src/main/java/net/minecraft/client/renderer/block/model/ItemModelGenerator.java
+client/src/main/java/net/minecraft/client/renderer/block/model/ItemTransformVec3f.java
+client/src/main/java/net/minecraft/client/renderer/block/model/ModelBlock.java
+client/src/main/java/net/minecraft/client/renderer/block/model/ModelBlockDefinition.java

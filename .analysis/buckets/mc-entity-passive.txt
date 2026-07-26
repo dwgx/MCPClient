@@ -1,0 +1,17 @@
+client/src/main/java/net/minecraft/entity/passive/EntityAmbientCreature.java
+client/src/main/java/net/minecraft/entity/passive/EntityAnimal.java
+client/src/main/java/net/minecraft/entity/passive/EntityBat.java
+client/src/main/java/net/minecraft/entity/passive/EntityChicken.java
+client/src/main/java/net/minecraft/entity/passive/EntityCow.java
+client/src/main/java/net/minecraft/entity/passive/EntityHorse.java
+client/src/main/java/net/minecraft/entity/passive/EntityMooshroom.java
+client/src/main/java/net/minecraft/entity/passive/EntityOcelot.java
+client/src/main/java/net/minecraft/entity/passive/EntityPig.java
+client/src/main/java/net/minecraft/entity/passive/EntityRabbit.java
+client/src/main/java/net/minecraft/entity/passive/EntitySheep.java
+client/src/main/java/net/minecraft/entity/passive/EntitySquid.java
+client/src/main/java/net/minecraft/entity/passive/EntityTameable.java
+client/src/main/java/net/minecraft/entity/passive/EntityVillager.java
+client/src/main/java/net/minecraft/entity/passive/EntityWaterMob.java
+client/src/main/java/net/minecraft/entity/passive/EntityWolf.java
+client/src/main/java/net/minecraft/entity/passive/IAnimals.java

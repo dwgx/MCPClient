@@ -1,0 +1,9 @@
+client/src/main/java/net/minecraft/client/renderer/tileentity/TileEntityPistonRenderer.java
+client/src/main/java/net/minecraft/client/renderer/tileentity/TileEntityRendererDispatcher.java
+client/src/main/java/net/minecraft/client/renderer/tileentity/TileEntitySignRenderer.java
+client/src/main/java/net/minecraft/client/renderer/tileentity/TileEntitySkullRenderer.java
+client/src/main/java/net/minecraft/client/renderer/tileentity/TileEntitySpecialRenderer.java
+client/src/main/java/net/minecraft/client/renderer/vertex/DefaultVertexFormats.java
+client/src/main/java/net/minecraft/client/renderer/vertex/VertexBuffer.java
+client/src/main/java/net/minecraft/client/renderer/vertex/VertexFormat.java
+client/src/main/java/net/minecraft/client/renderer/vertex/VertexFormatElement.java

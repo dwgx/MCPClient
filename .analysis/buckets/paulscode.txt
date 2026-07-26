@@ -1,0 +1,3 @@
+client/src/main/java/paulscode/sound/libraries/ChannelLWJGLOpenAL.java
+client/src/main/java/paulscode/sound/libraries/LibraryLWJGLOpenAL.java
+client/src/main/java/paulscode/sound/libraries/SourceLWJGLOpenAL.java

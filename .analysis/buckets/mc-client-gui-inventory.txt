@@ -1,0 +1,12 @@
+client/src/main/java/net/minecraft/client/gui/inventory/CreativeCrafting.java
+client/src/main/java/net/minecraft/client/gui/inventory/GuiBeacon.java
+client/src/main/java/net/minecraft/client/gui/inventory/GuiBrewingStand.java
+client/src/main/java/net/minecraft/client/gui/inventory/GuiChest.java
+client/src/main/java/net/minecraft/client/gui/inventory/GuiContainer.java
+client/src/main/java/net/minecraft/client/gui/inventory/GuiContainerCreative.java
+client/src/main/java/net/minecraft/client/gui/inventory/GuiCrafting.java
+client/src/main/java/net/minecraft/client/gui/inventory/GuiDispenser.java
+client/src/main/java/net/minecraft/client/gui/inventory/GuiEditSign.java
+client/src/main/java/net/minecraft/client/gui/inventory/GuiFurnace.java
+client/src/main/java/net/minecraft/client/gui/inventory/GuiInventory.java
+client/src/main/java/net/minecraft/client/gui/inventory/GuiScreenHorseInventory.java

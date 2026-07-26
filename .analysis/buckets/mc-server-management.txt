@@ -1,0 +1,17 @@
+client/src/main/java/net/minecraft/server/management/BanEntry.java
+client/src/main/java/net/minecraft/server/management/BanList.java
+client/src/main/java/net/minecraft/server/management/IPBanEntry.java
+client/src/main/java/net/minecraft/server/management/ItemInWorldManager.java
+client/src/main/java/net/minecraft/server/management/LowerStringMap.java
+client/src/main/java/net/minecraft/server/management/PlayerManager.java
+client/src/main/java/net/minecraft/server/management/PlayerProfileCache.java
+client/src/main/java/net/minecraft/server/management/PreYggdrasilConverter.java
+client/src/main/java/net/minecraft/server/management/ServerConfigurationManager.java
+client/src/main/java/net/minecraft/server/management/UserList.java
+client/src/main/java/net/minecraft/server/management/UserListBans.java
+client/src/main/java/net/minecraft/server/management/UserListBansEntry.java
+client/src/main/java/net/minecraft/server/management/UserListEntry.java
+client/src/main/java/net/minecraft/server/management/UserListOps.java
+client/src/main/java/net/minecraft/server/management/UserListOpsEntry.java
+client/src/main/java/net/minecraft/server/management/UserListWhitelist.java
+client/src/main/java/net/minecraft/server/management/UserListWhitelistEntry.java

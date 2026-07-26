@@ -1,0 +1,10 @@
+client/src/main/java/net/minecraft/entity/projectile/EntityArrow.java
+client/src/main/java/net/minecraft/entity/projectile/EntityEgg.java
+client/src/main/java/net/minecraft/entity/projectile/EntityFireball.java
+client/src/main/java/net/minecraft/entity/projectile/EntityFishHook.java
+client/src/main/java/net/minecraft/entity/projectile/EntityLargeFireball.java
+client/src/main/java/net/minecraft/entity/projectile/EntityPotion.java
+client/src/main/java/net/minecraft/entity/projectile/EntitySmallFireball.java
+client/src/main/java/net/minecraft/entity/projectile/EntitySnowball.java
+client/src/main/java/net/minecraft/entity/projectile/EntityThrowable.java
+client/src/main/java/net/minecraft/entity/projectile/EntityWitherSkull.java

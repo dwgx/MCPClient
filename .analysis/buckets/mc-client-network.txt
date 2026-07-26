@@ -1,0 +1,6 @@
+client/src/main/java/net/minecraft/client/network/LanServerDetector.java
+client/src/main/java/net/minecraft/client/network/NetHandlerHandshakeMemory.java
+client/src/main/java/net/minecraft/client/network/NetHandlerLoginClient.java
+client/src/main/java/net/minecraft/client/network/NetHandlerPlayClient.java
+client/src/main/java/net/minecraft/client/network/NetworkPlayerInfo.java
+client/src/main/java/net/minecraft/client/network/OldServerPinger.java

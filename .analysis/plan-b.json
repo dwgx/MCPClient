@@ -1,0 +1,219 @@
+[
+ {
+  "area": "net/minecraft/block#1",
+  "slug": "mc-block-1",
+  "n_files": 75,
+  "n_lines": 13436,
+  "tier": "B"
+ },
+ {
+  "area": "net/minecraft/block#2",
+  "slug": "mc-block-2",
+  "n_files": 71,
+  "n_lines": 13113,
+  "tier": "C"
+ },
+ {
+  "area": "net/minecraft/entity",
+  "slug": "mc-entity",
+  "n_files": 33,
+  "n_lines": 11593,
+  "tier": "B"
+ },
+ {
+  "area": "net/minecraft/world/gen/structure",
+  "slug": "mc-world-gen-structure",
+  "n_files": 19,
+  "n_lines": 11191,
+  "tier": "C"
+ },
+ {
+  "area": "net/minecraft",
+  "slug": "net-minecraft",
+  "n_files": 62,
+  "n_lines": 10344,
+  "tier": "A"
+ },
+ {
+  "area": "net/minecraft/util",
+  "slug": "mc-util",
+  "n_files": 82,
+  "n_lines": 9322,
+  "tier": "B"
+ },
+ {
+  "area": "net/minecraft/world",
+  "slug": "mc-world",
+  "n_files": 38,
+  "n_lines": 9059,
+  "tier": "B"
+ },
+ {
+  "area": "net/minecraft/item",
+  "slug": "mc-item",
+  "n_files": 72,
+  "n_lines": 8439,
+  "tier": "B"
+ },
+ {
+  "area": "net/minecraft/entity/passive",
+  "slug": "mc-entity-passive",
+  "n_files": 17,
+  "n_lines": 7055,
+  "tier": "C"
+ },
+ {
+  "area": "net/minecraft/command",
+  "slug": "mc-command",
+  "n_files": 49,
+  "n_lines": 6922,
+  "tier": "C"
+ },
+ {
+  "area": "net/minecraft/entity/monster",
+  "slug": "mc-entity-monster",
+  "n_files": 21,
+  "n_lines": 6697,
+  "tier": "C"
+ },
+ {
+  "area": "net/minecraft/entity/ai",
+  "slug": "mc-entity-ai",
+  "n_files": 66,
+  "n_lines": 6592,
+  "tier": "C"
+ },
+ {
+  "area": "net/minecraft/entity/item",
+  "slug": "mc-entity-item",
+  "n_files": 20,
+  "n_lines": 6358,
+  "tier": "B"
+ },
+ {
+  "area": "net/minecraft/tileentity",
+  "slug": "mc-tileentity",
+  "n_files": 24,
+  "n_lines": 5453,
+  "tier": "B"
+ },
+ {
+  "area": "net/minecraft/inventory",
+  "slug": "mc-inventory",
+  "n_files": 30,
+  "n_lines": 5221,
+  "tier": "B"
+ },
+ {
+  "area": "net/minecraft/entity/player",
+  "slug": "mc-entity-player",
+  "n_files": 5,
+  "n_lines": 4837,
+  "tier": "A"
+ },
+ {
+  "area": "net/minecraft/world/gen",
+  "slug": "mc-world-gen",
+  "n_files": 19,
+  "n_lines": 4835,
+  "tier": "C"
+ },
+ {
+  "area": "net/minecraft/world/gen/feature",
+  "slug": "mc-world-gen-feature",
+  "n_files": 41,
+  "n_lines": 4227,
+  "tier": "C"
+ },
+ {
+  "area": "net/minecraft/command/server",
+  "slug": "mc-command-server",
+  "n_files": 27,
+  "n_lines": 3971,
+  "tier": "C"
+ },
+ {
+  "area": "net/minecraft/world/chunk",
+  "slug": "mc-world-chunk",
+  "n_files": 14,
+  "n_lines": 3805,
+  "tier": "B"
+ },
+ {
+  "area": "net/minecraft/server/management",
+  "slug": "mc-server-management",
+  "n_files": 17,
+  "n_lines": 3395,
+  "tier": "C"
+ },
+ {
+  "area": "net/minecraft/world/biome",
+  "slug": "mc-world-biome",
+  "n_files": 25,
+  "n_lines": 3219,
+  "tier": "C"
+ },
+ {
+  "area": "net/minecraft/block#3",
+  "slug": "mc-block-3",
+  "n_files": 30,
+  "n_lines": 2905,
+  "tier": "C"
+ },
+ {
+  "area": "net/minecraft/nbt",
+  "slug": "mc-nbt",
+  "n_files": 18,
+  "n_lines": 2879,
+  "tier": "B"
+ },
+ {
+  "area": "net/minecraft/world/storage",
+  "slug": "mc-world-storage",
+  "n_files": 14,
+  "n_lines": 2867,
+  "tier": "B"
+ },
+ {
+  "area": "net/minecraft/entity/projectile",
+  "slug": "mc-entity-projectile",
+  "n_files": 10,
+  "n_lines": 2583,
+  "tier": "C"
+ },
+ {
+  "area": "net/minecraft/server",
+  "slug": "mc-server",
+  "n_files": 7,
+  "n_lines": 2430,
+  "tier": "B"
+ },
+ {
+  "area": "net/minecraft/item/crafting",
+  "slug": "mc-item-crafting",
+  "n_files": 19,
+  "n_lines": 2309,
+  "tier": "B"
+ },
+ {
+  "area": "net/minecraft/realms",
+  "slug": "mc-realms",
+  "n_files": 23,
+  "n_lines": 2120,
+  "tier": "C"
+ },
+ {
+  "area": "net/minecraft/world/gen/layer",
+  "slug": "mc-world-gen-layer",
+  "n_files": 21,
+  "n_lines": 1923,
+  "tier": "C"
+ },
+ {
+  "area": "net/minecraft/enchantment",
+  "slug": "mc-enchantment",
+  "n_files": 21,
+  "n_lines": 1822,
+  "tier": "B"
+ }
+]

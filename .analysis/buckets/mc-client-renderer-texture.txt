@@ -1,0 +1,16 @@
+client/src/main/java/net/minecraft/client/renderer/texture/AbstractTexture.java
+client/src/main/java/net/minecraft/client/renderer/texture/DynamicTexture.java
+client/src/main/java/net/minecraft/client/renderer/texture/IIconCreator.java
+client/src/main/java/net/minecraft/client/renderer/texture/ITextureObject.java
+client/src/main/java/net/minecraft/client/renderer/texture/ITickable.java
+client/src/main/java/net/minecraft/client/renderer/texture/ITickableTextureObject.java
+client/src/main/java/net/minecraft/client/renderer/texture/LayeredColorMaskTexture.java
+client/src/main/java/net/minecraft/client/renderer/texture/LayeredTexture.java
+client/src/main/java/net/minecraft/client/renderer/texture/SimpleTexture.java
+client/src/main/java/net/minecraft/client/renderer/texture/Stitcher.java
+client/src/main/java/net/minecraft/client/renderer/texture/TextureAtlasSprite.java
+client/src/main/java/net/minecraft/client/renderer/texture/TextureClock.java
+client/src/main/java/net/minecraft/client/renderer/texture/TextureCompass.java
+client/src/main/java/net/minecraft/client/renderer/texture/TextureManager.java
+client/src/main/java/net/minecraft/client/renderer/texture/TextureMap.java
+client/src/main/java/net/minecraft/client/renderer/texture/TextureUtil.java

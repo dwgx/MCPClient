@@ -1,0 +1,7 @@
+client/src/main/java/net/minecraft/server/MinecraftServer.java
+client/src/main/java/net/minecraft/server/integrated/IntegratedPlayerList.java
+client/src/main/java/net/minecraft/server/integrated/IntegratedServer.java
+client/src/main/java/net/minecraft/server/integrated/IntegratedServerCommandManager.java
+client/src/main/java/net/minecraft/server/network/NetHandlerHandshakeTCP.java
+client/src/main/java/net/minecraft/server/network/NetHandlerLoginServer.java
+client/src/main/java/net/minecraft/server/network/NetHandlerStatusServer.java
