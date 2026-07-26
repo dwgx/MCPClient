@@ -54,22 +54,10 @@ public final class Sys {
         }
     }
 
-    /**
-     * Shim extension — LWJGL2 had no clipboard setter, so callers reached for
-     * java.awt.Toolkit instead. On macOS that starts AppKit on the thread GLFW
-     * owns under -XstartOnFirstThread, after which the JVM can no longer shut
-     * down; routing through GLFW keeps AWT out of the process entirely.
-     */
-    public static void setClipboard(String text) {
-        if (text == null || !Display.isCreated()) {
-            return;
-        }
-        try {
-            GLFW.glfwSetClipboardString(Display.getWindowHandle(), text);
-        } catch (RuntimeException e) {
-            // Clipboard access is best-effort, exactly as it was under AWT.
-        }
-    }
+    // Deliberately no setClipboard(): LWJGL2 had no clipboard setter, and this
+    // shim reimplements the LWJGL2 ABI rather than extending it. A patch layer
+    // that needs to write the clipboard calls GLFW.glfwSetClipboardString
+    // directly — LWJGL3 is on the classpath anyway.
 
     public static boolean openURL(String url) {
         if (url == null) {
