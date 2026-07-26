@@ -207,7 +207,7 @@ tier: B
 | `public void onBlockAdded(World worldIn, BlockPos pos, IBlockState state)` / `public void breakBlock(World worldIn, BlockPos pos, IBlockState state)` | Block.java:563 / Block.java:567 | setBlockState 加块/移块时 | 方块生命周期监听；容器掉落物在 breakBlock（BlockChest.java:414 等） | breakBlock 时 TileEntity 尚在，BlockContainer.breakBlock 之后才移除 |
 | `public boolean onBlockEventReceived(World worldIn, BlockPos pos, IBlockState state, int eventID, int eventParam)` | Block.java:1072 | `World.addBlockEvent` 分发（World.java:3483 客户端 / WorldServer.java:1063 服务端） | 监听箱子开合计数、信标刷新等 S24PacketBlockAction 事件 | 服务端返回 false 则不广播给客户端 |
 | `public MovingObjectPosition collisionRayTrace(World worldIn, BlockPos pos, Vec3 start, Vec3 end)` | Block.java:681 | `World.rayTraceBlocks`（准星选块、投射物） | 改写命中判定（扩大/缩小可选中范围） | 依赖 setBlockBoundsBasedOnState 的共享 minX..maxZ，线程敏感 |
-| `public void addCollisionBoxesToList(World worldIn, BlockPos pos, IBlockState state, AxisAlignedBB mask, List<AxisAlignedBB> list, Entity collidingEntity)` | Block.java:489 | 实体移动碰撞收集（World.getCollidingBoundingBoxes） | Phase/Jesus 类功能的碰撞改写点；BlockFenceGate/BlockCauldron 示范多箱拼装 | 直接影响物理；客户端预测与服务端要一致否则回弹 |
+| `public void addCollisionBoxesToList(World worldIn, BlockPos pos, IBlockState state, AxisAlignedBB mask, List<AxisAlignedBB> list, Entity collidingEntity)` | Block.java:489 | 实体移动碰撞收集（World.getCollidingBoundingBoxes） | Phase/Jesus 类功能的碰撞改写点；BlockFence/BlockCauldron 示范多箱拼装 | 直接影响物理；客户端预测与服务端要一致否则回弹 |
 | `public AxisAlignedBB getCollisionBoundingBox(World worldIn, BlockPos pos, IBlockState state)` | Block.java:499 | 上述收集与实体逻辑 | 返回 null = 无碰撞（fire/button/lever/pressureplate 均如此） | null 语义特殊，勿返回零体积箱代替 |
 | `public boolean shouldSideBeRendered(IBlockAccess worldIn, BlockPos pos, EnumFacing side)` | Block.java:468 | chunk mesh 重建（BlockModelRenderer） | X-Ray/剔除策略（注意参数 pos 是**邻块**坐标） | chunk builder 线程调用 |
 | `public IBlockState getActualState(IBlockState state, IBlockAccess worldIn, BlockPos pos)` | Block.java:281 | 渲染取模型前、掉落判定 | 注入自定义渲染态（fence 连接、fire 形态、flower pot 内容） | 必须无副作用、可在工作线程执行 |
@@ -276,7 +276,7 @@ tier: B
 ## 交叉引用
 
 - net.minecraft.init → `Bootstrap#register` 调 `Block#registerBlocks` 与 `BlockFire#init`（Bootstrap.java:517-518）；`Blocks`/`Items` 静态表被本桶几乎每个类引用。
-- net.minecraft.world → `WorldServer#updateBlocks` 调 `Block#randomTick`/`Block#fillWithRain`；`WorldServer#tickUpdates` 调 `Block#updateTick`；`World#rayTraceBlocks` 调 `Block#collisionRayTrace`；`World#handleMaterialAcceleration` 调 `Block#modifyAcceleration`；`WorldServer#fireBlockEvent` / `World#blockEvent` 调 `Block#onBlockEventReceived`。
+- net.minecraft.world → `WorldServer#updateBlocks` 调 `Block#randomTick`/`Block#fillWithRain`；`WorldServer#tickUpdates` 调 `Block#updateTick`；`World#rayTraceBlocks` 调 `Block#collisionRayTrace`；`World#handleMaterialAcceleration` 调 `Block#modifyAcceleration`；`WorldServer#fireBlockEvent` / `World#addBlockEvent` 调 `Block#onBlockEventReceived`。
 - net.minecraft.client.multiplayer → `PlayerControllerMP#onPlayerRightClick` 调 `Block#onBlockActivated`（PlayerControllerMP.java:408）；`WorldClient#doVoidFogParticles` 调 `Block#randomDisplayTick`（WorldClient.java:319）。
 - net.minecraft.client.renderer → `RenderGlobal#loadRenderers` 调 `BlockLeaves#setGraphicsLevel`（RenderGlobal.java:487-488）；chunk 渲染读 `Block#getActualState`/`Block#shouldSideBeRendered`/`Block#colorMultiplier`/`Block#getBlockLayer`。
 - net.minecraft.entity → `Entity#moveEntity`/`Entity#doBlockCollisions` 调 `Block#onEntityCollidedWithBlock`（Entity.java:869/971）；`EntityFallingBlock` 由 `BlockFalling#checkFallable` 生成并回调 `BlockFalling#onEndFalling`。

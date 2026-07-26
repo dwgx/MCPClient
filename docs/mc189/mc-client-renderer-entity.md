@@ -143,7 +143,7 @@ tier: B
 ### RendererLivingEntity（RendererLivingEntity.java）
 
 关键字段：
-- `protected ModelBase mainModel;`（34）、`protected FloatBuffer brightnessBuffer = GLAllocation.createDirectFloatBuffer(4);`（35）、`protected List<LayerRenderer<T>> layerRenderers = Lists.<LayerRenderer<T>>newArrayList();`（36）、`protected boolean renderOutlines = false;`（37）。
+- `protected ModelBase mainModel;`（33）、`protected FloatBuffer brightnessBuffer = GLAllocation.createDirectFloatBuffer(4);`（34）、`protected List<LayerRenderer<T>> layerRenderers = Lists.<LayerRenderer<T>>newArrayList();`（35）、`protected boolean renderOutlines = false;`（36）。
 - `private static final DynamicTexture textureBrightness = new DynamicTexture(16, 16);`（32）— 静态块（588-598）初始化为全白，用于受击叠色的第三纹理单元。
 
 关键方法：
