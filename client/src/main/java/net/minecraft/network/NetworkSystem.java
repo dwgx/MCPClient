@@ -132,6 +132,12 @@ public class NetworkSystem
 
     /**
      * Adds a channel that listens locally
+     *
+     * Binds on SERVER_LOCAL_EVENTLOOP, not the NIO group vanilla used here. Netty
+     * 4.2 routes registration through an IoHandler that only accepts matching
+     * channel types, so a LocalServerChannel on a NIO loop now fails with
+     * "IoHandle of type LocalServerChannel$LocalServerUnsafe not supported" and
+     * takes single-player down with it. Under 4.0 any loop took any channel.
      */
     public SocketAddress addLocalEndpoint()
     {
@@ -148,7 +154,7 @@ public class NetworkSystem
                     NetworkSystem.this.networkManagers.add(networkmanager);
                     p_initChannel_1_.pipeline().addLast((String)"packet_handler", (ChannelHandler)networkmanager);
                 }
-            }).group((EventLoopGroup)eventLoops.getValue()).localAddress(LocalAddress.ANY)).bind().syncUninterruptibly();
+            }).group((EventLoopGroup)SERVER_LOCAL_EVENTLOOP.getValue()).localAddress(LocalAddress.ANY)).bind().syncUninterruptibly();
             this.endpoints.add(channelfuture);
         }
 
