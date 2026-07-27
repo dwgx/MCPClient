@@ -96,9 +96,27 @@ public class GlStateGuardLiveIT {
             // Java-level assertion elsewhere could ever observe.
             + " arrayBuf=" + GL11.glGetInteger(GL15.GL_ARRAY_BUFFER_BINDING)
             + " elemBuf=" + GL11.glGetInteger(GL15.GL_ELEMENT_ARRAY_BUFFER_BINDING)
+            // Attribute array enables. Skia switches on the ones its shaders need and leaves them
+            // on, which a probe measured as [] going in and [0 1] coming out. On a compatibility
+            // profile these feed the same vertex puller as the fixed-function pointers, so one left
+            // enabled keeps Skia's stale pointer attached for the game's next draw — the same shape
+            // as the buffer-binding leak that crashed the client.
+            + " attribs=" + enabledAttribArrays()
             + " viewport=" + viewport.get(2) + "x" + viewport.get(3)
             + " colour=" + String.format("%.2f,%.2f,%.2f,%.2f",
                 colour.get(0), colour.get(1), colour.get(2), colour.get(3));
+    }
+
+    /** The indices of every enabled generic vertex attribute array, as a stable string. */
+    private static String enabledAttribArrays() {
+        int max = GL11.glGetInteger(GL20.GL_MAX_VERTEX_ATTRIBS);
+        StringBuilder on = new StringBuilder("[");
+        for (int i = 0; i < max; i++) {
+            if (GL20.glGetVertexAttribi(i, GL20.GL_VERTEX_ATTRIB_ARRAY_ENABLED) != 0) {
+                on.append(i).append(',');
+            }
+        }
+        return on.append(']').toString();
     }
 
     private static boolean createDisplay() {

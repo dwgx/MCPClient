@@ -89,6 +89,27 @@ final class GlStateGuard {
      */
     private static int hadArrayBuffer;
     private static int hadElementBuffer;
+
+    /**
+     * Which generic vertex attribute arrays were enabled on entry.
+     *
+     * <p>The same family of leak as the buffer bindings above, found by measuring rather than by
+     * waiting for it to crash: a probe read the enable bits before and after one real UI frame and
+     * saw {@code []} become {@code [0 1]}. Skia turns on the attribute arrays its shaders use and
+     * leaves them on, and — like the buffer bindings — they are outside {@code glPushAttrib}'s
+     * server-state groups, so the pop cannot undo them.
+     *
+     * <p>Why it matters even though MC never uses generic attributes: on a compatibility profile the
+     * fixed-function pointers and the generic attribute arrays feed the SAME vertex puller. An
+     * attribute array left enabled still has Skia's stale pointer and stride attached, so the driver
+     * keeps fetching from it on the game's next {@code glDrawArrays} — reading memory the game never
+     * offered. That is precisely the shape of the crash already fixed here, which is reason enough
+     * not to leave it to luck.
+     *
+     * <p>Sized to the context's real {@code GL_MAX_VERTEX_ATTRIBS}, resolved once, because the
+     * minimum guaranteed 16 is not necessarily what the driver reports.
+     */
+    private static boolean[] hadAttribArray;
     private static final float[] HAD_COLOUR = new float[4];
     private static final FloatBuffer COLOUR_BUF = BufferUtils.createFloatBuffer(16);
 
@@ -118,6 +139,16 @@ final class GlStateGuard {
             hadProgram = GL11.glGetInteger(GL20.GL_CURRENT_PROGRAM);
             hadArrayBuffer = GL11.glGetInteger(GL15.GL_ARRAY_BUFFER_BINDING);
             hadElementBuffer = GL11.glGetInteger(GL15.GL_ELEMENT_ARRAY_BUFFER_BINDING);
+            if (hadAttribArray == null) {
+                // Once per run: the count cannot change for a live context, and querying it every
+                // frame would be a driver round-trip for a constant.
+                hadAttribArray = new boolean[Math.max(0,
+                        GL11.glGetInteger(GL20.GL_MAX_VERTEX_ATTRIBS))];
+            }
+            for (int i = 0; i < hadAttribArray.length; i++) {
+                hadAttribArray[i] = GL20.glGetVertexAttribi(
+                        i, GL20.GL_VERTEX_ATTRIB_ARRAY_ENABLED) != 0;
+            }
             COLOUR_BUF.clear();
             GL11.glGetFloatv(GL11.GL_CURRENT_COLOR, COLOUR_BUF);
             for (int i = 0; i < 4; i++) {
@@ -196,6 +227,18 @@ final class GlStateGuard {
             // not a Java exception anything could catch.
             GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, hadArrayBuffer);
             GL15.glBindBuffer(GL15.GL_ELEMENT_ARRAY_BUFFER, hadElementBuffer);
+
+            // The attribute array enables, restored after the buffer bindings so a re-enable cannot
+            // pick up Skia's binding. Measured leak: [] in, [0 1] out.
+            if (hadAttribArray != null) {
+                for (int i = 0; i < hadAttribArray.length; i++) {
+                    if (hadAttribArray[i]) {
+                        GL20.glEnableVertexAttribArray(i);
+                    } else {
+                        GL20.glDisableVertexAttribArray(i);
+                    }
+                }
+            }
         } catch (Throwable t) {
             System.err.println("[dwm] GlStateGuard.leave faulted: " + t);
         }
