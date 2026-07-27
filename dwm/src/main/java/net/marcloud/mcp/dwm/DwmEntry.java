@@ -20,8 +20,14 @@ public final class DwmEntry {
     /** The qml4j-backed screen. Named as a string so this class does not link against it. */
     private static final String QML_SCREEN = "net.marcloud.mcp.dwm.qml.QmlGuiScreen";
 
-    /** Scene loaded when no other path is given. */
-    private static final String DEFAULT_SCENE = "dwm/Main.qml";
+    /**
+     * Scene loaded when no other path is given: the window shell with its navigation pages.
+     *
+     * <p>{@code dwm/Main.qml} is still shipped and still loadable by name — it is the single-panel
+     * Fluent menu, which is the right shape for a quick command surface and the wrong one for
+     * anything with settings in it.
+     */
+    private static final String DEFAULT_SCENE = "dwm/Shell.qml";
 
     private DwmEntry() {
     }

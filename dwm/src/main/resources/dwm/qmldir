@@ -8,3 +8,10 @@ FluentTextBox 1.0 controls/FluentTextBox.qml
 FluentButton 1.0 controls/FluentButton.qml
 FluentToggleSwitch 1.0 controls/FluentToggleSwitch.qml
 FluentCheckBox 1.0 controls/FluentCheckBox.qml
+FluentWindow 1.0 FluentWindow.qml
+NavigationView 1.0 NavigationView.qml
+NavItem 1.0 NavItem.qml
+PageHome 1.0 pages/PageHome.qml
+PageKernel 1.0 pages/PageKernel.qml
+PageChips 1.0 pages/PageChips.qml
+PageSettings 1.0 pages/PageSettings.qml
