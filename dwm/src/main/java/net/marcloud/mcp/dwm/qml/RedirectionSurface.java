@@ -57,6 +57,12 @@ final class RedirectionSurface {
         try {
             // Premultiplied N32 with alpha: the scene must stay transparent where it paints
             // nothing, or the composite would cover the game with an opaque rectangle.
+            //
+            // N32 also MATCHES MC's framebuffer format, which is what keeps the composite a
+            // plain GPU blit with no conversion. Windows does the opposite for GDI windows —
+            // it keeps a second system-memory buffer precisely because GDI cannot render into
+            // the DirectX format — and pays a full copy per update for it. If these two formats
+            // ever diverge here, the cost arrives as unexplained slowness, not as an error.
             surface = Surface.makeRenderTarget(context, false,
                 ImageInfo.makeN32(w, h, ColorAlphaType.PREMUL));
         } catch (Throwable t) {
@@ -90,6 +96,13 @@ final class RedirectionSurface {
      *
      * <p>Called once after the scene has been painted. The image shares the surface's context, so
      * the later {@code drawImage} is a GPU-side blit rather than a readback.
+     *
+     * <p><b>Never replace this with a pixel readback.</b> Reading video memory has to synchronise
+     * with the compositor and stalls the whole GPU pipeline — it is the reason Windows calls
+     * drawing to and reading from the screen a practice to avoid outright, and why a DirectDraw
+     * primary access makes DWM switch itself off. Keeping both surfaces on one DirectContext is
+     * what makes this cheap; a readback-and-upload version would look equivalent and be
+     * catastrophic.
      */
     void endScene() {
         if (surface == null) {

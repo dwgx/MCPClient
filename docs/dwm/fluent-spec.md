@@ -82,9 +82,18 @@ Fluent Standard:所有项对齐 **40x40 epx** 目标。菜单项高度取 40px �
 
 ## 亚克力(Acrylic)
 
-真正的 Acrylic = 背景模糊 + 色调层 + 噪声。dwm 的实现只做**半透明色调层**,不做模糊:
+真正的 Acrylic 是**五层**配方(官方原文:background → blur → exclusion blend → color/tint → noise)。
+其中 **exclusion blend** 那层容易被忽略,它的职责是保证叠在 acrylic 上的 UI 文字有足够对比度
+——可读性靠它,不是靠调不透明度。详见 `dwm-deep-dive.md` §6。
+
+dwm 的实现目前只做**半透明色调层**,不做模糊:
 - Skija 的高斯模糊要对 MC 已渲染的帧做离屏采样,每帧成本高;
 - 菜单叠在游戏画面上,不模糊反而让玩家能看清背后的战况。
+
+这一简化踩在 Acrylic 自己的降级路径上:官方明确 acrylic 是 GPU 密集的,**省电模式下自动禁用**,
+用户关掉"透明效果"、高对比度模式、低端硬件时都退化为纯色。所以"无模糊的 acrylic"是它支持的形态之一。
+
+待办:补 **exclusion blend** 层 —— 它不需要模糊就能改善可读性,是性价比最高的一项。
 
 若日后要真模糊:Skija 有 `ImageFilter.makeBlur`,但需要先把 MC 的帧读进一张 Image,
 属于额外一次全屏拷贝,应先测量再决定。
