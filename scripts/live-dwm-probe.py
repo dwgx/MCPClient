@@ -726,17 +726,51 @@ def check_controls(mcp):
     box = item_box(mcp, "settingsFullbright")
     if "," in box:
         x, y, w, h = (int(n) for n in box.split(","))
-        hover(mcp, 5, 5)
-        away = item_property(mcp, "settingsFullbright", "width")  # forces a read; state below
-        hover(mcp, x + w // 2, y + h // 2)
-        over = hovered(mcp, "settingsFullbright")
-        hover(mcp, 5, 5)
-        off = hovered(mcp, "settingsFullbright")
+        # Move and read in ONE eval, per direction. Splitting them across two MCP calls -- which
+        # this did -- lets the game thread run frames in between, and that made the check
+        # intermittently report over=false: the move landed, the frame advanced, and the read
+        # arrived describing a different moment. It surfaced once the toggle's knob gained an
+        # 83ms animation, but the race was always there. Same reasoning as click_and_focused.
+        over = hover_and_read(mcp, x + w // 2, y + h // 2, "settingsFullbright")
+        off = hover_and_read(mcp, 5, 5, "settingsFullbright")
         record("hovering a control sets containsMouse, and leaving clears it",
-               over.strip() == "true" and off.strip() == "false",
-               f"over={over.strip()} off={off.strip()}")
+               "containsMouse=true" in over and "containsMouse=false" in off,
+               f"over=[{over.strip()}] off=[{off.strip()}]")
     else:
         record("the toggle's box is readable for hover", False, box)
+
+
+def hover_and_read(mcp, x, y, object_name):
+    """Move the pointer to a point and report the named control's containsMouse, atomically.
+
+    One eval, so no frame can run between the move and the read. Two calls cannot express this:
+    the pointer state the assertion is about only holds until the next frame.
+    """
+    return mcp.java("HoverRead" + object_name, SURFACE_PREAMBLE + f"""
+        java.lang.reflect.Method move = surf.getClass().getMethod("pointerMove", float.class, float.class);
+        java.lang.reflect.Field usf = surf.getClass().getDeclaredField("uiScale");
+        usf.setAccessible(true);
+        float scale = (Float) usf.get(surf);
+        move.invoke(surf, {x}f * scale, {y}f * scale);
+
+        java.lang.reflect.Field vf = surf.getClass().getDeclaredField("view");
+        vf.setAccessible(true);
+        Object view = vf.get(surf);
+        Object it = view.getClass().getMethod("findByObjectName", String.class)
+            .invoke(view, "{object_name}");
+        if (it == null) return "NO-ITEM";
+        java.util.ArrayDeque<Object> q = new java.util.ArrayDeque<>();
+        q.add(it);
+        while (!q.isEmpty()) {{
+          Object n = q.poll();
+          if (n.getClass().getName().endsWith("core.MouseArea")) {{
+            Object cm = n.getClass().getField("containsMouse").get(n);
+            return "containsMouse=" + cm.getClass().getMethod("peek").invoke(cm);
+          }}
+          for (Object c : (java.util.List<?>) n.getClass().getField("children").get(n)) q.add(c);
+        }}
+        return "NO-MOUSEAREA";
+""")
 
 
 def hovered(mcp, object_name):

@@ -140,7 +140,52 @@ qml4j 说的是 Qt 的 **`MouseButton` 位掩码**:`NoButton` 0、`LeftButton` *
 
 ---
 
-## 6. 已知未覆盖
+## 6. 又一条探针自己的空转/竞态(2026-07-28)
+
+打磨控件那轮,真机跑出一条 headless 抓不到的失败:
+
+```
+FAIL  hovering a control sets containsMouse, and leaving clears it
+      over=false off=false
+```
+
+**但重跑三次全过。** 间歇性,所以第一反应"是不是我改坏了 hover"是错的方向 ——
+逐项查下来几何全对(40x40、trackRadius=7、knob=12),直接读 `containsMouse` 也是 `true`。
+
+真因是**探针自己的竞态**:`hover()` 和 `hovered()` 是**两次独立的 `eval_java`**,
+中间游戏线程会推进帧。移动落地了、帧过了,读到的是另一个时刻。
+这个竞态**一直都在**,是我给 knob 加了 83ms 动画才把它暴露出来。
+
+改法与 `click_and_focused` 一致:**移动与读取放进同一次 eval**(`hover_and_read`)。
+改完连跑 4 次稳定 26/26,并反向验证过(把 `hoverEnabled` 改成 false → 正确变红)。
+
+**教训**:跨两次 eval 断言一个"只维持到下一帧"的状态,本身就是错的形状 ——
+和 §5 那条"前置条件必须摆到已知位置"是同一类错误。
+
+## 7. elevation border 的断言改了三次才真正能红
+
+这轮唯一的**新增视觉结构**(Windows 11 的亮顶边),验证过程值得记全,因为前两版都是空转:
+
+| 版本 | 断言 | 为什么是空转 |
+|---|---|---|
+| 1 | 顶边 **luminance** > 底边 | 两停是**同一个白**,只差 alpha ⇒ luminance 恒为 255,**永远不可能失败** |
+| 2 | 顶边 **alpha** > 底边(采样 y=20 / y=51) | y=51 落在 **face** 上不是描边上;而且"顶>底"由两层叠加结构**天然成立** —— 压平、倒置、两停设为相同,三种改坏全都照样通过 |
+| 3 | 底边 **必须恰为 0x12**,且顶底 **gap ≥ 20** | ✅ 正常 gap=22 通过;压平 gap=17 变红;ramp 归零 gap=0 变红 |
+
+阈值是算出来的,不是试出来的(源 alpha 叠同色:`a + a(1-a)`):
+
+```
+lit  0x18 over base 0x12 -> 0x28   gap 22   正确
+base 0x12 over base 0x12 -> 0x23   gap 17   litColor 被压平
+```
+
+所以 bar 落在 20。**先试的 16 会放压平的过去** —— 因为两层相同底色叠起来确实比一层亮。
+
+顺带查出一个**实现 bug**:我一度把 `MappingMode="Absolute"` 当设备像素,给 rampHeight 除了 DPI。
+[官方定义](https://learn.microsoft.com/en-us/dotnet/api/system.windows.media.brushmappingmode)
+是"直接在**局部空间**解释",即 DIP —— 除 DPI 会让 Retina 上的亮带**偏细**。已撤回。
+
+## 8. 已知未覆盖
 
 诚实列出来,别当成已验证:
 
