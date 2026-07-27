@@ -12,6 +12,7 @@ import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.Display;
 import org.lwjgl.opengl.DisplayMode;
 import org.lwjgl.opengl.GL11;
+import org.lwjgl.opengl.GL15;
 import org.lwjgl.opengl.GL20;
 
 /**
@@ -88,6 +89,13 @@ public class GlStateGuardLiveIT {
             // integration goes wrong, so it belongs in the same comparison.
             + " fbo=" + GL11.glGetInteger(0x8CA6)
             + " program=" + GL20.glGetInteger(GL20.GL_CURRENT_PROGRAM)
+            // The buffer bindings. These belong in the comparison because leaking them is what
+            // actually killed the client in a real game frame: MC draws the world through
+            // client-side vertex arrays, so a leftover ARRAY_BUFFER makes glVertexPointer's heap
+            // pointer be read as an offset into that buffer — SIGSEGV inside the driver, which no
+            // Java-level assertion elsewhere could ever observe.
+            + " arrayBuf=" + GL11.glGetInteger(GL15.GL_ARRAY_BUFFER_BINDING)
+            + " elemBuf=" + GL11.glGetInteger(GL15.GL_ELEMENT_ARRAY_BUFFER_BINDING)
             + " viewport=" + viewport.get(2) + "x" + viewport.get(3)
             + " colour=" + String.format("%.2f,%.2f,%.2f,%.2f",
                 colour.get(0), colour.get(1), colour.get(2), colour.get(3));

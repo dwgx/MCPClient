@@ -219,6 +219,14 @@ public final class McpFboSurfaceBackend implements SurfaceBackend {
      *
      * <p>Both surfaces come from the same {@link DirectContext}, so this stays on the GPU — no
      * readback — and it is what lets an idle UI cost one textured quad instead of a full repaint.
+     *
+     * <p><b>It flushes.</b> Skia only queues {@code drawImage}; nothing reaches the framebuffer
+     * until the context is flushed. {@link #present()} does that, but qml4j calls present from
+     * inside {@code renderFrame} — which runs BEFORE this blit, and on an idle frame does not run at
+     * all. So the composite was being recorded and then dropped every single frame: the scene was
+     * painted correctly into the layer, the layer held the right pixels, and the screen stayed
+     * empty. Verified in a live game by reading the layer back mid-frame (panel fill and accent
+     * present, 3640 covered samples) while nothing was visible.
      */
     void compositeLayer() {
         if (disposed || surface == null || !layer.hasSnapshot()) {
@@ -230,6 +238,12 @@ public final class McpFboSurfaceBackend implements SurfaceBackend {
             // the UI scale was applied when the scene was painted into the layer.
             canvas.resetMatrix();
             canvas.drawImage(layer.snapshot(), 0.0F, 0.0F);
+            // Submit it. resetGLAll afterwards for the same reason present() does it: the next
+            // thing to touch GL is MC, not Skia, and GlStateGuard.leave() restores what MC expects.
+            if (context != null) {
+                context.flush();
+                context.resetGLAll();
+            }
         } catch (Throwable t) {
             System.err.println("[dwm] composite faulted: " + t);
         }

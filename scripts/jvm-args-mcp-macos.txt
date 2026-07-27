@@ -1,0 +1,58 @@
+# MC 1.8.9 + MCP Core on a STOCK JDK 25 (Temurin), macOS. Usage:
+#   java @jvm-args-mcp-macos.txt -XstartOnFirstThread -Djava.awt.headless=true \
+#        -javaagent:core/target/core-1.8.9-all.jar -cp <jars> Main
+#
+# This is jvm-args-mcp.txt minus the one flag a stock JDK refuses. Kept as a separate
+# file rather than adding -XX:+IgnoreUnrecognizedVMOptions to the shared one, because
+# that would also swallow genuine typos in every other flag here.
+#
+# Two flags that belong on a launch of this deliberately live on the COMMAND LINE and
+# not in here: -XstartOnFirstThread and -Djava.awt.headless=true. An argfile is read by
+# whatever JVM is handed it, and a Windows JVM rejects the -X form outright, so putting
+# them here would break the other platform rather than this one.
+
+-Dfile.encoding=UTF-8
+
+# --- Heap ceiling. Without an explicit -Xmx the JVM ergonomically claims ~1/4 of
+#     physical RAM up front as G1 virtual space. MC 1.8.9 needs well under 2 GB, so pin
+#     it: bounded footprint, no huge reservation. (The original comment cites the
+#     Windows pagefile; the ceiling is harmless and worth keeping on macOS too.) ---
+-Xms512m
+-Xmx2g
+
+# --- Unsafe: silences Netty/Guava warnings on JDK 25 (still 'warn'). ---
+--sun-misc-unsafe-memory-access=allow
+# --- Native access: LWJGL3 / JNA / oshi / Skija. ---
+--enable-native-access=ALL-UNNAMED
+
+# --- DCEVM's -XX:+AllowEnhancedClassRedefinition is DELIBERATELY ABSENT. It is a
+#     JetBrains Runtime flag; a stock Temurin 25 does not merely warn about it, it
+#     REFUSES TO BOOT: "Unrecognized VM option" then "Could not create the Java
+#     Virtual Machine". Verified on macOS 26.5 / M2 / Temurin 25.0.3+9. The cost is
+#     that add-field/add-method hot redefine is unavailable; ordinary retransform
+#     (which is what the compat patches and the tick/render seams use) is not
+#     affected. Run under JBR if you need enhanced redefinition. ---
+
+# --- Dynamic agent loading: warning-free explicit opt-in (JEP 451). ---
+-XX:+EnableDynamicAgentLoading
+# --- Allow self-attach (fallback path if -javaagent is not used). ---
+-Djdk.attach.allowAttachSelf=true
+
+# --- java.base: reflection paths dependencies force open (MANDATORY since JDK16) ---
+--add-opens java.base/java.lang=ALL-UNNAMED
+--add-opens java.base/java.lang.reflect=ALL-UNNAMED
+--add-opens java.base/java.lang.invoke=ALL-UNNAMED
+--add-opens java.base/java.lang.ref=ALL-UNNAMED
+--add-opens java.base/java.nio=ALL-UNNAMED
+--add-opens java.base/sun.nio.ch=ALL-UNNAMED
+--add-opens java.base/jdk.internal.misc=ALL-UNNAMED
+--add-opens java.base/jdk.internal.ref=ALL-UNNAMED
+--add-opens java.base/java.util=ALL-UNNAMED
+--add-opens java.base/java.util.zip=ALL-UNNAMED
+--add-opens java.base/java.util.jar=ALL-UNNAMED
+
+# --- java.desktop: ImageIO PNG screenshots. Safe under headless; the window icon is
+#     already a no-op on macOS (Display.setIcon short-circuits on isMac). ---
+--add-opens java.desktop/com.sun.imageio.plugins.png=ALL-UNNAMED
+--add-opens java.desktop/sun.awt.image=ALL-UNNAMED
+--add-opens java.desktop/sun.awt=ALL-UNNAMED

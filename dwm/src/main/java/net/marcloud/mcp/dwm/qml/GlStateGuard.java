@@ -6,6 +6,7 @@ import net.minecraft.client.renderer.GlStateManager;
 
 import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.GL11;
+import org.lwjgl.opengl.GL15;
 import org.lwjgl.opengl.GL20;
 import org.lwjgl.opengl.GL30;
 
@@ -58,6 +59,36 @@ final class GlStateGuard {
      */
     private static int hadFramebuffer;
     private static int hadProgram;
+
+    /**
+     * The buffer bindings in force on entry — and the reason the game survives a UI frame at all.
+     *
+     * <p>MC 1.8.9 draws the world through CLIENT-SIDE vertex arrays:
+     * {@code WorldVertexBufferUploader.draw} calls {@code glVertexPointer(..., byteBuffer)} with a
+     * pointer into Java memory, then {@code glDrawArrays}. In OpenGL those two calls mean completely
+     * different things depending on whether an {@code ARRAY_BUFFER} is bound: with no binding the
+     * pointer is an address, and with one bound it is reinterpreted as a byte OFFSET INTO THAT
+     * BUFFER. Skija binds its own buffers and leaves them bound, so the game's next chunk upload
+     * hands a heap address to the driver as an offset and dereferences somewhere arbitrary.
+     *
+     * <p>That is not a theory. Leaving these unrestored crashed the client in
+     * {@code gleRunVertexSubmitImmediate} — Apple's GL vertex submit path — with SIGSEGV, reached
+     * through {@code glDrawArrays} from {@code WorldVertexBufferUploader.draw}, the moment the UI
+     * was opened over a live world. It survived eight minutes of ordinary play beforehand.
+     *
+     * <p>{@code glPushAttrib} cannot help here for the same reason it cannot save the framebuffer:
+     * buffer bindings are not part of the fixed-function attribute stack. Nor does
+     * {@code glPushClientAttrib} cover them — it covers client array POINTERS and enables, not the
+     * binding that changes their meaning.
+     *
+     * <p><b>No vertex array object is saved</b>, deliberately. A first attempt restored one too and
+     * that aborted the JVM outright: {@code glBindVertexArray} is GL 3.0, and on Apple's GL 2.1
+     * compatibility profile LWJGL raises a fatal "No context is current or a function that is not
+     * available in the current context was called" — a {@code jni_FatalError}, past any Java
+     * handler. VAOs do not exist in a 2.1 context, so there is no binding to restore.
+     */
+    private static int hadArrayBuffer;
+    private static int hadElementBuffer;
     private static final float[] HAD_COLOUR = new float[4];
     private static final FloatBuffer COLOUR_BUF = BufferUtils.createFloatBuffer(16);
 
@@ -85,6 +116,8 @@ final class GlStateGuard {
             // can restore them after the pop has done what it can.
             hadFramebuffer = GL11.glGetInteger(GL30.GL_FRAMEBUFFER_BINDING);
             hadProgram = GL11.glGetInteger(GL20.GL_CURRENT_PROGRAM);
+            hadArrayBuffer = GL11.glGetInteger(GL15.GL_ARRAY_BUFFER_BINDING);
+            hadElementBuffer = GL11.glGetInteger(GL15.GL_ELEMENT_ARRAY_BUFFER_BINDING);
             COLOUR_BUF.clear();
             GL11.glGetFloatv(GL11.GL_CURRENT_COLOR, COLOUR_BUF);
             for (int i = 0; i < 4; i++) {
@@ -154,6 +187,15 @@ final class GlStateGuard {
             // shader — the whole frame silently disappears.
             GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, hadFramebuffer);
             GL20.glUseProgram(hadProgram);
+
+            // The buffer bindings, and this is the one that decides whether the game survives:
+            // MC's world draw passes a Java heap pointer to glVertexPointer, which the driver
+            // reinterprets as an offset into whatever ARRAY_BUFFER happens to be bound. Skija
+            // leaves its own bound, so not clearing it makes the next chunk upload dereference a
+            // heap address as a buffer offset — a hard SIGSEGV inside Apple's vertex submit path,
+            // not a Java exception anything could catch.
+            GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, hadArrayBuffer);
+            GL15.glBindBuffer(GL15.GL_ELEMENT_ARRAY_BUFFER, hadElementBuffer);
         } catch (Throwable t) {
             System.err.println("[dwm] GlStateGuard.leave faulted: " + t);
         }
