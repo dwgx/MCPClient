@@ -90,9 +90,17 @@ if [ -f "$DWM_JAR" ]; then
         -DincludeScope=runtime -Dmdep.outputFile="$DWM_CP_CACHE" ) \
       || { echo "[run-mcp] could not resolve dwm dependencies; UI will not load" >&2; }
   fi
-  if [ -f "$DWM_CP_CACHE" ]; then
+  # Sanity-check the CONTENT, not just the file's existence and age. A truncated or corrupted
+  # cache that happens to be newer than the pom would otherwise be pasted straight onto the
+  # classpath, and the failure surfaces much later as NoClassDefFoundError the moment the UI is
+  # first opened — which reads like a dwm bug and is not one. qml4j is the marker because it is
+  # the dependency the UI cannot start without.
+  if [ -f "$DWM_CP_CACHE" ] && grep -q "qml4j-core" "$DWM_CP_CACHE"; then
     CP="$CP:$(cat "$DWM_CP_CACHE")"
     echo "[run-mcp] dwm UI on the classpath."
+  else
+    echo "[run-mcp] dwm dependency cache is missing or unusable — the UI will not load." >&2
+    echo "[run-mcp]   delete $DWM_CP_CACHE and re-run to rebuild it." >&2
   fi
 else
   echo "[run-mcp] dwm not built — running without the UI."

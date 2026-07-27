@@ -42,7 +42,18 @@ public final class DwmHotkey {
      */
     private static final int BOUND_KEY = resolveBoundKey();
 
-    /** Whether the bound key was down on the previous event, so a hold does not re-fire. */
+    /**
+     * Whether the bound key was down on the previous event, so a hold does not re-fire.
+     *
+     * <p><b>Unsynchronised because it is single-threaded, and that is verified rather than assumed.</b>
+     * {@code Minecraft.dispatchKeypresses} has exactly ONE call site — {@code Minecraft.java:1926},
+     * inside {@code runTick}'s keyboard loop — which sits under {@code runGameLoop} in the
+     * {@code while (this.running)} loop at {@code Minecraft.java:426}. That loop is entered from
+     * {@code Minecraft.run()}, called directly by {@code Main.java:113} on the thread it has just
+     * named "Client thread" ({@code Main.java:112}). So every invocation of the injected hook happens
+     * on that one thread, and a lock here would guard nothing while adding a monitor to the keyboard
+     * path. If a second call site ever appears, this reasoning is what has to be rechecked.
+     */
     private static boolean wasDown;
 
     /** Set after the first failure to reach the game, so a broken mapping is reported once. */
