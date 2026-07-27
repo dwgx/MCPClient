@@ -107,7 +107,9 @@ public final class QmlUiSurface implements UiSurface, UiInput {
             // surface is sized in DEVICE pixels; only the canvas transform is logical.
             backend.frameTarget(widthPx, heightPx, liveFboId);
             if (backend.hasSurface()) {
-                view.tickAnimations(nanoTime);
+                // renderFrame ticks animations itself, off its own nanoTime. Calling
+                // tickAnimations here as well advances every animation twice per frame, i.e.
+                // at double speed — a bug that only shows up once something animates.
                 view.renderFrame(backend);
             }
         } catch (Throwable t) {

@@ -82,6 +82,34 @@ public class UiScaleContractTest {
             reset < scale);
     }
 
+    /**
+     * The frame path must not tick animations itself.
+     *
+     * <p>{@code QmlView.renderFrame} already samples its own clock and ticks the tree, so an
+     * extra {@code tickAnimations} call in the same frame advances every animation twice — they
+     * run at double speed. Nothing in the current scene animates, so this is invisible today and
+     * would be found by whoever adds the first transition.
+     */
+    @Test
+    public void frameDoesNotTickAnimationsASecondTime() {
+        String src = read("QmlUiSurface.java");
+        int frameStart = src.indexOf("public void frame(");
+        assertTrue("frame() must exist", frameStart > 0);
+        String body = src.substring(frameStart, src.indexOf("public void close()"));
+        // Strip comments: the explanation of the hazard necessarily names the method.
+        StringBuilder code = new StringBuilder();
+        for (String line : body.split("\\n")) {
+            String t = line.trim();
+            if (t.startsWith("//") || t.startsWith("*") || t.startsWith("/*")) {
+                continue;
+            }
+            code.append(line).append('\n');
+        }
+        assertTrue("frame() must not call tickAnimations: renderFrame already ticks, so a second "
+            + "call runs every animation at double speed",
+            !code.toString().contains("tickAnimations"));
+    }
+
     /** A bad scale must fall back to 1.0 rather than collapsing or exploding the UI. */
     @Test
     public void scaleSetterRejectsNonsenseValues() {

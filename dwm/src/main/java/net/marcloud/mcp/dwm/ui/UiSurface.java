@@ -41,7 +41,10 @@ public interface UiSurface {
      *
      * @param widthPx     current framebuffer width in pixels
      * @param heightPx    current framebuffer height in pixels
-     * @param nanoTime    monotonic clock for animation, in nanoseconds
+     * @param nanoTime    monotonic clock for animation, in nanoseconds. A backend whose scene
+     *                    graph already samples its own clock should ignore this rather than
+     *                    tick a second time — double-ticking runs every animation at double
+     *                    speed, and the symptom only appears once something animates.
      */
     void frame(int widthPx, int heightPx, long nanoTime);
 
