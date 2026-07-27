@@ -3,11 +3,15 @@ import QtQuick
 
 // Fluent design tokens for the DWM dark theme, in one place. Referenced as Fluent.<name>.
 //
-// Provenance is documented in docs/dwm/fluent-spec.md, and the distinction matters when
-// editing: the radii (8px overlay / 4px control), the type ramp sizes and the 40px row height
-// are from Microsoft's published specs, while the dark colour values other than textPrimary
-// (#FFFFFF, which is documented) are approximations — WinUI's authoritative values live in
-// the theme dictionaries shipped inside the Windows App SDK, not in public docs.
+// PROVENANCE. Every colour below is now the value WinUI itself ships, read out of
+// microsoft/microsoft-ui-xaml release/2.8 dev/CommonStyles/Common_themeresources_any.xaml,
+// x:Key="Default" (which is WinUI's name for the DARK dictionary -- not "Dark"). That file is
+// the authoritative theme dictionary the public design docs describe but never enumerate, so
+// the values here are no longer approximations read off screenshots.
+//
+// The geometry (8px overlay / 4px control radius, the type ramp, the 40px row) comes from the
+// published Fluent specs; the per-control dimensions live with their controls and cite the
+// WinUI resource key they came from. See docs/dwm/fluent-spec.md for the full table.
 
 QtObject {
     // ---- geometry (official) ----
@@ -31,6 +35,18 @@ QtObject {
     property int fontSubtitle: 20
     property int fontTitle: 28
 
+    // ---- animation (WinUI ControlAnimationDuration values) ----
+    // Real durations from Common_themeresources_any.xaml, as milliseconds. WinUI states them as
+    // timespans: 00:00:00.083 / .167 / .250. Faster is what every control-state transition uses
+    // (knob resize, colour crossfades); Normal is for larger moves.
+    //
+    // NOTE these are documentation, not usable in a Behavior: qml4j 0.2.24 reads a Behavior's
+    // duration off the template before bindings resolve, so a bound duration silently reverts to
+    // its 250ms default. Call sites must repeat the number as a literal, and say why.
+    property int durationFaster: 83
+    property int durationFast: 167
+    property int durationNormal: 250
+
     // ---- text ----
     property string textPrimary: "#ffffff"
     property string textSecondary: "#c5ffffff"
@@ -41,24 +57,68 @@ QtObject {
     // Tonal layer only, no blur: real Acrylic needs an offscreen sample of MC's frame every
     // frame, and keeping the game legible behind the menu is desirable anyway.
     property string panelFill: "#e62c2c2c"
-    property string panelStroke: "#12ffffff"
     property string solidFill: "#ff202020"
 
-    // Hover is BRIGHTER than pressed. Counter-intuitive, but it is what Fluent does — the
-    // backplate dims as it goes down.
+    // ---- strokes ----
+    // ControlStrokeColorDefault / Secondary. The pair exists to be used TOGETHER: they are the
+    // two stops of the elevation border below, and Secondary alone is not "a slightly brighter
+    // stroke" but specifically the lit edge.
+    property string panelStroke: "#12ffffff"
+    property string controlStrokeSecondary: "#18ffffff"
+    // ControlStrongStrokeColorDefault, for a control whose whole outline IS its unfilled state:
+    // an empty checkbox, an off toggle track. panelStroke at #12FFFFFF all but vanishes there.
+    property string controlStrokeStrong: "#8bffffff"
+    // ControlStrongStrokeColorDisabled. Also what a PRESSED empty checkbox uses -- WinUI dims
+    // the outline on the way down rather than filling it.
+    property string controlStrokeStrongDisabled: "#28ffffff"
+    property string divider: "#15ffffff"
+    // SurfaceStrokeColorFlyout: the border of a flyout/menu, darker than a control's because it
+    // separates the panel from arbitrary content behind it rather than from a known surface.
+    property string surfaceStrokeFlyout: "#33000000"
+
+    // ---- control fills (ControlFillColor*) ----
+    // The standard button plate and its state chain. Rest is BRIGHTER than pressed: the plate
+    // dims as it goes down, which is counter-intuitive and is what Fluent does.
+    property string controlFill: "#0fffffff"
+    property string controlFillSecondary: "#15ffffff"
+    property string controlFillTertiary: "#08ffffff"
+    property string controlFillDisabled: "#0bffffff"
+    // ControlFillColorInputActive: the background of a FOCUSED text field. Nearly opaque and dark
+    // rather than a brighter tint -- text being edited gets a controlled surface instead of
+    // whatever shows through the panel.
+    property string controlFillInputActive: "#b31e1e1e"
+
+    // ---- alt control fills (ControlAltFillColor*) ----
+    // For controls drawn as a hollow shape over the page: an off toggle track, an unchecked box.
+    // Note Secondary is BLACK-based (#19000000) while the rest are white-based -- the rest state
+    // is a recess, and the hover/pressed states lift out of it.
+    property string controlAltFillSecondary: "#19000000"
+    property string controlAltFillTertiary: "#0bffffff"
+    property string controlAltFillQuarternary: "#12ffffff"
+    property string controlAltFillDisabled: "#00ffffff"
+
+    // ---- subtle fills (SubtleFillColor*) ----
+    // Backplates for list rows and menu items, which have no rest fill at all.
     property string subtleHover: "#0fffffff"
     property string subtlePressed: "#0affffff"
+    property string subtleTransparent: "#00ffffff"
 
-    property string divider: "#15ffffff"
+    // ---- accent ----
+    // AccentFillColorDefaultBrush is SystemAccentColorLight2, and the Secondary/Tertiary steps
+    // are THE SAME COLOUR at 90% / 80% opacity -- not three separate values. So the state chain
+    // for an accent surface is an opacity ramp, and accentOpacity* below are those two numbers.
     property string accent: "#4cc2ff"
+    property real accentOpacityHover: 0.9
+    property real accentOpacityPressed: 0.8
+    // AccentFillColorDisabled: a disabled accent surface is not a faded accent, it drops to a
+    // neutral grey entirely.
+    property string accentFillDisabled: "#28ffffff"
 
-    // The STRONG control stroke, for a control whose whole outline is its unfilled state — an
-    // empty checkbox or an off toggle track is nothing but its border. panelStroke above is the
-    // WEAK stroke and at #12FFFFFF such a control all but vanishes, so the two are not
-    // interchangeable. [近似]
-    property string controlStrokeStrong: "#9affffff"
-
-    // Text drawn ON an accent fill. Black in the dark theme, because there the accent IS the light
-    // surface — the one place in dwm where the usual light-on-dark polarity inverts. [近似]
+    // Text drawn ON an accent fill. TextOnAccentFillColorPrimary is #000000 in the dark theme,
+    // because there the accent IS the light surface -- the one place in dwm where the usual
+    // light-on-dark polarity inverts.
     property string textOnAccent: "#ff000000"
+    // TextOnAccentFillColorSecondary, used for a glyph on a PRESSED accent fill.
+    property string textOnAccentSecondary: "#80000000"
+    property string textOnAccentDisabled: "#87ffffff"
 }

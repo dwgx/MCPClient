@@ -3,10 +3,23 @@ import "."
 
 // A Fluent check box: 4px-cornered square plus a label, accent-filled when checked.
 //
-// The 20px box is an APPROXIMATION -- Microsoft publishes the 4px corner radius for in-page
-// elements and the 40x40 epx target, but no box size. 20px is what the shipped control's
-// proportions give inside that target. The root height and the corner radius are spec values;
-// the box side and the checkmark's size are not.
+// Both dimensions are now confirmed WinUI values rather than the approximations this file used to
+// claim, from microsoft-ui-xaml release/2.8 dev/CommonStyles/CheckBox_themeresources.xaml:
+// CheckBoxSize 20, CheckBoxGlyphSize 12, CheckBoxBorderThickness 1. The 20px box and the 12px
+// glyph were guessed correctly; the colours were not.
+//
+// The state chain (x:Key="Default", the dark dictionary):
+//
+//   unchecked fill    ControlAltFillColorSecondary   #19000000  <- black-based: a recess
+//     hover           ControlAltFillColorTertiary    #0BFFFFFF
+//     pressed         ControlAltFillColorQuarternary #12FFFFFF
+//   unchecked stroke  ControlStrongStrokeColorDefault  #8BFFFFFF
+//     PRESSED stroke  ControlStrongStrokeColorDisabled #28FFFFFF  <- dims, not brightens
+//   checked fill      AccentFillColorDefault, then 90% / 80% opacity
+//   glyph             TextOnAccentFillColorPrimary, Secondary when pressed
+//
+// Note the unchecked box is FILLED at rest, faintly and with black. Drawing it as a bare outline
+// over the page (which this did) loses the recessed look the real control has.
 
 Item {
     id: cb
@@ -17,8 +30,9 @@ Item {
 
     signal toggled()
 
-    // ---- approximation ----
+    // CheckBoxSize / CheckBoxGlyphSize.
     property int boxSize: 20
+    property int glyphSize: 12
 
     width: cb.boxSize + (cb.text === "" ? 0 : Fluent.gutter + label.implicitWidth)
     height: Fluent.rowHeight
@@ -33,30 +47,42 @@ Item {
         width: cb.boxSize
         height: cb.boxSize
         radius: Fluent.radiusControl
-        color: cb.checked ? Fluent.accent
-             : hit.containsMouse ? Fluent.subtleHover
-             : "#00000000"
-        // Hover brighter than pressed. Counter-intuitive but it is what Fluent does: the surface
-        // dims as it goes down.
-        opacity: !cb.enabled ? 0.4
-               : hit.pressed ? 0.8
-               : hit.containsMouse ? 0.9
+        color: cb.checked
+             ? (!cb.enabled ? Fluent.accentFillDisabled : Fluent.accent)
+             : (!cb.enabled ? Fluent.controlAltFillDisabled
+               : hit.pressed ? Fluent.controlAltFillQuarternary
+               : hit.containsMouse ? Fluent.controlAltFillTertiary
+               : Fluent.controlAltFillSecondary)
+        // The opacity ramp applies to the ACCENT fill only. Fading the whole control (which this
+        // did) also faded the stroke, and when unchecked the stroke IS the control.
+        opacity: cb.checked && cb.enabled
+               ? (hit.pressed ? Fluent.accentOpacityPressed
+                 : hit.containsMouse ? Fluent.accentOpacityHover
+                 : 1.0)
                : 1.0
         // The accent fill carries its own edge, so the outline is only needed when unchecked.
         border.width: cb.checked ? 0 : 1
-        border.color: Fluent.controlStrokeStrong
+        // Pressed uses the DISABLED strong stroke: WinUI dims an unchecked box's outline as it
+        // goes down rather than brightening it, matching the plate behaviour elsewhere.
+        border.color: !cb.enabled || hit.pressed
+                    ? Fluent.controlStrokeStrongDisabled
+                    : Fluent.controlStrokeStrong
     }
 
     Text {
         id: check
         x: (cb.boxSize - check.implicitWidth) / 2
-        y: box.y + ((cb.boxSize - Fluent.fontCaption) / 2) - 2
+        y: box.y + ((cb.boxSize - cb.glyphSize) / 2) - 2
         // A plain character rather than an icon font: Segoe Fluent Icons cannot be redistributed,
         // so a glyph that renders in any font is the portable choice -- same reasoning as
         // MenuItem's leading glyphs.
         text: cb.checked ? "✓" : ""
-        fontSize: Fluent.fontCaption
-        color: cb.enabled ? Fluent.textOnAccent : Fluent.textDisabled
+        fontSize: cb.glyphSize
+        // CheckBoxCheckGlyphForegroundCheckedPressed is the SECONDARY on-accent colour, so the
+        // mark fades with the plate under the pointer instead of staying full black.
+        color: !cb.enabled ? Fluent.textOnAccentDisabled
+             : hit.pressed ? Fluent.textOnAccentSecondary
+             : Fluent.textOnAccent
     }
 
     Text {
