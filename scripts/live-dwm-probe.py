@@ -1,0 +1,493 @@
+#!/usr/bin/env python3
+"""Drive the DWM UI inside a running client and assert what it actually did.
+
+This is the automation counterpart to the headless ITs. Those run against a bare GLFW window;
+this one talks to a REAL game over MCP and checks the things only a real frame can show. Three
+bugs found by hand on 2026-07-27 were invisible to every headless assertion:
+
+  * a leftover ARRAY_BUFFER binding turned MC's client-side vertex pointer into a buffer offset
+    and SIGSEGV'd the world draw,
+  * restoring a vertex array object aborted the JVM, because GL 3.0 entry points do not exist in
+    Apple's 2.1 compatibility profile,
+  * the composite was queued and never flushed, so the scene painted perfectly into the offscreen
+    layer and nothing reached the screen — while every state field reported health.
+
+The last one is why this probe reads PIXELS and asserts the process is still alive after each
+step, rather than trusting a status field.
+
+Why it drives dwm through eval_java rather than the gui_* tools: gui_snapshot enumerates
+vanilla's buttonList, and a QML scene never populates it, so gui_click_element cannot see a dwm
+control. Input therefore goes in through dwm's own UiInput SPI, which is also the path the game
+uses, so the probe exercises production code rather than a test-only shim.
+
+Usage:
+    python3 scripts/live-dwm-probe.py [--port 25599] [--keep]
+
+Exit codes follow smoke-live-gl.sh's convention:
+    0 PASS · 1 FAIL (an assertion failed) · 2 TIMEOUT (no MCP within the deadline) · 3 SETUP
+"""
+
+import argparse
+import json
+import os
+import socket
+import subprocess
+import sys
+import time
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# The scene the probe drives, and the four pages it expects the rail to reach.
+PAGES = [
+    "pages/PageHome.qml",
+    "pages/PageKernel.qml",
+    "pages/PageChips.qml",
+    "pages/PageSettings.qml",
+]
+
+# The rail rows that reach them, by the names NavigationView gives its items. Paired with PAGES
+# by index; their POSITIONS are read from the live scene rather than listed (see row_centre).
+ROWS = ["navHome", "navKernel", "navChips", "navSettings"]
+
+results = []
+
+
+def record(name, ok, detail=""):
+    results.append((name, ok, detail))
+    print(("  PASS  " if ok else "  FAIL  ") + name + (f"\n          {detail}" if detail else ""))
+    return ok
+
+
+class Mcp:
+    """One JSON-RPC call per connection.
+
+    Deliberately not a persistent session: the kernel's socket transport expects a fresh
+    initialize handshake, and a probe that reconnects per call cannot leave a half-read stream
+    behind to confuse the next assertion.
+    """
+
+    def __init__(self, port, timeout=25):
+        self.port = port
+        self.timeout = timeout
+
+    def call(self, tool, args):
+        try:
+            sock = socket.create_connection(("127.0.0.1", self.port), 5)
+        except OSError as e:
+            return {"error": f"connect failed: {e}"}
+        sock.settimeout(self.timeout)
+        try:
+            for msg in (
+                {"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                 "params": {"protocolVersion": "2024-11-05", "capabilities": {},
+                            "clientInfo": {"name": "live-dwm-probe", "version": "1"}}},
+                {"jsonrpc": "2.0", "method": "notifications/initialized"},
+                {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                 "params": {"name": tool, "arguments": args}},
+            ):
+                sock.sendall((json.dumps(msg) + "\n").encode())
+
+            buf = b""
+            deadline = time.time() + self.timeout
+            while time.time() < deadline:
+                try:
+                    chunk = sock.recv(65536)
+                except socket.timeout:
+                    break
+                if not chunk:
+                    break
+                buf += chunk
+                if b'"id":2' in buf:
+                    break
+        finally:
+            sock.close()
+
+        for line in buf.split(b"\n"):
+            if b'"id":2' in line:
+                try:
+                    reply = json.loads(line)
+                except ValueError as e:
+                    return {"error": f"unparseable reply: {e}"}
+                content = reply.get("result", {}).get("content", [])
+                text = content[0].get("text", "") if content else ""
+                return {"text": text, "isError": reply.get("result", {}).get("isError", False)}
+        return {"error": "no reply"}
+
+    def java(self, class_name, body):
+        """Run a snippet on the GAME thread and return its text.
+
+        The marshalling is not optional: eval_java runs on a worker thread, and touching the
+        screen or GL from there is a race at best. Everything this probe does is a game-thread
+        operation, so the wrapper is applied here once rather than in each snippet.
+        """
+        source = (
+            "package gen;\n"
+            f"public class {class_name} {{\n"
+            "  public Object run() throws Exception {\n"
+            "    return net.marcloud.mcp.core.GameBridge.onGameThread(() -> {\n"
+            "      try {\n"
+            f"{body}\n"
+            "      } catch (Throwable t) {\n"
+            "        java.io.StringWriter w = new java.io.StringWriter();\n"
+            "        t.printStackTrace(new java.io.PrintWriter(w));\n"
+            "        return \"THREW \" + w;\n"
+            "      }\n"
+            "    });\n"
+            "  }\n"
+            "}\n"
+        )
+        reply = self.call("eval_java", {"className": f"gen.{class_name}", "source": source})
+        if "error" in reply:
+            return "PROBE-ERROR " + reply["error"]
+        return reply.get("text", "")
+
+
+# --- the snippets ---------------------------------------------------------------------------
+# Each reaches dwm reflectively, because core must not link the dwm module and this probe must
+# not require it to.
+
+SURFACE_PREAMBLE = """
+        net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getMinecraft();
+        Object screen = mc.currentScreen;
+        if (screen == null || !screen.getClass().getName().startsWith("net.marcloud.mcp.dwm."))
+          return "NOT-DWM " + (screen == null ? "null" : screen.getClass().getName());
+        java.lang.reflect.Field sf = screen.getClass().getDeclaredField("surface");
+        sf.setAccessible(true);
+        Object surf = sf.get(screen);
+"""
+
+
+def load_world(mcp):
+    return mcp.java("LoadWorld", """
+        net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getMinecraft();
+        if (mc.theWorld != null) return "already-in-world";
+        java.util.List<String> names = new java.util.ArrayList<>();
+        for (net.minecraft.world.storage.SaveFormatComparator c : mc.getSaveLoader().getSaveList())
+          names.add(c.getFileName());
+        if (names.isEmpty()) return "NO-SAVES";
+        mc.launchIntegratedServer(names.get(0), names.get(0), null);
+        return "loading " + names.get(0);
+""")
+
+
+def open_ui(mcp):
+    return mcp.java("OpenUi", """
+        net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getMinecraft();
+        Object s = net.marcloud.mcp.dwm.DwmEntry.createScreen();
+        if (s == null) return "CREATE-NULL";
+        mc.displayGuiScreen((net.minecraft.client.gui.GuiScreen) s);
+        return "opened " + s.getClass().getName() + " inWorld=" + (mc.theWorld != null);
+""")
+
+
+def ui_health(mcp):
+    return mcp.java("Health", SURFACE_PREAMBLE + """
+        java.lang.reflect.Method isOpen = surf.getClass().getMethod("isOpen");
+        java.lang.reflect.Method lastErr = surf.getClass().getMethod("lastError");
+        java.lang.reflect.Field inert = surf.getClass().getDeclaredField("inert");
+        inert.setAccessible(true);
+        return "isOpen=" + isOpen.invoke(surf) + " inert=" + inert.get(surf)
+             + " lastError=" + lastErr.invoke(surf)
+             + " fb=" + mc.getFramebuffer().framebufferObject;
+""")
+
+
+def target_pixels(mcp):
+    """Sample MC's OWN framebuffer, which is the only witness that the composite arrived.
+
+    Read with glReadPixels rather than through Skia: Skia's queue was exactly what the flush bug
+    was dropping, so asking Skia would have confirmed the bug as healthy.
+    """
+    return mcp.java("TargetPix", SURFACE_PREAMBLE + """
+        java.lang.reflect.Field usf = surf.getClass().getDeclaredField("uiScale");
+        usf.setAccessible(true);
+        float scale = (Float) usf.get(surf);
+        int fb = mc.getFramebuffer().framebufferObject;
+        org.lwjgl.opengl.GL30.glBindFramebuffer(org.lwjgl.opengl.GL30.GL_FRAMEBUFFER, fb);
+        // Shell.qml places the window at logical 20,20; sample well inside its title bar and body.
+        int[][] pts = {{60, 60}, {200, 200}, {300, 120}};
+        StringBuilder sb = new StringBuilder("scale=" + scale);
+        int lit = 0;
+        java.nio.ByteBuffer px = org.lwjgl.BufferUtils.createByteBuffer(4);
+        int h = mc.getFramebuffer().framebufferHeight;
+        for (int[] p : pts) {
+          int x = Math.round(p[0] * scale);
+          // glReadPixels is bottom-left origin; the scene is authored top-left.
+          int y = h - Math.round(p[1] * scale) - 1;
+          px.clear();
+          org.lwjgl.opengl.GL11.glReadPixels(x, y, 1, 1, org.lwjgl.opengl.GL11.GL_RGBA,
+              org.lwjgl.opengl.GL11.GL_UNSIGNED_BYTE, px);
+          int r = px.get(0) & 0xFF, g = px.get(1) & 0xFF, b = px.get(2) & 0xFF;
+          sb.append(String.format(" (%d,%d)=%02x%02x%02x", p[0], p[1], r, g, b));
+          if (r + g + b > 24) lit++;
+        }
+        return sb.append(" lit=").append(lit).toString();
+""")
+
+
+def click(mcp, x, y):
+    """A real press/release pair through dwm's UiInput, in framebuffer pixels."""
+    return mcp.java("Click", SURFACE_PREAMBLE + f"""
+        java.lang.reflect.Method down = surf.getClass().getMethod("pointerDown", float.class, float.class, int.class);
+        java.lang.reflect.Method up = surf.getClass().getMethod("pointerUp", float.class, float.class, int.class);
+        java.lang.reflect.Method move = surf.getClass().getMethod("pointerMove", float.class, float.class);
+        java.lang.reflect.Field usf = surf.getClass().getDeclaredField("uiScale");
+        usf.setAccessible(true);
+        float scale = (Float) usf.get(surf);
+        // The SPI takes framebuffer pixels; the caller thinks in the scene's logical units.
+        float px = {x}f * scale, py = {y}f * scale;
+        move.invoke(surf, px, py);
+        Object a = down.invoke(surf, px, py, 0);
+        Object b = up.invoke(surf, px, py, 0);
+        return "down=" + a + " up=" + b;
+""")
+
+
+def row_centre(mcp, object_name):
+    """The absolute centre of a named rail row, in the scene's logical units.
+
+    Asked of the live scene rather than hardcoded. A first version of this probe carried the
+    numbers inline and was wrong by exactly one row — every click landed on the destination below
+    the one it named, and the probe reported a navigation failure that was its own. Geometry that
+    the layout owns has to be read from the layout, or the harness invents its own bugs.
+    """
+    return mcp.java("RowCentre" + object_name, SURFACE_PREAMBLE + f"""
+        java.lang.reflect.Field vf = surf.getClass().getDeclaredField("view");
+        vf.setAccessible(true);
+        Object view = vf.get(surf);
+        Object it = view.getClass().getMethod("findByObjectName", String.class)
+            .invoke(view, "{object_name}");
+        if (it == null) return "NO-ROW";
+        // Absolute position: an item's x/y are relative to its parent, so walk the chain.
+        float ax = 0, ay = 0;
+        Object cur = it;
+        while (cur != null) {{
+          Object xp = cur.getClass().getField("x").get(cur);
+          Object yp = cur.getClass().getField("y").get(cur);
+          ax += ((Number) xp.getClass().getMethod("peekFloat").invoke(xp)).floatValue();
+          ay += ((Number) yp.getClass().getMethod("peekFloat").invoke(yp)).floatValue();
+          Object pp = cur.getClass().getField("parent").get(cur);
+          cur = pp.getClass().getMethod("peek").invoke(pp);
+        }}
+        Object wp = it.getClass().getField("width").get(it);
+        Object hp = it.getClass().getField("height").get(it);
+        float w = ((Number) wp.getClass().getMethod("peekFloat").invoke(wp)).floatValue();
+        float h = ((Number) hp.getClass().getMethod("peekFloat").invoke(hp)).floatValue();
+        return Math.round(ax + w / 2) + "," + Math.round(ay + h / 2);
+""")
+
+
+def current_page(mcp):
+    return mcp.java("CurPage", SURFACE_PREAMBLE + """
+        java.lang.reflect.Field vf = surf.getClass().getDeclaredField("view");
+        vf.setAccessible(true);
+        Object view = vf.get(surf);
+        Object nav = view.getClass().getMethod("findByObjectName", String.class).invoke(view, "nav");
+        if (nav == null) return "NO-NAV";
+        java.lang.reflect.Field cp = nav.getClass().getField("currentPage");
+        Object prop = cp.get(nav);
+        Object val = prop.getClass().getMethod("peek").invoke(prop);
+        return String.valueOf(val);
+""")
+
+
+def type_text(mcp, text):
+    """Type through the same key path the game uses, one character at a time."""
+    return mcp.java("TypeText", SURFACE_PREAMBLE + f"""
+        java.lang.reflect.Method key = surf.getClass().getMethod("key", int.class, String.class, boolean.class, boolean.class);
+        String s = "{text}";
+        StringBuilder acc = new StringBuilder();
+        for (int i = 0; i < s.length(); i++)
+          acc.append(key.invoke(surf, 0, String.valueOf(s.charAt(i)), false, false)).append(",");
+        return "consumed=" + acc;
+""")
+
+
+def focus_and_read_field(mcp, text):
+    """Focus the settings page's text box, type, and read the field back.
+
+    Reading the field is the assertion. A key path that is consumed but drops the character looks
+    identical from the outside — which is exactly the bug that made all text input dead until it
+    was measured.
+    """
+    return mcp.java("FieldRoundTrip", SURFACE_PREAMBLE + f"""
+        java.lang.reflect.Field vf = surf.getClass().getDeclaredField("view");
+        vf.setAccessible(true);
+        Object view = vf.get(surf);
+        Object root = view.getClass().getMethod("root").invoke(view);
+        java.util.ArrayDeque<Object> queue = new java.util.ArrayDeque<>();
+        queue.add(root);
+        Object field = null;
+        while (!queue.isEmpty()) {{
+          Object n = queue.poll();
+          if (n.getClass().getName().endsWith("items.input.TextField")) {{ field = n; break; }}
+          java.lang.reflect.Field ch = n.getClass().getField("children");
+          for (Object c : (java.util.List<?>) ch.get(n)) queue.add(c);
+        }}
+        if (field == null) return "NO-TEXTFIELD-ON-PAGE";
+        view.getClass().getMethod("setFocus", Class.forName("io.github.timer_err.qml4j.render.items.core.Item"))
+            .invoke(view, field);
+        java.lang.reflect.Method key = surf.getClass().getMethod("key", int.class, String.class, boolean.class, boolean.class);
+        String s = "{text}";
+        for (int i = 0; i < s.length(); i++) key.invoke(surf, 0, String.valueOf(s.charAt(i)), false, false);
+        Object got = field.getClass().getMethod("text").invoke(field);
+        return "typed=" + s + " read=" + got;
+""")
+
+
+def resize(mcp, w, h):
+    """Drive a size change, the historic 'world goes black after a resize' path."""
+    return mcp.java("Resize", SURFACE_PREAMBLE + f"""
+        java.lang.reflect.Method frame = surf.getClass().getMethod("frame", int.class, int.class, long.class);
+        frame.invoke(surf, {w}, {h}, System.nanoTime());
+        java.lang.reflect.Method isOpen = surf.getClass().getMethod("isOpen");
+        java.lang.reflect.Method lastErr = surf.getClass().getMethod("lastError");
+        return "isOpen=" + isOpen.invoke(surf) + " lastError=" + lastErr.invoke(surf);
+""")
+
+
+def close_ui(mcp):
+    return mcp.java("CloseUi", """
+        net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getMinecraft();
+        mc.displayGuiScreen(null);
+        return "closed currentScreen=" + mc.currentScreen;
+""")
+
+
+def alive():
+    """Whether the client process still exists.
+
+    Checked after every step, because the failures that matter most here are not assertion
+    failures but hard crashes: two of the three bugs this probe exists for killed the JVM
+    outright, and a dead process is otherwise indistinguishable from a hung call.
+    """
+    out = subprocess.run(["pgrep", "-f", "net.minecraft.client.main.Main"],
+                         capture_output=True, text=True)
+    return out.returncode == 0 and out.stdout.strip() != ""
+
+
+def wait_for_mcp(port, timeout):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            socket.create_connection(("127.0.0.1", port), 2).close()
+            return True
+        except OSError:
+            time.sleep(2)
+    return False
+
+
+def wait_for_world(mcp, timeout=90):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        state = mcp.java("InWorld", """
+        net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getMinecraft();
+        return "inWorld=" + (mc.theWorld != null);
+""")
+        if "inWorld=true" in state:
+            return True
+        time.sleep(3)
+    return False
+
+
+def step(name, value, predicate, mcp=None):
+    """Assert on a snippet's returned text, and fail loudly on a crash or a Java throw."""
+    if not alive():
+        return record(name, False, "the client process died during this step")
+    if value.startswith("PROBE-ERROR") or value.startswith("THREW") or value.startswith("NOT-DWM"):
+        return record(name, False, value.split("\n")[0][:200])
+    return record(name, predicate(value), value[:200])
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--port", type=int, default=25599)
+    ap.add_argument("--timeout", type=int, default=180,
+                    help="seconds to wait for the MCP port")
+    ap.add_argument("--keep", action="store_true",
+                    help="leave the UI open at the end instead of closing it")
+    args = ap.parse_args()
+
+    print(f"live-dwm-probe: waiting for MCP on 127.0.0.1:{args.port}")
+    if not wait_for_mcp(args.port, args.timeout):
+        print(f"TIMEOUT: nothing listening on {args.port} within {args.timeout}s.")
+        print("Start the client first:  ./scripts/run-mcp.sh")
+        return 2
+    if not alive():
+        print("SETUP: the port is open but no client process was found.")
+        return 3
+
+    mcp = Mcp(args.port)
+
+    print("\n-- world")
+    step("a world can be entered", load_world(mcp),
+         lambda v: "already-in-world" in v or "loading" in v)
+    if not wait_for_world(mcp):
+        record("the world finished loading", False, "still not in a world")
+        return report(args)
+    record("the world finished loading", True)
+
+    print("\n-- opening the UI over live gameplay")
+    step("DwmEntry builds and shows a screen", open_ui(mcp), lambda v: "opened" in v)
+    time.sleep(2)
+    step("the surface is live and fault-free", ui_health(mcp),
+         lambda v: "isOpen=true" in v and "inert=false" in v and "lastError=null" in v)
+
+    print("\n-- the composite actually reaches MC's framebuffer")
+    # The assertion the flush bug would fail: state said healthy, pixels said nothing arrived.
+    step("the window is visible in the target framebuffer", target_pixels(mcp),
+         lambda v: "lit=3" in v)
+
+    print("\n-- navigation, driven through dwm's own input SPI")
+    for page, row in zip(PAGES[1:], ROWS[1:]):
+        centre = row_centre(mcp, row)
+        if "," not in centre:
+            record(f"{row}'s position is readable", False, centre)
+            continue
+        x, y = (int(n) for n in centre.split(","))
+        step(f"clicking {row} at {x},{y} selects {page}", click(mcp, x, y),
+             lambda v: "down=true" in v)
+        time.sleep(0.7)
+        step(f"{page} is the current page", current_page(mcp), lambda v, p=page: v.strip() == p)
+
+    print("\n-- text input on the settings page")
+    # The settings page is selected by the loop above, so its text box exists now.
+    step("a typed string reaches the focused field", focus_and_read_field(mcp, "abc"),
+         lambda v: "read=abc" in v)
+
+    print("\n-- the world still renders behind the UI")
+    step("the client survived every interaction", "alive", lambda v: alive())
+
+    print("\n-- a resize does not black the world out")
+    step("the surface survives a size change", resize(mcp, 1280, 720),
+         lambda v: "isOpen=true" in v and "lastError=null" in v)
+    step("and the original size comes back", resize(mcp, 1708, 960),
+         lambda v: "isOpen=true" in v and "lastError=null" in v)
+
+    if not args.keep:
+        print("\n-- teardown")
+        step("the screen closes cleanly", close_ui(mcp), lambda v: "closed" in v)
+        step("the client is still running after closing", "alive", lambda v: alive())
+
+    return report(args)
+
+
+def report(args):
+    passed = sum(1 for _, ok, _ in results if ok)
+    total = len(results)
+    print(f"\n{'PASS' if passed == total else 'FAIL'}: {passed}/{total} checks")
+    if passed != total:
+        print("failed:")
+        for name, ok, detail in results:
+            if not ok:
+                print(f"  - {name}: {detail.splitlines()[0] if detail else ''}")
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except KeyboardInterrupt:
+        print("\ninterrupted")
+        sys.exit(1)
