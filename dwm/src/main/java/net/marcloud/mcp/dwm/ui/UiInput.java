@@ -9,15 +9,26 @@ package net.marcloud.mcp.dwm.ui;
  * every one of those conversions; an implementation of this interface receives coordinates
  * already in this single space and must not scale again.
  *
+ * <p><b>Buttons are zero-based indices</b>: 0 left, 1 right, 2 middle, as LWJGL2 and GLFW report
+ * them. Stated because the obvious alternative is a bitmask — Qt, and so any Qt-shaped backend,
+ * numbers left as 1 — and the two vocabularies overlap on every value, so a mix-up is silent.
+ * Translating to whatever a backend wants is the implementation's job, not the caller's.
+ *
  * <p>Each method returns whether the UI consumed the event. An unconsumed event is the
  * caller's to pass on to the game.
  */
 public interface UiInput {
 
-    /** @return true if the UI consumed this press */
+    /**
+     * @param button zero-based button index; 0 left, 1 right, 2 middle
+     * @return true if the UI consumed this press
+     */
     boolean pointerDown(float xPx, float yPx, int button);
 
-    /** @return true if the UI consumed this release */
+    /**
+     * @param button zero-based button index; 0 left, 1 right, 2 middle
+     * @return true if the UI consumed this release
+     */
     boolean pointerUp(float xPx, float yPx, int button);
 
     /** @return true if the UI consumed this motion */

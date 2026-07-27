@@ -239,15 +239,21 @@ public final class QmlUiSurface implements UiSurface, UiInput {
     // scale on the way in, because the scene is laid out in logical units. Skipping this makes
     // every hit test miss by the scale factor: on a Retina display a click would land at twice
     // the intended point, so only the top-left quarter of the UI would be reachable.
+    //
+    // Buttons are translated too, and for the same reason the coordinates are: the SPI carries
+    // LWJGL2's zero-based index and qml4j wants Qt's bitmask, where left is 1. See
+    // QmlButtonMap for why passing the index through looked like it worked.
 
     @Override
     public boolean pointerDown(float xPx, float yPx, int button) {
-        return dispatch(() -> view.dispatchPointerDown(lx(xPx), ly(yPx), button));
+        int qmlButton = QmlButtonMap.toQml(button);
+        return dispatch(() -> view.dispatchPointerDown(lx(xPx), ly(yPx), qmlButton));
     }
 
     @Override
     public boolean pointerUp(float xPx, float yPx, int button) {
-        return dispatch(() -> view.dispatchPointerUp(lx(xPx), ly(yPx), button));
+        int qmlButton = QmlButtonMap.toQml(button);
+        return dispatch(() -> view.dispatchPointerUp(lx(xPx), ly(yPx), qmlButton));
     }
 
     @Override
