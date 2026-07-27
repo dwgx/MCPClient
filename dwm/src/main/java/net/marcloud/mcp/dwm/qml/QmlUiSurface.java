@@ -85,7 +85,11 @@ public final class QmlUiSurface implements UiSurface, UiInput {
             }
 
             view = QmlView.withStockTypes(new QmlEngine())
-                .resources(new ClasspathResources());
+                .resources(new ClasspathResources())
+                // Live kernel/board state, before load(): qml4j's compiler has to know the name
+                // to accept it as a free identifier in a binding, so registering it afterwards
+                // would make every scene that reads it fail to compile.
+                .context(DwmContext.NAME, new DwmContext());
             view.setClipboard(new GlfwClipboard());
             view.load(source, ClasspathResources.baseDirOf(qmlPath));
 

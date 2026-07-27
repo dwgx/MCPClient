@@ -89,6 +89,18 @@
             <scope>provided</scope>
         </dependency>
 
+        <!-- board, TEST scope only. LiveStateTest drives the real Backplane rather than a
+             stand-in, because the registry is the actual thing dwm reflects into at runtime and a
+             fake one would prove only that the fake works. Test scope keeps this out of the module's
+             compile and runtime graph, so the contract holds: dwm still links against no peer, and
+             the seam it uses at runtime is still purely reflective. -->
+        <dependency>
+            <groupId>net.marcloud.mcp.189</groupId>
+            <artifactId>board</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+
         <dependency>
             <groupId>junit</groupId>
             <artifactId>junit</artifactId>

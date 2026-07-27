@@ -41,6 +41,17 @@ Item {
         color: Fluent.textSecondary
     }
 
+    // What it is actually attached to, assembled from what is present rather than asserted. Running
+    // without core, or without board, are ordinary states for a detachable module, and the home page
+    // is the right place to say which one this is instead of implying a full stack.
+    Text {
+        x: home.pad
+        y: home.pad + 54
+        text: Dwm.attachment()
+        fontSize: Fluent.fontCaption
+        color: Fluent.textTertiary
+    }
+
     Row {
         x: home.pad
         y: home.pad + 70
