@@ -71,6 +71,13 @@ public final class Compat {
         // Ships SIGNED by the kernel key; arms through the normal signature-verify path (in-code
         // registration grants no trust).
         db.register(new net.marcloud.mcp.core.compat.patches.Ki1MipmapZeroFillPatch());
+        // KI-11: nothing could open the DWM screen (DwmEntry had no callers, and the frozen client
+        // cannot gain a KeyBinding). Hooks Minecraft.dispatchKeypresses for one edge-detected
+        // hotkey. Registered so it is VISIBLE to list_compat_patches, but it ships with a
+        // PLACEHOLDER signature and therefore does NOT arm: the kernel private key is not on a
+        // development machine, so the signing ceremony is an outstanding step. Ki11SigningContract
+        // Test proves both that it stays inert unsigned and that it arms once validly signed.
+        db.register(new net.marcloud.mcp.core.compat.patches.Ki11DwmHotkeyPatch());
         return db;
     }
 
