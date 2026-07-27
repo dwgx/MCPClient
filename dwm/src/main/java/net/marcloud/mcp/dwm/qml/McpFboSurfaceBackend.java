@@ -106,6 +106,10 @@ public final class McpFboSurfaceBackend implements SurfaceBackend {
     /** Rebuild context + surface over the current size / FBO id. Fault-isolated. */
     private void rebuild() {
         closeSurface();
+        // The offscreen layer's GPU objects belong to the context about to be dropped, so it has
+        // to go too — reusing it against a new context is the same stale-cache fault that turns
+        // the world black after a resize.
+        layer.close();
         // Rebuild the context too, not just the surface: on a genuine resize MC deleted and
         // recreated its framebuffer's GL objects, so a context whose cache is keyed to the OLD
         // ones would discard the world pixels MC just drew.
@@ -143,6 +147,15 @@ public final class McpFboSurfaceBackend implements SurfaceBackend {
      */
     private float uiScale = 1.0F;
 
+    /** The offscreen layer the scene is painted into, when compositing is enabled. */
+    private final RedirectionSurface layer = new RedirectionSurface();
+
+    /**
+     * True while qml4j should paint into the offscreen layer rather than straight at MC's
+     * framebuffer. Set by the driver for the frames on which the scene actually needs redrawing.
+     */
+    private boolean sceneToLayer;
+
     /**
      * Set the logical-to-device scale. Never touches the surface, so it is free to change.
      *
@@ -153,12 +166,70 @@ public final class McpFboSurfaceBackend implements SurfaceBackend {
         this.uiScale = (scale > 0.0F && !Float.isInfinite(scale)) ? scale : 1.0F;
     }
 
+    /**
+     * Prepare the offscreen layer for a scene repaint.
+     *
+     * @return true if the scene should be painted into the layer this frame; false means
+     *         compositing is unavailable and the caller should paint direct instead
+     */
+    boolean beginLayerScene() {
+        sceneToLayer = layer.ensure(context, width, height);
+        return sceneToLayer;
+    }
+
+    /** Finish a layer repaint, caching the result for reuse on subsequent frames. */
+    void endLayerScene() {
+        layer.endScene();
+        sceneToLayer = false;
+    }
+
+    /** True when a cached scene image exists and can be composited without a repaint. */
+    boolean hasLayerSnapshot() {
+        return layer.hasSnapshot();
+    }
+
+    /**
+     * Blit the cached scene over MC's frame. The cheap half of the loop, run every frame.
+     *
+     * <p>Both surfaces come from the same {@link DirectContext}, so this stays on the GPU — no
+     * readback — and it is what lets an idle UI cost one textured quad instead of a full repaint.
+     */
+    void compositeLayer() {
+        if (disposed || surface == null || !layer.hasSnapshot()) {
+            return;
+        }
+        try {
+            Canvas canvas = surface.getCanvas();
+            // The snapshot is already in device pixels, so composite with an identity transform:
+            // the UI scale was applied when the scene was painted into the layer.
+            canvas.resetMatrix();
+            canvas.drawImage(layer.snapshot(), 0.0F, 0.0F);
+        } catch (Throwable t) {
+            System.err.println("[dwm] composite faulted: " + t);
+        }
+    }
+
     @Override
     public Canvas acquireCanvas() {
-        // No clear() here, unlike an opaque window backend: this composites OVER MC's finished
-        // frame, so clearing to opaque black would erase the game. The scene's own root fills
-        // whatever area it wants and the rest stays transparent.
-        if (disposed || surface == null) {
+        // No clear() of MC's framebuffer, unlike an opaque window backend: this composites OVER
+        // the finished game frame, so clearing to opaque black would erase the game.
+        if (disposed) {
+            return null;
+        }
+        // Scene repaints go to the offscreen layer; it clears itself to transparent and is
+        // reused for as long as nothing in the scene changes.
+        if (sceneToLayer) {
+            Canvas canvas = layer.beginScene();
+            if (canvas != null) {
+                if (uiScale != 1.0F) {
+                    canvas.scale(uiScale, uiScale);
+                }
+                return canvas;
+            }
+            // Layer unavailable: fall through and paint direct rather than lose the frame.
+            sceneToLayer = false;
+        }
+        if (surface == null) {
             return null;
         }
         Canvas canvas = surface.getCanvas();
@@ -233,6 +304,7 @@ public final class McpFboSurfaceBackend implements SurfaceBackend {
     @Override
     public void dispose() {
         disposed = true;
+        layer.close();
         closeSurface();
         try {
             if (context != null) {

@@ -15,6 +15,8 @@ Item {
         y: 48
         width: 320
         title: "DWM"
+        itemCount: 6
+        separatorCount: 2
 
         MenuItem {
             glyph: "▦"

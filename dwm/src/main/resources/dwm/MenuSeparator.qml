@@ -7,13 +7,15 @@ import "."
 // with the panel's 8px rounded corners.
 
 Item {
+    id: sep
+
     width: parent ? parent.width : 280
     height: 9
 
     Rectangle {
         x: Fluent.itemPaddingH
-        anchors.verticalCenter: parent.verticalCenter
-        width: parent.width - (Fluent.itemPaddingH * 2)
+        y: 4
+        width: sep.width - (Fluent.itemPaddingH * 2)
         height: 1
         color: Fluent.divider
     }

@@ -1,7 +1,9 @@
 package net.marcloud.mcp.dwm.qml;
 
 import io.github.timer_err.qml4j.engine.QmlEngine;
+import io.github.timer_err.qml4j.engine.binding.Property;
 import io.github.timer_err.qml4j.render.QmlView;
+import io.github.timer_err.qml4j.render.items.core.Item;
 import net.marcloud.mcp.dwm.ui.UiInput;
 import net.marcloud.mcp.dwm.ui.UiKeys;
 import net.marcloud.mcp.dwm.ui.UiSurface;
@@ -50,6 +52,16 @@ public final class QmlUiSurface implements UiSurface, UiInput {
      */
     private float uiScale = 1.0F;
 
+    /**
+     * qml4j's property change counter as of the last scene repaint. Equal to the current value
+     * means nothing in the scene moved and the cached image can be composited again.
+     */
+    private long renderedVersion = -1L;
+
+    /** Last framebuffer extent the root was sized for, so a resize re-sizes it. */
+    private int lastWidthPx = -1;
+    private int lastHeightPx = -1;
+
     /** Tell the surface which framebuffer MC currently has bound. Call before {@link #frame}. */
     public void setFramebufferId(int fboId) {
         this.liveFboId = fboId;
@@ -77,8 +89,13 @@ public final class QmlUiSurface implements UiSurface, UiInput {
             view.setClipboard(new GlfwClipboard());
             view.load(source, ClasspathResources.baseDirOf(qmlPath));
 
+            // Root geometry is set on the first frame, by the extent-changed branch in frame():
+            // lastWidthPx starts at -1, so that branch always runs once. Sizing it here too would
+            // be a second place to keep right for no gain.
+
             open = true;
             inert = false;
+            renderedVersion = -1L;
             return true;
         } catch (Throwable t) {
             // A missing or malformed .qml, or a Skija native that would not load. Report once
@@ -105,12 +122,14 @@ public final class QmlUiSurface implements UiSurface, UiInput {
             // Retarget first: a resize recreated MC's framebuffer GL objects, possibly under a
             // new id, and rendering into the stale wrap is what turns the world black. The
             // surface is sized in DEVICE pixels; only the canvas transform is logical.
+            if (widthPx != lastWidthPx || heightPx != lastHeightPx) {
+                lastWidthPx = widthPx;
+                lastHeightPx = heightPx;
+                sizeRoot(widthPx, heightPx);
+            }
             backend.frameTarget(widthPx, heightPx, liveFboId);
             if (backend.hasSurface()) {
-                // renderFrame ticks animations itself, off its own nanoTime. Calling
-                // tickAnimations here as well advances every animation twice per frame, i.e.
-                // at double speed — a bug that only shows up once something animates.
-                view.renderFrame(backend);
+                composite();
             }
         } catch (Throwable t) {
             lastError = String.valueOf(t);
@@ -121,6 +140,58 @@ public final class QmlUiSurface implements UiSurface, UiInput {
             // game stops rendering from the next frame on.
             GlStateGuard.leave();
         }
+    }
+
+    /**
+     * Give the scene root its geometry, in LOGICAL units.
+     *
+     * <p>Logical, not device: the canvas carries the DPI transform, so a root sized in device
+     * pixels would be twice the visible area on a Retina display and hit testing would accept
+     * points outside the window.
+     */
+    private void sizeRoot(int widthPx, int heightPx) {
+        Item root = view.root();
+        if (root == null) {
+            return;
+        }
+        float scale = uiScale > 0.0F ? uiScale : 1.0F;
+        root.x.set(0.0F);
+        root.y.set(0.0F);
+        root.width.set(widthPx / scale);
+        root.height.set(heightPx / scale);
+    }
+
+    /**
+     * The composition loop: repaint the scene only when it changed, blit it every frame.
+     *
+     * <p>This is the shape a compositor has, adapted to living inside someone else's frame. MC
+     * redraws the whole world every frame, so the <em>composite</em> can never be skipped — skip
+     * it and the menu vanishes. The <em>scene repaint</em> is the expensive half and is what gets
+     * skipped, which is level-zero damage tracking: notice nothing changed, stop rendering.
+     *
+     * <p>Dirtiness comes from qml4j's own global property change counter, the same signal its
+     * renderer uses internally for its idle-layout fast path. Any binding, animation, timer or
+     * input that touched a property moves it.
+     *
+     * <p>Falls back to painting straight at MC's framebuffer if the offscreen layer cannot be
+     * created, so a driver that will not give us a render target costs efficiency, not the UI.
+     */
+    private void composite() {
+        long version = Property.changeVersion();
+        boolean sceneChanged = version != renderedVersion || !backend.hasLayerSnapshot();
+
+        if (sceneChanged) {
+            if (backend.beginLayerScene()) {
+                view.renderFrame(backend);
+                backend.endLayerScene();
+                renderedVersion = version;
+            } else {
+                // No layer available: paint direct and take the cost every frame.
+                view.renderFrame(backend);
+                return;
+            }
+        }
+        backend.compositeLayer();
     }
 
     @Override

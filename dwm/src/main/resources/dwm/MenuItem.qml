@@ -26,7 +26,13 @@ Item {
 
     Rectangle {
         id: backplate
-        anchors.fill: parent
+        // Explicit size, not anchors.fill: an Item root is laid out after its children are
+        // constructed, so a fill anchor resolves against a still-zero parent and leaves this
+        // 0x0 -- which renders nothing AND makes the MouseArea below unhittable.
+        x: 0
+        y: 0
+        width: row.width
+        height: row.height
         radius: Fluent.radiusControl
         color: !row.enabled ? "#00000000"
              : hit.pressed ? Fluent.subtlePressed
@@ -36,7 +42,7 @@ Item {
 
     Text {
         x: Fluent.itemPaddingH
-        anchors.verticalCenter: parent.verticalCenter
+        y: (row.height - Fluent.fontBody) / 2 - 2
         text: row.glyph
         fontSize: Fluent.fontBody
         color: !row.enabled ? Fluent.textDisabled
@@ -46,7 +52,7 @@ Item {
 
     Text {
         x: Fluent.itemPaddingH + 26
-        anchors.verticalCenter: parent.verticalCenter
+        y: (row.height - Fluent.fontBody) / 2 - 2
         text: row.label
         fontSize: Fluent.fontBody
         color: !row.enabled ? Fluent.textDisabled
@@ -55,9 +61,8 @@ Item {
     }
 
     Text {
-        anchors.right: parent.right
-        anchors.rightMargin: Fluent.itemPaddingH
-        anchors.verticalCenter: parent.verticalCenter
+        x: row.width - Fluent.itemPaddingH - 30
+        y: (row.height - Fluent.fontCaption) / 2 - 1
         text: row.shortcut
         fontSize: Fluent.fontCaption
         color: Fluent.textTertiary
@@ -65,7 +70,10 @@ Item {
 
     MouseArea {
         id: hit
-        anchors.fill: parent
+        x: 0
+        y: 0
+        width: row.width
+        height: row.height
         hoverEnabled: true
         onClicked: if (row.enabled) row.triggered()
     }
