@@ -108,6 +108,16 @@ public class QmlGuiScreen extends GuiScreen {
                 return;
             }
 
+            // Clipboard combos are identified by SCANCODE, not by the typed character: with
+            // Ctrl held the layout decodes to a non-printable control character (Ctrl+C is
+            // 0x03), so the letter has to be recovered from the key itself. Vanilla's own
+            // helpers define the combos, including the Cmd-instead-of-Ctrl mapping on macOS.
+            String combo = clipboardCombo(keyCode);
+            if (combo != null) {
+                surface.key(UiKeys.NONE, combo, shift, true);
+                return;
+            }
+
             // Printable characters travel as text; MC has already decoded the layout for us,
             // so there is no keymap to reimplement here.
             String text = isPrintable(typedChar) ? String.valueOf(typedChar) : null;
@@ -115,6 +125,26 @@ public class QmlGuiScreen extends GuiScreen {
         } catch (Throwable t) {
             System.err.println("[dwm] key input faulted: " + t);
         }
+    }
+
+    /**
+     * The clipboard letter for a Ctrl/Cmd combo on {@code keyCode}, or null if it is not one.
+     *
+     * <p>Delegates the combo definition to vanilla's {@code isKeyComboCtrl*} so the modifier
+     * rules — including Cmd on macOS and the requirement that Shift and Alt are up — stay in
+     * one place rather than being restated here.
+     */
+    private static String clipboardCombo(int keyCode) {
+        if (GuiScreen.isKeyComboCtrlC(keyCode)) {
+            return "c";
+        }
+        if (GuiScreen.isKeyComboCtrlX(keyCode)) {
+            return "x";
+        }
+        if (GuiScreen.isKeyComboCtrlV(keyCode)) {
+            return "v";
+        }
+        return null;
     }
 
     /**

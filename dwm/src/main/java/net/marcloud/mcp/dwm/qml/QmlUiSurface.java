@@ -267,14 +267,55 @@ public final class QmlUiSurface implements UiSurface, UiInput {
         return uiScale > 0.0F ? yPx / uiScale : yPx;
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p><b>The third argument is qml4j's {@code down} flag, not a modifier.</b> Its signature
+     * is {@code dispatchKey(keyCode, text, down, shift)}, and passing {@code shift} there —
+     * which this did until measured — shifts every argument one place left. With Shift up,
+     * {@code down} became false, so qml4j emitted {@code Keys.released} instead of
+     * {@code pressed}, skipped every specific signal ({@code escapePressed},
+     * {@code returnPressed}, …) and the Tab focus move, then returned true from its
+     * {@code !down} branch: the key was consumed and nothing happened. Typing worked ONLY
+     * while Shift was held. A literal {@code true} is correct because this path is reached
+     * exclusively for presses — vanilla's {@code GuiScreen.handleKeyboardInput()} calls
+     * {@code keyTyped} only when {@code Keyboard.getEventKeyState()} is true.
+     *
+     * <p>{@code control} has no place in {@code dispatchKey}: qml4j does not model Ctrl there,
+     * exposing the clipboard as its own API instead. Ctrl combos are routed to it below.
+     */
     @Override
     public boolean key(int keyCode, String text, boolean shift, boolean control) {
+        // Ctrl combos are clipboard verbs in qml4j's model, reached through their own entry
+        // points rather than as a modifier on a key event.
+        if (control && text != null && text.length() == 1) {
+            Boolean handled = clipboardVerb(Character.toLowerCase(text.charAt(0)));
+            if (handled != null) {
+                return handled;
+            }
+        }
         int qmlKey = QmlKeyMap.toQml(keyCode);
         if (qmlKey == 0 && (text == null || text.isEmpty())) {
             // Neither an editing key qml4j models nor printable text: nothing to send.
             return false;
         }
-        return dispatch(() -> view.dispatchKey(qmlKey, text, shift, control));
+        return dispatch(() -> view.dispatchKey(qmlKey, text, true, shift));
+    }
+
+    /**
+     * Run the clipboard verb bound to {@code letter}, or return null when it is not one.
+     *
+     * <p>Null rather than false distinguishes "not a clipboard combo, keep processing" from
+     * "was one, and it did not consume" — collapsing the two would swallow every other Ctrl
+     * combo the scene might want.
+     */
+    private Boolean clipboardVerb(char letter) {
+        switch (letter) {
+            case 'c': return dispatch(() -> view.copy());
+            case 'x': return dispatch(() -> view.cut());
+            case 'v': return dispatch(() -> view.paste());
+            default:  return null;
+        }
     }
 
     /** Runs a dispatch, treating any fault as "not consumed" so input falls through to the game. */

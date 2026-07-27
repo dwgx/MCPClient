@@ -110,6 +110,26 @@ public class UiScaleContractTest {
             !code.toString().contains("tickAnimations"));
     }
 
+    /**
+     * qml4j's {@code down} flag must be a literal, never a modifier variable.
+     *
+     * <p>The signature is {@code dispatchKey(keyCode, text, down, shift)}. Passing a modifier in
+     * the third slot shifts every argument left, which qml4j reads as a key RELEASE whenever that
+     * modifier is up — it then consumes the key and does nothing, so all typing is dropped.
+     * {@link KeyDispatchLiveIT} proves the behaviour; this catches the shape without a display,
+     * because the mistake is a one-token edit that reads perfectly plausibly.
+     */
+    @Test
+    public void keyDispatchPassesDownAsALiteralNotAModifier() {
+        String src = read("QmlUiSurface.java");
+        assertTrue("dispatchKey's third argument is qml4j's `down` flag and this path is only "
+            + "ever reached for presses, so it must be a literal true",
+            src.contains("dispatchKey(qmlKey, text, true, shift)"));
+        assertTrue("a modifier must never occupy the `down` slot — that is the bug where typing "
+            + "only worked while Shift was held",
+            !Pattern.compile("dispatchKey\\([^)]*,\\s*(shift|control)\\s*,").matcher(src).find());
+    }
+
     /** A bad scale must fall back to 1.0 rather than collapsing or exploding the UI. */
     @Test
     public void scaleSetterRejectsNonsenseValues() {
