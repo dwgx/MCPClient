@@ -6,6 +6,8 @@ import net.minecraft.client.renderer.GlStateManager;
 
 import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.GL11;
+import org.lwjgl.opengl.GL20;
+import org.lwjgl.opengl.GL30;
 
 /**
  * Brackets a Skija frame so MC keeps rendering afterwards.
@@ -44,6 +46,18 @@ final class GlStateGuard {
     private static int hadBlendSrc;
     private static int hadBlendDst;
     private static int hadTexture;
+    /**
+     * The draw framebuffer and shader program in force on entry.
+     *
+     * <p>Saved by hand because {@code glPushAttrib} does not cover them. It saves only
+     * <em>stackable</em> server state — the fixed-function attribute groups of GL 1.1 — and both
+     * framebuffer objects and the programmable pipeline postdate that stack entirely, so neither
+     * has an attribute group to belong to. Skija binds its own FBO and program and leaves both in
+     * place, which is a leak the pop cannot undo: the game would then draw into Skia's target with
+     * Skia's shader, i.e. render nothing visible at all.
+     */
+    private static int hadFramebuffer;
+    private static int hadProgram;
     private static final float[] HAD_COLOUR = new float[4];
     private static final FloatBuffer COLOUR_BUF = BufferUtils.createFloatBuffer(16);
 
@@ -67,6 +81,10 @@ final class GlStateGuard {
             hadBlendSrc = GL11.glGetInteger(GL11.GL_BLEND_SRC);
             hadBlendDst = GL11.glGetInteger(GL11.GL_BLEND_DST);
             hadTexture = GL11.glGetInteger(GL11.GL_TEXTURE_BINDING_2D);
+            // Outside the attribute stack — see the field docs. Read before the push so leave()
+            // can restore them after the pop has done what it can.
+            hadFramebuffer = GL11.glGetInteger(GL30.GL_FRAMEBUFFER_BINDING);
+            hadProgram = GL11.glGetInteger(GL20.GL_CURRENT_PROGRAM);
             COLOUR_BUF.clear();
             GL11.glGetFloatv(GL11.GL_CURRENT_COLOR, COLOUR_BUF);
             for (int i = 0; i < 4; i++) {
@@ -129,6 +147,13 @@ final class GlStateGuard {
             GlStateManager.blendFunc(hadBlendSrc, hadBlendDst);
             GlStateManager.bindTexture(hadTexture);
             GlStateManager.color(HAD_COLOUR[0], HAD_COLOUR[1], HAD_COLOUR[2], HAD_COLOUR[3]);
+
+            // Restored by hand, straight through GL: popAttrib cannot touch either, and
+            // GlStateManager shadows neither. Skija leaves its own FBO and program bound, so
+            // without these the game's next draw goes into Skia's render target through Skia's
+            // shader — the whole frame silently disappears.
+            GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, hadFramebuffer);
+            GL20.glUseProgram(hadProgram);
         } catch (Throwable t) {
             System.err.println("[dwm] GlStateGuard.leave faulted: " + t);
         }

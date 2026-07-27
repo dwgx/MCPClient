@@ -59,6 +59,12 @@ public final class McpFboSurfaceBackend implements SurfaceBackend {
      */
     private volatile boolean disposed;
 
+    /**
+     * Whether a wrap has been attempted at the current size/FBO id, successful or not. Lets the
+     * first frame build a surface while still trying a FAILING wrap only once per parameter set.
+     */
+    private boolean attempted;
+
     @Override
     public void init(int w, int h) {
         this.width = Math.max(1, w);
@@ -89,6 +95,23 @@ public final class McpFboSurfaceBackend implements SurfaceBackend {
         int nh = Math.max(1, h);
         boolean fboMoved = liveFboId > 0 && liveFboId != fboId;
         boolean sizeMoved = nw != width || nh != height;
+        // Never having built a surface is its own reason to build one. init() records the size
+        // without wrapping, so a caller whose framebuffer is the DEFAULT one (id 0 — every live
+        // IT, and any host not rendering into an FBO of its own) moved neither the id nor the
+        // size and fell into the early return below, forever: no surface, so the driver never
+        // reached composite(), so qml4j never rendered and never even laid the scene out. The
+        // symptom was silence rather than an error, which is why tests asserting "frames do not
+        // throw" could not see it; a resize was the only thing that ever recovered it.
+        //
+        // Guarded by attempted rather than by hasSurface(), so a wrap that genuinely FAILS is
+        // tried exactly once at these params instead of thrashing a Skia context
+        // create/destroy every frame — the hazard the unchanged-params return below exists for.
+        if (!attempted && !fboMoved && !sizeMoved) {
+            width = nw;
+            height = nh;
+            rebuild();
+            return;
+        }
         if (!fboMoved && !sizeMoved) {
             // Unchanged. Reuse the wrap if we have one; if the last wrap FAILED at these exact
             // params, do not retry now — that thrashes a full Skia context create/destroy every
@@ -105,6 +128,9 @@ public final class McpFboSurfaceBackend implements SurfaceBackend {
 
     /** Rebuild context + surface over the current size / FBO id. Fault-isolated. */
     private void rebuild() {
+        // Marked before the work, not after: a wrap that throws must still count as attempted,
+        // or the retry guard above would let it run again on the very next frame.
+        attempted = true;
         closeSurface();
         // The offscreen layer's GPU objects belong to the context about to be dropped, so it has
         // to go too — reusing it against a new context is the same stale-cache fault that turns

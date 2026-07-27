@@ -11,12 +11,11 @@ Item {
     id: root
 
     MenuPanel {
+        objectName: "menuPanel"
         x: 48
         y: 48
         width: 320
         title: "DWM"
-        itemCount: 6
-        separatorCount: 2
 
         MenuItem {
             glyph: "▦"
