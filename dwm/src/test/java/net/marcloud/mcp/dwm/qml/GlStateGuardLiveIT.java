@@ -12,6 +12,7 @@ import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.Display;
 import org.lwjgl.opengl.DisplayMode;
 import org.lwjgl.opengl.GL11;
+import org.lwjgl.opengl.GL13;
 import org.lwjgl.opengl.GL15;
 import org.lwjgl.opengl.GL20;
 
@@ -102,6 +103,19 @@ public class GlStateGuardLiveIT {
             // enabled keeps Skia's stale pointer attached for the game's next draw — the same shape
             // as the buffer-binding leak that crashed the client.
             + " attribs=" + enabledAttribArrays()
+            // Pixel store: documented as NOT saveable on the attribute stack, and measured to leak
+            // (Skia leaves 1 where the default is 4). Harmless for this client's 4-byte-per-pixel
+            // uploads, but it is the third leak found in the state glPushAttrib cannot reach and the
+            // first two crashed the game, so it is asserted rather than argued about.
+            + " unpackAlign=" + GL11.glGetInteger(GL11.GL_UNPACK_ALIGNMENT)
+            // Probed and found clean, kept in the comparison so a future Skija cannot start leaking
+            // them silently. MC's world draw depends on the client-array enables in particular.
+            + " clientArrays=" + GL11.glIsEnabled(GL11.GL_VERTEX_ARRAY)
+            + "/" + GL11.glIsEnabled(GL11.GL_COLOR_ARRAY)
+            + "/" + GL11.glIsEnabled(GL11.GL_TEXTURE_COORD_ARRAY)
+            + " activeTex=" + GL11.glGetInteger(GL13.GL_ACTIVE_TEXTURE)
+            + " scissor=" + GL11.glIsEnabled(GL11.GL_SCISSOR_TEST)
+            + " stencil=" + GL11.glIsEnabled(GL11.GL_STENCIL_TEST)
             + " viewport=" + viewport.get(2) + "x" + viewport.get(3)
             + " colour=" + String.format("%.2f,%.2f,%.2f,%.2f",
                 colour.get(0), colour.get(1), colour.get(2), colour.get(3));

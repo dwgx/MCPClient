@@ -110,6 +110,24 @@ final class GlStateGuard {
      * minimum guaranteed 16 is not necessarily what the driver reports.
      */
     private static boolean[] hadAttribArray;
+
+    /**
+     * The pixel-unpack alignment on entry. Third member of the same family, also measured: Skia
+     * leaves it at 1 where the default is 4.
+     *
+     * <p><b>Benign today, and restored anyway.</b> The docs are explicit that pixel store state
+     * cannot be saved on the attribute stack, so {@code glPopAttrib} will never cover it. It happens
+     * not to matter for this client: every texture MC uploads is 4 bytes per pixel, and a probe
+     * confirmed that uploading identical data at alignment 1 and at 4 reads back byte-for-byte the
+     * same, because a row of 4-byte pixels needs no padding under either. The only place vanilla
+     * touches pixel store at all is {@code ScreenShotHelper}, which sets what it needs explicitly.
+     *
+     * <p>It is restored because this is the third leak found in the class of state
+     * {@code glPushAttrib} does not reach, and the first two of those crashed the client. "Harmless
+     * given what the host happens to upload today" is a property of the host, not of this guard, and
+     * two lines is a poor trade against re-deriving that argument the next time something changes.
+     */
+    private static int hadUnpackAlignment;
     private static final float[] HAD_COLOUR = new float[4];
     private static final FloatBuffer COLOUR_BUF = BufferUtils.createFloatBuffer(16);
 
@@ -139,6 +157,7 @@ final class GlStateGuard {
             hadProgram = GL11.glGetInteger(GL20.GL_CURRENT_PROGRAM);
             hadArrayBuffer = GL11.glGetInteger(GL15.GL_ARRAY_BUFFER_BINDING);
             hadElementBuffer = GL11.glGetInteger(GL15.GL_ELEMENT_ARRAY_BUFFER_BINDING);
+            hadUnpackAlignment = GL11.glGetInteger(GL11.GL_UNPACK_ALIGNMENT);
             if (hadAttribArray == null) {
                 // Once per run: the count cannot change for a live context, and querying it every
                 // frame would be a driver round-trip for a constant.
@@ -227,6 +246,8 @@ final class GlStateGuard {
             // not a Java exception anything could catch.
             GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, hadArrayBuffer);
             GL15.glBindBuffer(GL15.GL_ELEMENT_ARRAY_BUFFER, hadElementBuffer);
+
+            GL11.glPixelStorei(GL11.GL_UNPACK_ALIGNMENT, hadUnpackAlignment);
 
             // The attribute array enables, restored after the buffer bindings so a re-enable cannot
             // pick up Skia's binding. Measured leak: [] in, [0 1] out.
