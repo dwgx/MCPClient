@@ -1,45 +1,56 @@
 import QtQuick
+import "."
 
-// DWM default scene — the smoke target for the qml4j backend.
+// DWM's menu, in the Windows 11 Fluent idiom — the NT metaphor the project uses throughout
+// (core = NT kernel, board = PCB, compat = AppCompat, dwm = Desktop Window Manager).
 //
-// Kept deliberately minimal: its job is to prove the pipeline end to end (Skija context over
-// MC's framebuffer, per-frame retarget, GL state isolation, input routing) with a result that
-// is unambiguous on screen. A translucent panel over the live game frame means a black screen
-// or a missing panel are both obvious failures rather than plausible-looking ones.
+// Metrics and colours come from dwm/Fluent.qml; see docs/dwm/fluent-spec.md for which of them
+// are Microsoft's published values and which are approximations.
 
-Rectangle {
-    x: 40
-    y: 40
-    width: 420
-    height: 200
-    radius: 12
-    color: "#cc1e2430"
+Item {
+    id: root
 
-    Text {
-        x: 24; y: 28
-        text: "DWM / qml4j"
-        color: "#ffffff"
-        fontSize: 26
-    }
+    MenuPanel {
+        x: 48
+        y: 48
+        width: 320
+        title: "DWM"
 
-    Text {
-        x: 24; y: 76
-        text: "Skija over Minecraft's framebuffer"
-        color: "#9fb4d0"
-        fontSize: 14
-    }
+        MenuItem {
+            glyph: "▦"
+            label: "Kernel state"
+            shortcut: "F6"
+        }
 
-    Text {
-        x: 24; y: 104
-        text: "The game keeps ticking behind this panel."
-        color: "#9fb4d0"
-        fontSize: 14
-    }
+        MenuItem {
+            glyph: "⌗"
+            label: "Board chips"
+        }
 
-    Text {
-        x: 24; y: 148
-        text: "ESC to close"
-        color: "#6f8bab"
-        fontSize: 13
+        MenuItem {
+            glyph: "◳"
+            label: "Coordinates"
+        }
+
+        MenuSeparator { }
+
+        MenuItem {
+            glyph: "⚙"
+            label: "Settings"
+        }
+
+        MenuItem {
+            glyph: "ⓘ"
+            label: "About"
+        }
+
+        MenuSeparator { }
+
+        MenuItem {
+            glyph: "✕"
+            label: "Close menu"
+            shortcut: "Esc"
+            danger: true
+        }
     }
 }

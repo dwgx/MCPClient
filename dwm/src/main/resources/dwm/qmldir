@@ -1,0 +1,4 @@
+singleton Fluent 1.0 Fluent.qml
+MenuPanel 1.0 MenuPanel.qml
+MenuItem 1.0 MenuItem.qml
+MenuSeparator 1.0 MenuSeparator.qml
