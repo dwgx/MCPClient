@@ -420,6 +420,83 @@ def focus_and_read_field(mcp, text):
 """)
 
 
+def click_and_focused(mcp, x, y, object_name):
+    """Click at a point, then report whether the named item ended up holding focus.
+
+    Both halves in one eval so nothing can run between them. The answer is qml4j's own
+    `focused()`, compared by identity against the named item — asking the field whether it
+    "looks focused" would be asking the thing under test.
+    """
+    return mcp.java("ClickFocus" + object_name, SURFACE_PREAMBLE + f"""
+        java.lang.reflect.Field vf = surf.getClass().getDeclaredField("view");
+        vf.setAccessible(true);
+        Object view = vf.get(surf);
+        // Clear focus FIRST, and report what it was. The check above this one focuses the field
+        // with setFocus, so without this the click would be asserting against focus that was
+        // already there — measured: with the button translation reverted, this check still passed
+        // until the clear was added. A precondition that is merely likely is not a precondition.
+        view.getClass().getMethod("clearFocus").invoke(view);
+        Object before = view.getClass().getMethod("focused").invoke(view);
+        if (before != null) return "FOCUS-NOT-CLEARED " + before;
+
+        java.lang.reflect.Method down = surf.getClass().getMethod("pointerDown", float.class, float.class, int.class);
+        java.lang.reflect.Method up = surf.getClass().getMethod("pointerUp", float.class, float.class, int.class);
+        java.lang.reflect.Field usf = surf.getClass().getDeclaredField("uiScale");
+        usf.setAccessible(true);
+        float scale = (Float) usf.get(surf);
+        float px = {x}f * scale, py = {y}f * scale;
+        // Button 0 is LWJGL's left, which is what MC hands the SPI.
+        down.invoke(surf, px, py, 0);
+        up.invoke(surf, px, py, 0);
+        Object wrapper = view.getClass().getMethod("findByObjectName", String.class)
+            .invoke(view, "{object_name}");
+        if (wrapper == null) return "NO-ITEM";
+        // The wrapper is the FluentTextBox Item; the focusable node is the TextField inside it.
+        java.util.ArrayDeque<Object> q = new java.util.ArrayDeque<>();
+        q.add(wrapper);
+        Object field = null;
+        while (!q.isEmpty()) {{
+          Object n = q.poll();
+          if (n.getClass().getName().endsWith("items.input.TextField")) {{ field = n; break; }}
+          for (Object c : (java.util.List<?>) n.getClass().getField("children").get(n)) q.add(c);
+        }}
+        if (field == null) return "NO-TEXTFIELD";
+        Object focused = view.getClass().getMethod("focused").invoke(view);
+        return "focused=" + (focused == field) + " got=" + focused;
+""")
+
+
+def type_and_read(mcp, text, object_name):
+    """Type into whatever currently holds focus, then read the named field back.
+
+    Deliberately does NOT focus anything: it runs after click_and_focused, which cleared focus
+    before clicking, so the characters can only land if the CLICK is what gave the field focus.
+    """
+    return mcp.java("TypeInto" + object_name, SURFACE_PREAMBLE + f"""
+        java.lang.reflect.Field vf = surf.getClass().getDeclaredField("view");
+        vf.setAccessible(true);
+        Object view = vf.get(surf);
+        Object wrapper = view.getClass().getMethod("findByObjectName", String.class)
+            .invoke(view, "{object_name}");
+        if (wrapper == null) return "NO-ITEM";
+        java.util.ArrayDeque<Object> q = new java.util.ArrayDeque<>();
+        q.add(wrapper);
+        Object field = null;
+        while (!q.isEmpty()) {{
+          Object n = q.poll();
+          if (n.getClass().getName().endsWith("items.input.TextField")) {{ field = n; break; }}
+          for (Object c : (java.util.List<?>) n.getClass().getField("children").get(n)) q.add(c);
+        }}
+        if (field == null) return "NO-TEXTFIELD";
+        // Clear whatever an earlier check left behind, so the read cannot pass on stale text.
+        field.getClass().getMethod("setText", String.class).invoke(field, "");
+        java.lang.reflect.Method key = surf.getClass().getMethod("key", int.class, String.class, boolean.class, boolean.class);
+        String s = "{text}";
+        for (int i = 0; i < s.length(); i++) key.invoke(surf, 0, String.valueOf(s.charAt(i)), false, false);
+        return "typed=" + s + " read=" + field.getClass().getMethod("text").invoke(field);
+""")
+
+
 def resize(mcp, w, h):
     """Drive a size change, the historic 'world goes black after a resize' path."""
     return mcp.java("Resize", SURFACE_PREAMBLE + f"""
@@ -539,6 +616,23 @@ def main():
     # The settings page is selected by the loop above, so its text box exists now.
     step("a typed string reaches the focused field", focus_and_read_field(mcp, "abc"),
          lambda v: "read=abc" in v)
+
+    # And the path a user actually takes: CLICK the box, then type. The check above calls
+    # setFocus directly, so it proves a keystroke reaches a focused field and says nothing
+    # about what focuses it. That gap hid a real bug — dwm passed LWJGL's zero-based button
+    # index straight to qml4j, which reads Qt's bitmask where left is 1, so a left click
+    # arrived as Qt.NoButton and never ran the focus branch. Every MouseArea kept working
+    # (qml4j treats button 0 as a wildcard when hit-testing them), so nothing else noticed.
+    box = item_box(mcp, "settingsName")
+    if "," in box:
+        x, y, w, h = (int(n) for n in box.split(","))
+        step("clicking the text box focuses it", click_and_focused(mcp, x + w // 2, y + h // 2,
+                                                                  "settingsName"),
+             lambda v: "focused=true" in v)
+        step("and typing then lands in the clicked box", type_and_read(mcp, "xy", "settingsName"),
+             lambda v: "read=xy" in v)
+    else:
+        record("the text box's box is readable", False, box)
 
     print("\n-- control interaction, on the settings page")
     check_controls(mcp)
