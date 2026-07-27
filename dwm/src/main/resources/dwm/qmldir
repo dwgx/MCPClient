@@ -2,3 +2,9 @@ singleton Fluent 1.0 Fluent.qml
 MenuPanel 1.0 MenuPanel.qml
 MenuItem 1.0 MenuItem.qml
 MenuSeparator 1.0 MenuSeparator.qml
+FluentSlider 1.0 controls/FluentSlider.qml
+FluentProgressBar 1.0 controls/FluentProgressBar.qml
+FluentTextBox 1.0 controls/FluentTextBox.qml
+FluentButton 1.0 controls/FluentButton.qml
+FluentToggleSwitch 1.0 controls/FluentToggleSwitch.qml
+FluentCheckBox 1.0 controls/FluentCheckBox.qml

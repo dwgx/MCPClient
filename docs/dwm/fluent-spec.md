@@ -98,6 +98,44 @@ dwm 的实现目前只做**半透明色调层**,不做模糊:
 若日后要真模糊:Skija 有 `ImageFilter.makeBlur`,但需要先把 MC 的帧读进一张 Image,
 属于额外一次全屏拷贝,应先测量再决定。
 
+## 控件库度量(2026-07-27 新增)
+
+`dwm/controls/` 下六个控件用到的数字。**每一条都标了出处** —— 这一批里
+[官方] 的比例很低,因为 Microsoft 公布的是圆角、字号、触控目标,**不是各控件的具体尺寸**。
+
+| 控件 | 度量 | 值 | 出处 |
+|---|---|---|---|
+| 全部 | 圆角(页内元素) | 4px | [官方] `ControlCornerRadius` |
+| 全部 | 行高/触控目标 | 40px | [官方] Fluent Standard 40x40 epx |
+| Button | 控件高度 | 32px | **[近似]** —— 官方只公布 40x40 触控目标,不含按钮高度;32 是 WinUI 默认外观在该目标内的形状 |
+| ToggleSwitch | 轨道 40x20、圆角 10、滑块 14、内缩 3 | — | **[近似],全部** —— 已核实 Microsoft **在 Fluent 与 WinUI 文档中均未公布 ToggleSwitch 的任何像素尺寸**。这些值读自实际控件比例 |
+| ToggleSwitch | 滑块动画 150ms / OutCubic | — | **[近似]** —— 官方未公布时长 |
+| CheckBox | 方框边长 | 20px | **[近似]** —— 官方公布 4px 圆角与 40x40 目标,不含方框尺寸 |
+| Slider | 轨道圆角 | 4px | [官方] bar 类元素(ProgressBar / ScrollBar / Slider) |
+| Slider | 轨道厚度 4、滑块直径 20 | — | **[近似]** —— 规范钉的是**半径**,不是厚度 |
+| ProgressBar | 轨道圆角 4px | 4px | [官方] bar 类元素 |
+| ProgressBar | 轨道厚度 | 4px | **[近似]** |
+| TextBox | 控件高度 | 32px | **[近似]**,同 Button |
+
+两个新增色 token,都是 [近似]:
+
+- `controlStrokeStrong` `#9AFFFFFF` —— WinUI 的**强**控件描边。给"整个外观就是一条轮廓"的控件用
+  (未勾选的 checkbox、关闭的 toggle 轨道)。`panelStroke` 是**弱**描边,`#12FFFFFF` 在这类控件上几乎看不见,
+  两者不可互换。
+- `textOnAccent` `#FF000000` —— 画在 accent 填充**上面**的文字。暗色主题下是黑色,
+  因为此时 accent 才是那个亮面 —— 全项目唯一一处极性反转的地方。
+
+### 一条 qml4j 0.2.24 的实测约束(写进代码注释了)
+
+`Behavior` 的 `duration` 与 `easing.type` **必须写字面量**:
+
+- `Behavior` 在绑定求值前就把 duration 从模板读进私有字段(`Behavior.java:13,67`),
+  绑定表达式会静默退回默认 250ms;
+- `Easing.OutCubic` 这个具名形式在此处解析不出来,`easingType` 留在 0(= Linear)。
+  **6 才是 OutCubic**(`Easings.java:14`)。
+
+两条都是读源码 + 真机比对确认的,不是推测。
+
 ## 尺寸推导(用于本项目)
 
 由上述 [官方] 数字推出的实现值:

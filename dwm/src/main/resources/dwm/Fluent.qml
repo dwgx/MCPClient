@@ -51,4 +51,14 @@ QtObject {
 
     property string divider: "#15ffffff"
     property string accent: "#4cc2ff"
+
+    // The STRONG control stroke, for a control whose whole outline is its unfilled state — an
+    // empty checkbox or an off toggle track is nothing but its border. panelStroke above is the
+    // WEAK stroke and at #12FFFFFF such a control all but vanishes, so the two are not
+    // interchangeable. [近似]
+    property string controlStrokeStrong: "#9affffff"
+
+    // Text drawn ON an accent fill. Black in the dark theme, because there the accent IS the light
+    // surface — the one place in dwm where the usual light-on-dark polarity inverts. [近似]
+    property string textOnAccent: "#ff000000"
 }
