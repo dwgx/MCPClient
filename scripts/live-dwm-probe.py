@@ -277,6 +277,91 @@ def row_centre(mcp, object_name):
 """)
 
 
+def item_box(mcp, object_name):
+    """A named item's absolute box in logical units, as "x,y,w,h", or a diagnostic string.
+
+    Same parent-chain walk as row_centre, but returning the whole rectangle: a drag needs to aim at
+    a fraction of a control's width, which a centre point cannot express.
+    """
+    return mcp.java("Box" + object_name, SURFACE_PREAMBLE + f"""
+        java.lang.reflect.Field vf = surf.getClass().getDeclaredField("view");
+        vf.setAccessible(true);
+        Object view = vf.get(surf);
+        Object it = view.getClass().getMethod("findByObjectName", String.class)
+            .invoke(view, "{object_name}");
+        if (it == null) return "NO-ITEM";
+        float ax = 0, ay = 0;
+        Object cur = it;
+        while (cur != null) {{
+          Object xp = cur.getClass().getField("x").get(cur);
+          Object yp = cur.getClass().getField("y").get(cur);
+          ax += ((Number) xp.getClass().getMethod("peekFloat").invoke(xp)).floatValue();
+          ay += ((Number) yp.getClass().getMethod("peekFloat").invoke(yp)).floatValue();
+          Object pp = cur.getClass().getField("parent").get(cur);
+          cur = pp.getClass().getMethod("peek").invoke(pp);
+        }}
+        Object wp = it.getClass().getField("width").get(it);
+        Object hp = it.getClass().getField("height").get(it);
+        return Math.round(ax) + "," + Math.round(ay) + ","
+             + Math.round(((Number) wp.getClass().getMethod("peekFloat").invoke(wp)).floatValue())
+             + "," + Math.round(((Number) hp.getClass().getMethod("peekFloat").invoke(hp)).floatValue());
+""")
+
+
+def drag(mcp, from_x, y, to_x):
+    """Press, move in steps, release — a real drag, which a click can never stand in for.
+
+    The intermediate moves are the point: qml4j only delivers positionChanged to a CAPTURED area, so
+    a press-then-release pair exercises the click path and leaves the drag path untested. Stepping
+    also proves the capture survives motion rather than being re-hit-tested each time.
+    """
+    return mcp.java("Drag", SURFACE_PREAMBLE + f"""
+        java.lang.reflect.Method down = surf.getClass().getMethod("pointerDown", float.class, float.class, int.class);
+        java.lang.reflect.Method up = surf.getClass().getMethod("pointerUp", float.class, float.class, int.class);
+        java.lang.reflect.Method move = surf.getClass().getMethod("pointerMove", float.class, float.class);
+        java.lang.reflect.Field usf = surf.getClass().getDeclaredField("uiScale");
+        usf.setAccessible(true);
+        float scale = (Float) usf.get(surf);
+        float y = {y}f * scale;
+        float x0 = {from_x}f * scale, x1 = {to_x}f * scale;
+        move.invoke(surf, x0, y);
+        down.invoke(surf, x0, y, 0);
+        int steps = 8;
+        for (int i = 1; i <= steps; i++) {{
+          move.invoke(surf, x0 + (x1 - x0) * i / steps, y);
+        }}
+        up.invoke(surf, x1, y, 0);
+        return "dragged";
+""")
+
+
+def item_property(mcp, object_name, prop):
+    """Read a named item's QML property, so an assertion can be about state rather than about
+    whether a call returned."""
+    return mcp.java("Prop" + object_name + prop, SURFACE_PREAMBLE + f"""
+        java.lang.reflect.Field vf = surf.getClass().getDeclaredField("view");
+        vf.setAccessible(true);
+        Object view = vf.get(surf);
+        Object it = view.getClass().getMethod("findByObjectName", String.class)
+            .invoke(view, "{object_name}");
+        if (it == null) return "NO-ITEM";
+        Object p = it.getClass().getField("{prop}").get(it);
+        return String.valueOf(p.getClass().getMethod("peek").invoke(p));
+""")
+
+
+def hover(mcp, x, y):
+    """Move the pointer without pressing, for hover-state assertions."""
+    return mcp.java("Hover", SURFACE_PREAMBLE + f"""
+        java.lang.reflect.Method move = surf.getClass().getMethod("pointerMove", float.class, float.class);
+        java.lang.reflect.Field usf = surf.getClass().getDeclaredField("uiScale");
+        usf.setAccessible(true);
+        float scale = (Float) usf.get(surf);
+        move.invoke(surf, {x}f * scale, {y}f * scale);
+        return "moved";
+""")
+
+
 def current_page(mcp):
     return mcp.java("CurPage", SURFACE_PREAMBLE + """
         java.lang.reflect.Field vf = surf.getClass().getDeclaredField("view");
@@ -455,6 +540,9 @@ def main():
     step("a typed string reaches the focused field", focus_and_read_field(mcp, "abc"),
          lambda v: "read=abc" in v)
 
+    print("\n-- control interaction, on the settings page")
+    check_controls(mcp)
+
     print("\n-- the world still renders behind the UI")
     step("the client survived every interaction", "alive", lambda v: alive())
 
@@ -470,6 +558,114 @@ def main():
         step("the client is still running after closing", "alive", lambda v: alive())
 
     return report(args)
+
+
+def check_controls(mcp):
+    """Drive the settings page's controls and assert their STATE changed.
+
+    Headless pixel tests already prove these render; what they cannot show is that a real pointer
+    sequence arriving through MC's input path moves them. Each assertion is about the control's own
+    property afterwards, not about the input call returning — a dispatch that is consumed and does
+    nothing looks identical from outside, which is exactly the shape of the key bug fixed earlier.
+    """
+    # --- toggle switch: a click must flip `checked`.
+    before = item_property(mcp, "settingsFullbright", "checked")
+    box = item_box(mcp, "settingsFullbright")
+    if "," in box:
+        x, y, w, h = (int(n) for n in box.split(","))
+        step("clicking the toggle flips it",
+             click(mcp, x + w // 2, y + h // 2) + " before=" + before,
+             lambda v: "down=true" in v)
+        after = item_property(mcp, "settingsFullbright", "checked")
+        record("the toggle's checked state actually changed",
+               before.strip() in ("true", "false") and after.strip() != before.strip(),
+               f"{before.strip()} -> {after.strip()}")
+    else:
+        record("the toggle's box is readable", False, box)
+
+    # --- check box: same shape, different control.
+    before = item_property(mcp, "settingsTelemetry", "checked")
+    box = item_box(mcp, "settingsTelemetry")
+    if "," in box:
+        x, y, w, h = (int(n) for n in box.split(","))
+        step("clicking the check box flips it", click(mcp, x + 10, y + h // 2),
+             lambda v: "down=true" in v)
+        after = item_property(mcp, "settingsTelemetry", "checked")
+        record("the check box's checked state actually changed",
+               before.strip() in ("true", "false") and after.strip() != before.strip(),
+               f"{before.strip()} -> {after.strip()}")
+    else:
+        record("the check box's box is readable", False, box)
+
+    # --- slider: a DRAG, which is the path a click cannot exercise. qml4j delivers
+    # positionChanged only to a captured area, so this is the only way to reach it.
+    before = item_property(mcp, "settingsGamma", "value")
+    box = item_box(mcp, "settingsGamma")
+    if "," in box:
+        x, y, w, h = (int(n) for n in box.split(","))
+        # From a quarter across to near the right end, so the value must rise substantially.
+        step("dragging the slider is dispatched",
+             drag(mcp, x + w // 4, y + h // 2, x + w - 12), lambda v: "dragged" in v)
+        after = item_property(mcp, "settingsGamma", "value")
+        try:
+            moved = float(after) > float(before) + 0.2
+        except ValueError:
+            moved = False
+        record("the slider's value rose with the drag", moved,
+               f"{before.strip()} -> {after.strip()} (drag right across {w}px)")
+
+        # And back the other way, so the assertion cannot be satisfied by a value that merely
+        # snaps to one end regardless of input.
+        step("dragging back is dispatched",
+             drag(mcp, x + w - 12, y + h // 2, x + 12), lambda v: "dragged" in v)
+        back = item_property(mcp, "settingsGamma", "value")
+        try:
+            fell = float(back) < float(after) - 0.2
+        except ValueError:
+            fell = False
+        record("and fell when dragged the other way", fell,
+               f"{after.strip()} -> {back.strip()}")
+    else:
+        record("the slider's box is readable", False, box)
+
+    # --- hover: the backplate must respond to motion alone, with no button down.
+    box = item_box(mcp, "settingsFullbright")
+    if "," in box:
+        x, y, w, h = (int(n) for n in box.split(","))
+        hover(mcp, 5, 5)
+        away = item_property(mcp, "settingsFullbright", "width")  # forces a read; state below
+        hover(mcp, x + w // 2, y + h // 2)
+        over = hovered(mcp, "settingsFullbright")
+        hover(mcp, 5, 5)
+        off = hovered(mcp, "settingsFullbright")
+        record("hovering a control sets containsMouse, and leaving clears it",
+               over.strip() == "true" and off.strip() == "false",
+               f"over={over.strip()} off={off.strip()}")
+    else:
+        record("the toggle's box is readable for hover", False, box)
+
+
+def hovered(mcp, object_name):
+    """Whether the named control's own MouseArea currently reports the pointer inside it."""
+    return mcp.java("Hovered" + object_name, SURFACE_PREAMBLE + f"""
+        java.lang.reflect.Field vf = surf.getClass().getDeclaredField("view");
+        vf.setAccessible(true);
+        Object view = vf.get(surf);
+        Object it = view.getClass().getMethod("findByObjectName", String.class)
+            .invoke(view, "{object_name}");
+        if (it == null) return "NO-ITEM";
+        java.util.ArrayDeque<Object> q = new java.util.ArrayDeque<>();
+        q.add(it);
+        while (!q.isEmpty()) {{
+          Object n = q.poll();
+          if (n.getClass().getName().endsWith("items.core.MouseArea")) {{
+            Object p = n.getClass().getField("containsMouse").get(n);
+            return String.valueOf(p.getClass().getMethod("peek").invoke(p));
+          }}
+          for (Object c : (java.util.List<?>) n.getClass().getField("children").get(n)) q.add(c);
+        }}
+        return "NO-MOUSEAREA";
+""")
 
 
 def report(args):
