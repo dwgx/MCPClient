@@ -10,6 +10,7 @@ import org.lwjgl.glfw.GLFWErrorCallback;
 import org.lwjgl.glfw.GLFWFramebufferSizeCallback;
 import org.lwjgl.glfw.GLFWImage;
 import org.lwjgl.glfw.GLFWVidMode;
+import org.lwjgl.glfw.GLFWWindowContentScaleCallback;
 import org.lwjgl.glfw.GLFWWindowFocusCallback;
 import org.lwjgl.input.Keyboard;
 import org.lwjgl.input.Mouse;
@@ -43,9 +44,23 @@ public final class Display {
      * where macOS hands back a Retina framebuffer twice the window size. GLFW
      * reports cursor positions in window units but we report the framebuffer size
      * as the display size, so the input backend has to bridge the two.
+     *
+     * This ratio is NOT a DPI scale: it is 1.0 on Windows and X11 at any DPI,
+     * because there the framebuffer already matches the window. Its only job is
+     * bringing a cursor coordinate into the same space as getWidth()/getHeight().
+     * Anything that wants to know how large to draw must use getContentScale().
      */
     private static float pixelScaleX = 1.0F;
     private static float pixelScaleY = 1.0F;
+
+    /*
+     * The display's DPI scale, as the user configured it: 2.0 on a Retina Mac,
+     * 1.5 at Windows' 150% setting, 1.0 by default. Unlike the ratio above this
+     * is a real scale factor on every platform, so it is what a UI layer must
+     * multiply by to come out physically the right size.
+     */
+    private static float contentScaleX = 1.0F;
+    private static float contentScaleY = 1.0F;
 
     /* Saved windowed placement so we can restore after leaving fullscreen. */
     private static int windowedWidth = 854;
@@ -62,6 +77,7 @@ public final class Display {
     private static boolean glfwInitialized = false;
     private static GLFWErrorCallback errorCallback;
     private static GLFWFramebufferSizeCallback framebufferSizeCallback;
+    private static GLFWWindowContentScaleCallback contentScaleCallback;
     private static GLFWWindowFocusCallback windowFocusCallback;
 
     /* Pure-Java frame limiter state (nanoTime based). */
@@ -125,11 +141,20 @@ public final class Display {
         return height;
     }
 
-    /** Recompute the framebuffer/window ratio; call whenever either changes. */
-    private static void updatePixelScale() {
+    /**
+     * Recompute both scales; call whenever the framebuffer or window changes.
+     *
+     * They are separate quantities and conflating them is the classic HiDPI bug:
+     * the framebuffer/window ratio happens to equal the DPI scale on a Retina Mac,
+     * which is exactly why testing only there hides the difference. On Windows at
+     * 150% the ratio is 1.0 while the DPI scale is 1.5.
+     */
+    private static void updateScales() {
         if (window == -1L) {
             pixelScaleX = 1.0F;
             pixelScaleY = 1.0F;
+            contentScaleX = 1.0F;
+            contentScaleY = 1.0F;
             return;
         }
         int[] ww = new int[1];
@@ -137,6 +162,22 @@ public final class Display {
         GLFW.glfwGetWindowSize(window, ww, wh);
         pixelScaleX = ww[0] > 0 ? (float) width / ww[0] : 1.0F;
         pixelScaleY = wh[0] > 0 ? (float) height / wh[0] : 1.0F;
+
+        float[] sx = new float[1];
+        float[] sy = new float[1];
+        GLFW.glfwGetWindowContentScale(window, sx, sy);
+        contentScaleX = sane(sx[0]);
+        contentScaleY = sane(sy[0]);
+    }
+
+    /**
+     * A usable scale factor, falling back to 1.0.
+     *
+     * {@code > 0} already excludes NaN, since every NaN comparison is false, so
+     * only infinity needs testing separately.
+     */
+    private static float sane(float scale) {
+        return (scale > 0.0F && !Float.isInfinite(scale)) ? scale : 1.0F;
     }
 
     /** Framebuffer pixels per horizontal window unit (2.0 on a Retina display). */
@@ -147,6 +188,21 @@ public final class Display {
     /** Framebuffer pixels per vertical window unit (2.0 on a Retina display). */
     public static float getPixelScaleY() {
         return pixelScaleY;
+    }
+
+    /**
+     * The display's horizontal DPI scale: 2.0 on Retina, 1.5 at Windows' 150%.
+     *
+     * <p>This is what a UI layer scales its drawing by. Do not substitute
+     * {@link #getPixelScaleX()} — that is 1.0 on Windows at every DPI.
+     */
+    public static float getContentScaleX() {
+        return contentScaleX;
+    }
+
+    /** The display's vertical DPI scale. See {@link #getContentScaleX()}. */
+    public static float getContentScaleY() {
+        return contentScaleY;
     }
 
     public static boolean isActive() {
@@ -226,19 +282,33 @@ public final class Display {
         GLFW.glfwGetFramebufferSize(window, fbw, fbh);
         width = fbw[0] <= 0 ? 1 : fbw[0];
         height = fbh[0] <= 0 ? 1 : fbh[0];
-        updatePixelScale();
+        updateScales();
 
         framebufferSizeCallback = GLFWFramebufferSizeCallback.create(new GLFWFramebufferSizeCallback() {
             public void invoke(long win, int w, int h) {
                 if (win == window && w > 0 && h > 0) {
                     width = w;
                     height = h;
-                    updatePixelScale();
+                    updateScales();
                     resized = true;
                 }
             }
         });
         GLFW.glfwSetFramebufferSizeCallback(window, framebufferSizeCallback);
+
+        // Dragging the window between monitors of different DPI changes the content
+        // scale without necessarily changing the framebuffer size, so the callback
+        // above is not enough on its own.
+        contentScaleCallback = GLFWWindowContentScaleCallback.create(new GLFWWindowContentScaleCallback() {
+            public void invoke(long win, float xScale, float yScale) {
+                if (win == window) {
+                    contentScaleX = sane(xScale);
+                    contentScaleY = sane(yScale);
+                    resized = true;
+                }
+            }
+        });
+        GLFW.glfwSetWindowContentScaleCallback(window, contentScaleCallback);
 
         windowFocusCallback = GLFWWindowFocusCallback.create(new GLFWWindowFocusCallback() {
             public void invoke(long win, boolean isFocused) {
@@ -483,6 +553,11 @@ public final class Display {
             GLFW.glfwSetFramebufferSizeCallback(window, null);
             framebufferSizeCallback.free();
             framebufferSizeCallback = null;
+        }
+        if (contentScaleCallback != null) {
+            GLFW.glfwSetWindowContentScaleCallback(window, null);
+            contentScaleCallback.free();
+            contentScaleCallback = null;
         }
         if (windowFocusCallback != null) {
             GLFW.glfwSetWindowFocusCallback(window, null);

@@ -137,12 +137,38 @@ public final class McpFboSurfaceBackend implements SurfaceBackend {
         }
     }
 
+    /**
+     * The display's DPI scale, applied to the canvas so the scene can be authored in logical
+     * units. Set by the driver each frame from {@code Display.getContentScaleX()}.
+     */
+    private float uiScale = 1.0F;
+
+    /**
+     * Set the logical-to-device scale. Never touches the surface, so it is free to change.
+     *
+     * <p>Must be the DPI content scale, not the framebuffer/window ratio: the two agree on a
+     * Retina Mac but not on Windows, where the ratio is 1.0 at every DPI setting.
+     */
+    void setUiScale(float scale) {
+        this.uiScale = (scale > 0.0F && !Float.isInfinite(scale)) ? scale : 1.0F;
+    }
+
     @Override
     public Canvas acquireCanvas() {
         // No clear() here, unlike an opaque window backend: this composites OVER MC's finished
         // frame, so clearing to opaque black would erase the game. The scene's own root fills
         // whatever area it wants and the rest stays transparent.
-        return (disposed || surface == null) ? null : surface.getCanvas();
+        if (disposed || surface == null) {
+            return null;
+        }
+        Canvas canvas = surface.getCanvas();
+        // getCanvas() hands back the same canvas every frame, so the scale has to be reset or
+        // it compounds — frame two would draw at 4x, frame three at 8x.
+        canvas.resetMatrix();
+        if (uiScale != 1.0F) {
+            canvas.scale(uiScale, uiScale);
+        }
+        return canvas;
     }
 
     @Override

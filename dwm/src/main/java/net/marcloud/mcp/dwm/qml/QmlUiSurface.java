@@ -6,6 +6,8 @@ import net.marcloud.mcp.dwm.ui.UiInput;
 import net.marcloud.mcp.dwm.ui.UiKeys;
 import net.marcloud.mcp.dwm.ui.UiSurface;
 
+import org.lwjgl.opengl.Display;
+
 /**
  * Drives a qml4j scene as a DWM {@link UiSurface} / {@link UiInput}.
  *
@@ -41,6 +43,12 @@ public final class QmlUiSurface implements UiSurface, UiInput {
      * Kept separate from {@link #frame} because only the caller can ask MC for it.
      */
     private int liveFboId = -1;
+
+    /**
+     * The DPI scale in force, refreshed each frame. Both the canvas transform and the inbound
+     * pointer conversion read it, and they must agree or clicks land somewhere else entirely.
+     */
+    private float uiScale = 1.0F;
 
     /** Tell the surface which framebuffer MC currently has bound. Call before {@link #frame}. */
     public void setFramebufferId(int fboId) {
@@ -90,8 +98,13 @@ public final class QmlUiSurface implements UiSurface, UiInput {
         }
         GlStateGuard.enter();
         try {
+            // Refresh the DPI scale each frame: the user can drag the window to a monitor with a
+            // different scale, and it costs one field read.
+            uiScale = Display.getContentScaleX();
+            backend.setUiScale(uiScale);
             // Retarget first: a resize recreated MC's framebuffer GL objects, possibly under a
-            // new id, and rendering into the stale wrap is what turns the world black.
+            // new id, and rendering into the stale wrap is what turns the world black. The
+            // surface is sized in DEVICE pixels; only the canvas transform is logical.
             backend.frameTarget(widthPx, heightPx, liveFboId);
             if (backend.hasSurface()) {
                 view.tickAnimations(nanoTime);
@@ -143,26 +156,42 @@ public final class QmlUiSurface implements UiSurface, UiInput {
         return lastError;
     }
 
-    // ---- UiInput. Coordinates arrive as framebuffer pixels, top-left origin ----
+    // ---- UiInput ----------------------------------------------------------------
+    //
+    // Coordinates arrive as framebuffer pixels (the SPI contract) and are divided by the DPI
+    // scale on the way in, because the scene is laid out in logical units. Skipping this makes
+    // every hit test miss by the scale factor: on a Retina display a click would land at twice
+    // the intended point, so only the top-left quarter of the UI would be reachable.
 
     @Override
     public boolean pointerDown(float xPx, float yPx, int button) {
-        return dispatch(() -> view.dispatchPointerDown(xPx, yPx, button));
+        return dispatch(() -> view.dispatchPointerDown(lx(xPx), ly(yPx), button));
     }
 
     @Override
     public boolean pointerUp(float xPx, float yPx, int button) {
-        return dispatch(() -> view.dispatchPointerUp(xPx, yPx, button));
+        return dispatch(() -> view.dispatchPointerUp(lx(xPx), ly(yPx), button));
     }
 
     @Override
     public boolean pointerMove(float xPx, float yPx) {
-        return dispatch(() -> view.dispatchPointerMove(xPx, yPx));
+        return dispatch(() -> view.dispatchPointerMove(lx(xPx), ly(yPx)));
     }
 
     @Override
     public boolean wheel(float xPx, float yPx, float dxNotches, float dyNotches) {
-        return dispatch(() -> view.dispatchWheel(xPx, yPx, dxNotches, dyNotches));
+        // Position is spatial and scales; the notch deltas are not distances and do not.
+        return dispatch(() -> view.dispatchWheel(lx(xPx), ly(yPx), dxNotches, dyNotches));
+    }
+
+    /** Framebuffer pixels to logical units, horizontally. */
+    private float lx(float xPx) {
+        return uiScale > 0.0F ? xPx / uiScale : xPx;
+    }
+
+    /** Framebuffer pixels to logical units, vertically. */
+    private float ly(float yPx) {
+        return uiScale > 0.0F ? yPx / uiScale : yPx;
     }
 
     @Override
