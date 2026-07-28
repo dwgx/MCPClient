@@ -1,8 +1,13 @@
 singleton Fluent 1.0 Fluent.qml
+singleton Motion 1.0 Motion.qml
 MenuPanel 1.0 MenuPanel.qml
 MenuItem 1.0 MenuItem.qml
 MenuSeparator 1.0 MenuSeparator.qml
 FluentElevation 1.0 controls/FluentElevation.qml
+FluentSettingsCard 1.0 controls/FluentSettingsCard.qml
+FluentSettingsGroup 1.0 controls/FluentSettingsGroup.qml
+FluentSettingsExpander 1.0 controls/FluentSettingsExpander.qml
+FluentSettingsItem 1.0 controls/FluentSettingsItem.qml
 FluentSlider 1.0 controls/FluentSlider.qml
 FluentProgressBar 1.0 controls/FluentProgressBar.qml
 FluentTextBox 1.0 controls/FluentTextBox.qml

@@ -113,14 +113,72 @@ Item {
         color: Fluent.textPrimary
     }
 
+    // ---- page transition ----------------------------------------------------------------
+    //
+    // WinUI calls this "page refresh" (EntranceNavigationTransitionInfo) and describes it as a
+    // slide up combined with a fade in for the INCOMING content. It is the transition a Frame
+    // plays by default and the one NavigationView uses for left-nav items, because the intended
+    // feeling is that the user has started over -- not travelled sideways or drilled deeper, which
+    // are the other two documented transitions and would be the wrong message for a rail.
+    //
+    // Only the incoming page is animated. There is no outgoing half: Loader swaps its item
+    // synchronously, so the old page is already gone by the time this runs, and pretending to
+    // cross-fade would mean holding two pages alive for a frame.
+    //
+    // Driven from a progress value rather than by animating x and opacity separately, so the slide
+    // and the fade cannot drift out of step. 0 = just arrived (offset and transparent), 1 = settled.
+    // Counts navigations. The animation is driven from its PARITY rather than by resetting a
+    // progress value, and that is not a trick -- it is the only shape that works here. qml4j's
+    // Behavior decides whether to tween by comparing against the value it last DISPLAYED, so
+    // writing 0 and then 1 inside one handler leaves lastDisplayed at 1, the tween is skipped, and
+    // the transition silently never plays. Measured: the handler ran (a counter proved it) while
+    // the progress value never left 1.0.
+    //
+    // A monotonic counter has no such collapse: every navigation moves it to a value it has never
+    // held, so the Behavior always has a real interval to interpolate.
+    property int navCount: 0
+    onCurrentPageChanged: nav.navCount = nav.navCount + 1
+
+    // The animated follower. It lags navCount by exactly one step immediately after a navigation
+    // and catches up over the transition, so `navCount - animatedNav` IS the remaining progress.
+    property real animatedNav: 0
+
+    onNavCountChanged: nav.animatedNav = nav.navCount
+
+    // 0 just after a navigation, rising to 1 as the follower catches up. Clamped because a second
+    // navigation mid-flight leaves the follower more than one behind, and a progress below zero
+    // would push the incoming page further away than its slide distance.
+    readonly property real pageProgress:
+        Math.max(0, Math.min(1, 1 - (nav.navCount - nav.animatedNav)))
+
+    Behavior on animatedNav {
+        NumberAnimation {
+            // 250 is ControlNormalAnimationDuration. A page arriving is a large move, not a control
+            // state change, so the Faster tier would read as a flinch. A literal because qml4j
+            // 0.2.24 samples a Behavior's duration off the template before bindings resolve.
+            duration: 250
+            // 2 is OutQuad, standing in for WinUI's entrance curve cubic-bezier(0,0,0,1) -- content
+            // ENTERING decelerates to rest. The exit curve is the mirror of this and is not used
+            // here, because nothing exits.
+            easing.type: 2
+        }
+    }
+
     Loader {
         id: page
         // The page gets the content area edge to edge and applies its own padding. Handing it a
         // pre-padded box instead would put the page's margins in two files.
         x: nav.contentX
-        y: nav.titleBlock
+        // Slid up into place: offset DOWN by the remaining progress, so it rises as it settles.
+        // The distance is [approximate] -- Microsoft documents the composition (slide plus fade,
+        // upward) but not the offset, so this is a value that reads correctly rather than a spec
+        // number. With the effect disabled the offset is zero and the page simply appears.
+        y: nav.titleBlock + (Motion.animatePages
+            ? (1.0 - nav.pageProgress) * Motion.pageSlideDistance : 0)
         width: nav.contentWidth
         height: Math.max(0, nav.height - nav.titleBlock)
+        // The fade half of the same transition.
+        opacity: Motion.animatePages ? nav.pageProgress : 1.0
         source: nav.currentPage
     }
 }

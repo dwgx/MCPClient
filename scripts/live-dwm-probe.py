@@ -258,7 +258,8 @@ def row_centre(mcp, object_name):
         Object it = view.getClass().getMethod("findByObjectName", String.class)
             .invoke(view, "{object_name}");
         if (it == null) return "NO-ROW";
-        // Absolute position: an item's x/y are relative to its parent, so walk the chain.
+        // Absolute position: an item's x/y are relative to its parent, so walk the chain, less any
+        // Flickable's scroll offset -- see item_box for why that subtraction is load-bearing.
         float ax = 0, ay = 0;
         Object cur = it;
         while (cur != null) {{
@@ -266,6 +267,12 @@ def row_centre(mcp, object_name):
           Object yp = cur.getClass().getField("y").get(cur);
           ax += ((Number) xp.getClass().getMethod("peekFloat").invoke(xp)).floatValue();
           ay += ((Number) yp.getClass().getMethod("peekFloat").invoke(yp)).floatValue();
+          if (cur.getClass().getName().endsWith("core.Flickable")) {{
+            Object cx = cur.getClass().getField("contentX").get(cur);
+            Object cy = cur.getClass().getField("contentY").get(cur);
+            ax -= ((Number) cx.getClass().getMethod("peekFloat").invoke(cx)).floatValue();
+            ay -= ((Number) cy.getClass().getMethod("peekFloat").invoke(cy)).floatValue();
+          }}
           Object pp = cur.getClass().getField("parent").get(cur);
           cur = pp.getClass().getMethod("peek").invoke(pp);
         }}
@@ -297,6 +304,18 @@ def item_box(mcp, object_name):
           Object yp = cur.getClass().getField("y").get(cur);
           ax += ((Number) xp.getClass().getMethod("peekFloat").invoke(xp)).floatValue();
           ay += ((Number) yp.getClass().getMethod("peekFloat").invoke(yp)).floatValue();
+          // A Flickable shifts its contents by contentX/contentY, and qml4j's hit test SUBTRACTS
+          // that on the way down. Walking x/y alone therefore reports where an item would be if
+          // the page were unscrolled -- correct before the page could scroll, and off by the
+          // scroll offset afterwards. Measured: with the page scrolled 96px the check box's
+          // reported box was 96px below where a click actually reached it, and every control
+          // inside the Flickable stopped responding.
+          if (cur.getClass().getName().endsWith("core.Flickable")) {{
+            Object cx = cur.getClass().getField("contentX").get(cur);
+            Object cy = cur.getClass().getField("contentY").get(cur);
+            ax -= ((Number) cx.getClass().getMethod("peekFloat").invoke(cx)).floatValue();
+            ay -= ((Number) cy.getClass().getMethod("peekFloat").invoke(cy)).floatValue();
+          }}
           Object pp = cur.getClass().getField("parent").get(cur);
           cur = pp.getClass().getMethod("peek").invoke(pp);
         }}
@@ -417,6 +436,82 @@ def focus_and_read_field(mcp, text):
         for (int i = 0; i < s.length(); i++) key.invoke(surf, 0, String.valueOf(s.charAt(i)), false, false);
         Object got = field.getClass().getMethod("text").invoke(field);
         return "typed=" + s + " read=" + got;
+""")
+
+
+def scroll_into_view(mcp, object_name):
+    """Scroll the settings page until the named item sits inside the viewport.
+
+    Needed because the page became a Flickable: content below the fold is genuinely unreachable
+    until scrolled to, so a click at its coordinates lands on nothing. That is correct behaviour
+    and it is exactly what a probe has to account for -- the alternative reading, "the control is
+    broken", is what the first run of this looked like.
+
+    Scrolls through dwm's own wheel SPI, the same path MC feeds from a real wheel event, rather
+    than writing contentY directly: setting the property would prove the layout can move and say
+    nothing about whether wheel input reaches the Flickable.
+    """
+    return mcp.java("ScrollTo" + object_name, SURFACE_PREAMBLE + f"""
+        java.lang.reflect.Field vf = surf.getClass().getDeclaredField("view");
+        vf.setAccessible(true);
+        Object view = vf.get(surf);
+        java.lang.reflect.Field usf = surf.getClass().getDeclaredField("uiScale");
+        usf.setAccessible(true);
+        float scale = (Float) usf.get(surf);
+        java.lang.reflect.Method wheel = surf.getClass().getMethod(
+            "wheel", float.class, float.class, float.class, float.class);
+
+        Object target = view.getClass().getMethod("findByObjectName", String.class)
+            .invoke(view, "{object_name}");
+        if (target == null) return "NO-ITEM";
+
+        // Find the enclosing Flickable, and the target's offset within it.
+        Object flick = null;
+        Object cur = target;
+        float oy = 0;
+        while (cur != null) {{
+            if (cur.getClass().getName().endsWith("core.Flickable")) {{ flick = cur; break; }}
+            Object yp = cur.getClass().getField("y").get(cur);
+            oy += ((Number) yp.getClass().getMethod("peekFloat").invoke(yp)).floatValue();
+            Object pp = cur.getClass().getField("parent").get(cur);
+            cur = pp.getClass().getMethod("peek").invoke(pp);
+        }}
+        if (flick == null) return "NO-FLICKABLE";
+
+        java.lang.reflect.Field hf = flick.getClass().getField("height");
+        float viewH = ((Number) hf.get(flick).getClass().getMethod("peekFloat")
+            .invoke(hf.get(flick))).floatValue();
+        java.lang.reflect.Field cyf = flick.getClass().getField("contentY");
+        Object cy = cyf.get(flick);
+
+        // Reads the SCROLL TARGET, not the current offset. Scrolling is now a smooth animation:
+        // a wheel notch moves targetY and the animator eases contentY toward it over the following
+        // frames. This whole helper runs inside ONE eval on the game thread, so no frame can be
+        // rendered while it loops -- reading contentY here would see the pre-animation value every
+        // time and the loop would keep scrolling until it ran out of iterations, overshooting
+        // wildly. Measured: it reported NOT-IN-VIEW rel=365 against a 328px viewport.
+        //
+        // The target is the honest thing to test anyway: it is where the page WILL be, and the
+        // frames that carry it there are the animator's business, not this helper's.
+        java.lang.reflect.Field tyf = flick.getClass().getDeclaredField("targetY");
+        tyf.setAccessible(true);
+
+        // One notch per step, in whichever direction the target lies, up to a bound. Bidirectional
+        // because the probe visits the second group and then comes back to the first; a
+        // scroll-down-only helper would report the first group as unreachable on the way back.
+        // Bounded so a target that can never come into view fails rather than spinning.
+        for (int i = 0; i < 40; i++) {{
+            float top = ((Number) tyf.get(flick)).floatValue();
+            float rel = oy - top;
+            if (rel >= 0 && rel + 40 <= viewH) {{
+                return "in-view rel=" + Math.round(rel) + " targetY=" + Math.round(top);
+            }}
+            // A real wheel reports +y for up, so scrolling DOWN to reach lower content is -1.
+            float dy = rel < 0 ? 1.0F : -1.0F;
+            wheel.invoke(surf, 200.0F * scale, 200.0F * scale, 0.0F, dy);
+        }}
+        float top = ((Number) tyf.get(flick)).floatValue();
+        return "NOT-IN-VIEW rel=" + Math.round(oy - top) + " viewH=" + Math.round(viewH);
 """)
 
 
@@ -677,7 +772,33 @@ def check_controls(mcp):
     else:
         record("the toggle's box is readable", False, box)
 
-    # --- check box: same shape, different control.
+    # --- the expander must open before anything inside it can be reached.
+    #
+    # The check box below lives in a collapsed FluentSettingsExpander, so a click at its
+    # coordinates lands on clipped-away content. That is CORRECT behaviour, not a bug -- an
+    # unopened group's rows are not on screen. Verified the distinction: before this step the
+    # check box reported down=false while every other control worked.
+    collapsed = item_property(mcp, "settingsAdvanced", "expanded")
+    box = item_box(mcp, "settingsAdvanced")
+    if "," in box:
+        x, y, w, h = (int(n) for n in box.split(","))
+        # Click the header, away from the chevron, so this also proves the whole header is the
+        # target rather than just the 32px button.
+        step("clicking the expander header opens it", click(mcp, x + 60, y + h // 2),
+             lambda v: "down=true" in v)
+        opened = item_property(mcp, "settingsAdvanced", "expanded")
+        record("the expander actually expanded",
+               collapsed.strip() == "false" and opened.strip() == "true",
+               f"{collapsed.strip()} -> {opened.strip()}")
+    else:
+        record("the expander's box is readable", False, box)
+
+    # --- scrolling, which the page now needs: the expanded group's rows sit below the fold.
+    step("the page scrolls the expander's rows into view",
+         scroll_into_view(mcp, "settingsTelemetry"),
+         lambda v: v.strip().startswith("in-view"))
+
+    # --- check box: same shape as the toggle, but inside the expander opened and scrolled to.
     before = item_property(mcp, "settingsTelemetry", "checked")
     box = item_box(mcp, "settingsTelemetry")
     if "," in box:
@@ -723,6 +844,14 @@ def check_controls(mcp):
         record("the slider's box is readable", False, box)
 
     # --- hover: the backplate must respond to motion alone, with no button down.
+    #
+    # Scrolled back to the toggle first. The check box step above scrolled the page down, and the
+    # toggle is in the first group -- so by this point it is genuinely off screen and a hover at
+    # its coordinates would report false for the correct reason. Reading a box is not enough; the
+    # item has to be IN VIEW for a pointer test to mean anything.
+    step("the page scrolls back to the first group",
+         scroll_into_view(mcp, "settingsFullbright"),
+         lambda v: v.strip().startswith("in-view"))
     box = item_box(mcp, "settingsFullbright")
     if "," in box:
         x, y, w, h = (int(n) for n in box.split(","))

@@ -8,20 +8,28 @@ import QtQuick
 // prefix that holds regardless of how the page is reached.
 import ".."
 
-// The settings page from the approved mockup: a toggle, a labelled slider, a text box and a check
-// box, in that order.
+// The settings page, in the Windows Settings idiom: titled groups of cards, each card carrying an
+// icon, a header, a description and its control.
+//
+// WHAT CHANGED AND WHY. The previous version stacked bare label+control rows. Every control in it
+// was metrically accurate -- and it still did not look like Windows Settings, because the page
+// idiom is the CARD: a plate with an edge, an icon column, and a two-line text block. Card
+// metrics and provenance are in FluentSettingsCard; the page's job is only to group them.
 //
 // EVERY CONTROL HOLDS ITS OWN VALUE AND APPLIES NOTHING. Gamma really is a client setting, but
 // writing it means reaching through a Backplane into the game, which is out of scope here -- so
 // dragging the slider moves the slider. The gamma readout is computed from the slider's own value
 // rather than stored beside it, so there is no second copy to fall out of step.
+//
+// The objectNames are unchanged from the row-based version on purpose: the live probe drives this
+// page through them, so a rewrite that renamed them would silently stop being verified.
 
 Item {
     id: settings
 
-    property int pad: Fluent.itemPaddingH
-    // Shared left edge for the value column, so the toggle and the readout line up.
-    property real valueX: Math.max(0, settings.width - settings.pad - 60)
+    // The page's own margin. 16 matches a card's internal padding, so a card's text column and the
+    // page title sit on one grid rather than two.
+    property int pad: 16
 
     // Sized to whatever box the Loader gives it, with a fallback for standalone instantiation.
     // Explicit, never anchors.fill -- see the trap documented in MenuItem.qml.
@@ -29,93 +37,260 @@ Item {
     height: parent ? parent.height : 340
 
     Text {
+        id: pageTitle
         x: settings.pad
         y: settings.pad
-        text: "Settings"
+        text: "设置"
         fontSize: Fluent.fontSubtitle
         color: Fluent.textPrimary
     }
 
-    Item {
-        id: fullbrightRow
-        x: settings.pad
-        y: settings.pad + 34
-        width: Math.max(0, settings.width - (settings.pad * 2))
-        height: Fluent.rowHeight
+    // Scrolling is not optional here: the content area is 419 logical px wide and 380 tall, while
+    // two groups of 68px cards plus their headings exceed that. A page that silently clipped its
+    // last card would be worse than one that scrolls.
+    Flickable {
+        id: scroller
+        x: 0
+        y: pageTitle.y + pageTitle.implicitHeight + Fluent.gutter
+        width: settings.width
+        height: Math.max(0, settings.height - scroller.y)
+        // Vertical only: nothing here is wider than the page, and a horizontal drag would just
+        // shift the cards sideways for no reason.
+        flickableDirection: "VerticalFlick"
+        contentWidth: settings.width
+        // Driven by the stacked groups, so adding a card cannot leave content unreachable.
+        contentHeight: groups.height + (settings.pad * 2)
+        clip: true
 
-        Text {
-            y: (fullbrightRow.height - Fluent.fontBody) / 2 - 2
-            text: "Fullbright"
-            fontSize: Fluent.fontBody
-            color: Fluent.textPrimary
+        Column {
+            id: groups
+            x: settings.pad
+            y: 0
+            width: Math.max(0, settings.width - (settings.pad * 2))
+            // Groups sit further apart than the cards inside them -- the spacing is what separates
+            // one block of settings from the next.
+            spacing: 20
+            // No height: Column.layout() computes it from its children, and assigning it would
+            // fight that.
+
+            FluentSettingsGroup {
+                title: "外观"
+                width: groups.width
+
+                FluentSettingsCard {
+                    icon: "brightness"
+                    header: "全亮"
+                    description: "渲染方块时忽略世界光照"
+                    width: groups.width
+
+                    FluentToggleSwitch {
+                        objectName: "settingsFullbright"
+                        checked: false
+                    }
+                }
+
+                FluentSettingsCard {
+                    id: gammaCard
+                    icon: "contrast"
+                    header: "伽马"
+                    description: "提亮阴影区域"
+                    width: groups.width
+
+                    // The slider and its readout travel together, so they go in as one item -- a
+                    // card takes a single content node.
+                    Item {
+                        id: gammaContent
+                        // Wide enough to be draggable, narrow enough to leave the header its
+                        // column. A card's content is right-aligned, so this width IS the slider's
+                        // extent and a zero one would render fine while never receiving a click --
+                        // the trap FluentButton records.
+                        width: 160
+                        height: Fluent.rowHeight
+
+                        FluentSlider {
+                            id: gamma
+                            objectName: "settingsGamma"
+                            x: 0
+                            y: 0
+                            width: 110
+                            value: 0.5
+                        }
+
+                        Text {
+                            // Reads the slider directly, so there is nothing to keep in sync as it
+                            // moves. Rendered as a percentage via Math.round rather than
+                            // value.toFixed(2): bindings evaluate in Rhino, and Math is the numeric
+                            // surface the rest of dwm already relies on.
+                            x: gamma.width + Fluent.gutter
+                            y: (Fluent.rowHeight - Fluent.fontCaption) / 2 - 1
+                            text: Math.round(gamma.value * 100) + "%"
+                            fontSize: Fluent.fontCaption
+                            color: Fluent.textSecondary
+                        }
+                    }
+                }
+
+                FluentSettingsCard {
+                    icon: "person"
+                    header: "显示名称"
+                    description: "覆盖界面中显示的名字"
+                    width: groups.width
+
+                    FluentTextBox {
+                        objectName: "settingsName"
+                        // Explicit, because FluentTextBox binds its width to parent.width by
+                        // default and its parent here is the card's content holder, which measures
+                        // ITS width from this node -- a circular binding that resolves to zero, and
+                        // a zero-width field can never be clicked into focus.
+                        width: 160
+                        placeholder: "显示名称"
+                    }
+                }
+            }
+
+            FluentSettingsGroup {
+                title: "高级"
+                width: groups.width
+
+                FluentSettingsExpander {
+                    objectName: "settingsAdvanced"
+                    icon: "overlay"
+                    header: "覆盖层行为"
+                    description: "界面何时保持打开"
+                    width: groups.width
+
+                    FluentSettingsItem {
+                        label: "世界切换时保持打开"
+                        width: groups.width
+
+                        FluentCheckBox {
+                            objectName: "settingsTelemetry"
+                            checked: true
+                        }
+                    }
+
+                    FluentSettingsItem {
+                        label: "暂停菜单时保持打开"
+                        width: groups.width
+
+                        FluentCheckBox {
+                            objectName: "settingsKeepOnPause"
+                            checked: false
+                        }
+                    }
+                }
+            }
+
+            // ---- visual effects ---------------------------------------------------------
+            //
+            // Windows' Performance Options dialog, in the shape Windows actually gives it: ONE
+            // master switch (SPI_SETUIEFFECTS, the "Adjust for best performance" radio) over a set
+            // of subordinate toggles, some of which are themselves subordinate to each other
+            // (SPI_GETMENUFADE means nothing unless SPI_GETMENUANIMATION is set).
+            //
+            // The dependency graph lives in Motion, not here. This page WRITES policy and reads
+            // back the effective values to decide what to grey out; it does not restate the
+            // precedence, because a second copy of that logic is a second thing to get wrong.
+            FluentSettingsGroup {
+                title: "视觉效果"
+                width: groups.width
+
+                FluentSettingsCard {
+                    objectName: "fxMaster"
+                    icon: "gauge"
+                    header: "界面动画与效果"
+                    description: "关闭后所有动画立即完成,而不是停在中途"
+                    width: groups.width
+
+                    FluentToggleSwitch {
+                        objectName: "fxMasterToggle"
+                        checked: Motion.uiEffects
+                        // Writes the master. Everything below reads its effect through Motion, so
+                        // one assignment greys out the whole group.
+                        onToggled: Motion.uiEffects = checked
+                    }
+                }
+
+                FluentSettingsExpander {
+                    objectName: "fxDetails"
+                    icon: "overlay"
+                    header: "逐项设置"
+                    description: "总开关关闭时这些项不起作用"
+                    width: groups.width
+                    // Subordinate to the master, exactly as the dialog's checkbox list is: with
+                    // effects off the individual rows are disabled rather than merely ineffective,
+                    // so the UI does not offer a choice that cannot take effect.
+                    enabled: Motion.uiEffects
+
+                    FluentSettingsItem {
+                        label: "控件状态动画"
+                        width: groups.width
+                        enabled: Motion.uiEffects
+
+                        FluentCheckBox {
+                            objectName: "fxClientArea"
+                            checked: Motion.clientAreaAnimation
+                            enabled: Motion.uiEffects
+                            onToggled: Motion.clientAreaAnimation = checked
+                        }
+                    }
+
+                    FluentSettingsItem {
+                        label: "展开与收缩动画"
+                        width: groups.width
+                        enabled: Motion.uiEffects
+
+                        FluentCheckBox {
+                            objectName: "fxExpand"
+                            checked: Motion.comboBoxAnimation
+                            enabled: Motion.uiEffects
+                            onToggled: Motion.comboBoxAnimation = checked
+                        }
+                    }
+
+                    FluentSettingsItem {
+                        label: "平滑滚动"
+                        width: groups.width
+                        enabled: Motion.uiEffects
+
+                        FluentCheckBox {
+                            objectName: "fxSmoothScroll"
+                            checked: Motion.listBoxSmoothScrolling
+                            enabled: Motion.uiEffects
+                            onToggled: Motion.listBoxSmoothScrolling = checked
+                        }
+                    }
+
+                    FluentSettingsItem {
+                        label: "菜单动画"
+                        width: groups.width
+                        enabled: Motion.uiEffects
+
+                        FluentCheckBox {
+                            objectName: "fxMenuAnimation"
+                            checked: Motion.menuAnimation
+                            enabled: Motion.uiEffects
+                            onToggled: Motion.menuAnimation = checked
+                        }
+                    }
+
+                    FluentSettingsItem {
+                        label: "菜单渐隐(而非滑动)"
+                        width: groups.width
+                        // Subordinate to BOTH the master and menu animation -- the real dependency
+                        // SPI_GETMENUFADE has. Read through Motion so the two-level condition is
+                        // stated once.
+                        enabled: Motion.animateMenus
+
+                        FluentCheckBox {
+                            objectName: "fxMenuFade"
+                            checked: Motion.menuFade
+                            enabled: Motion.animateMenus
+                            onToggled: Motion.menuFade = checked
+                        }
+                    }
+                }
+            }
         }
-
-        FluentToggleSwitch {
-            objectName: "settingsFullbright"
-            // Measured from the row's origin, which the page padding already inset.
-            x: fullbrightRow.width - 40
-            checked: false
-        }
-    }
-
-    Text {
-        x: settings.pad
-        y: settings.pad + 34 + Fluent.rowHeight + 4
-        text: "Gamma"
-        fontSize: Fluent.fontCaption
-        color: Fluent.textTertiary
-    }
-
-    FluentSlider {
-        id: gamma
-        objectName: "settingsGamma"
-        x: settings.pad
-        y: settings.pad + 34 + Fluent.rowHeight + 20
-        // Leaves room for the readout to the right of the track. The rowHeight floor is not
-        // cosmetic: this control's MouseArea is bound to its width, and a zero-width one renders
-        // perfectly while never receiving a click -- the trap FluentButton records. It bites here
-        // because the page's width comes from the Loader, which leaves the fallback binding in
-        // place for any pass where its own box is still zero.
-        width: Math.max(Fluent.rowHeight, settings.width - (settings.pad * 2) - 50)
-        value: 0.5
-    }
-
-    Text {
-        // Reads the slider directly, so there is nothing to keep in sync as it moves. Rendered as a
-        // percentage via Math.round rather than value.toFixed(2): bindings evaluate in Rhino, and
-        // Math is the numeric surface the rest of dwm already relies on.
-        x: gamma.x + gamma.width + Fluent.gutter
-        y: gamma.y + (Fluent.rowHeight - Fluent.fontCaption) / 2 - 1
-        text: Math.round(gamma.value * 100) + "%"
-        fontSize: Fluent.fontCaption
-        color: Fluent.textSecondary
-    }
-
-    Text {
-        x: settings.pad
-        y: gamma.y + Fluent.rowHeight + 8
-        text: "Name"
-        fontSize: Fluent.fontCaption
-        color: Fluent.textTertiary
-    }
-
-    FluentTextBox {
-        objectName: "settingsName"
-        x: settings.pad
-        y: gamma.y + Fluent.rowHeight + 24
-        // Floored for the same reason as the slider, and it matters more here: qml4j hit-tests a
-        // text field by its own geometry, so a zero-width one can never be clicked into focus and
-        // never sees a keystroke.
-        width: Math.max(Fluent.rowHeight, settings.width - (settings.pad * 2))
-        placeholder: "display name"
-    }
-
-    FluentCheckBox {
-        objectName: "settingsTelemetry"
-        x: settings.pad
-        // Below the text box's own 32px height.
-        y: gamma.y + Fluent.rowHeight + 24 + 32 + Fluent.gutter
-        text: "Keep the overlay open on world change"
-        checked: true
     }
 }

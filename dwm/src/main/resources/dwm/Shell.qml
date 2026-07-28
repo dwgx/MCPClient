@@ -10,14 +10,28 @@ import "."
 Item {
     id: shell
 
+    // A fallback only. QmlUiSurface.sizeRoot assigns the live viewport in logical units every time
+    // the framebuffer extent changes, so these values apply solely to a scene instantiated with no
+    // surface behind it.
     width: 640
     height: 500
 
     FluentWindow {
+        id: frame
         objectName: "window"
-        x: 20
-        y: 20
+        // The window's inset from the screen edge, and the same value the maximized extent has to
+        // subtract twice -- so it is named rather than repeated.
+        property int inset: 20
+
+        x: frame.inset
+        y: frame.inset
         title: "DWM"
+
+        // What "maximized" means here: the screen less the inset on each side. Windows maximizes to
+        // the work area rather than the raw display -- the desktop keeps room for the taskbar -- and
+        // the inset is this scene's equivalent of that reserved margin.
+        availableWidth: Math.max(0, shell.width - (frame.inset * 2))
+        availableHeight: Math.max(0, shell.height - (frame.inset * 2))
 
         NavigationView {
             objectName: "nav"

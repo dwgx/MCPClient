@@ -1,12 +1,13 @@
 package net.marcloud.mcp.dwm.qml;
 
 import io.github.timer_err.qml4j.engine.QmlEngine;
-import io.github.timer_err.qml4j.engine.binding.Property;
 import io.github.timer_err.qml4j.render.QmlView;
+import io.github.timer_err.qml4j.render.items.core.Flickable;
 import io.github.timer_err.qml4j.render.items.core.Item;
 import net.marcloud.mcp.dwm.ui.UiInput;
 import net.marcloud.mcp.dwm.ui.UiKeys;
 import net.marcloud.mcp.dwm.ui.UiSurface;
+import net.marcloud.mcp.dwm.ui.UiWindowHost;
 
 import org.lwjgl.opengl.Display;
 
@@ -26,6 +27,14 @@ public final class QmlUiSurface implements UiSurface, UiInput {
 
     private final String qmlPath;
 
+    /**
+     * Who answers the scene's window verbs, or null when nothing does.
+     *
+     * <p>Null is a supported state, not an oversight: a scene opened by a test has no screen behind
+     * it, and a caption button that asks to be minimised should then do nothing rather than fault.
+     */
+    private final UiWindowHost windowHost;
+
     private McpFboSurfaceBackend backend;
     private QmlView view;
     private boolean open;
@@ -37,7 +46,16 @@ public final class QmlUiSurface implements UiSurface, UiInput {
      * @param qmlPath resource path of the scene to load, resolved by qml4j's loader
      */
     public QmlUiSurface(String qmlPath) {
+        this(qmlPath, null);
+    }
+
+    /**
+     * @param qmlPath    resource path of the scene to load, resolved by qml4j's loader
+     * @param windowHost answers the scene's window verbs, or null for none
+     */
+    public QmlUiSurface(String qmlPath, UiWindowHost windowHost) {
         this.qmlPath = qmlPath;
+        this.windowHost = windowHost;
     }
 
     /**
@@ -51,12 +69,6 @@ public final class QmlUiSurface implements UiSurface, UiInput {
      * pointer conversion read it, and they must agree or clicks land somewhere else entirely.
      */
     private float uiScale = 1.0F;
-
-    /**
-     * qml4j's property change counter as of the last scene repaint. Equal to the current value
-     * means nothing in the scene moved and the cached image can be composited again.
-     */
-    private long renderedVersion = -1L;
 
     /** Last framebuffer extent the root was sized for, so a resize re-sizes it. */
     private int lastWidthPx = -1;
@@ -85,11 +97,16 @@ public final class QmlUiSurface implements UiSurface, UiInput {
             }
 
             view = QmlView.withStockTypes(new QmlEngine())
-                .resources(new ClasspathResources())
+                // The scene's own directory, so an Image.source relative to the scene resolves.
+                // qml4j hands image paths to the loader unresolved, unlike document imports.
+                .resources(new ClasspathResources(ClasspathResources.baseDirOf(qmlPath)))
                 // Live kernel/board state, before load(): qml4j's compiler has to know the name
                 // to accept it as a free identifier in a binding, so registering it afterwards
                 // would make every scene that reads it fail to compile.
-                .context(DwmContext.NAME, new DwmContext());
+                .context(DwmContext.NAME, new DwmContext())
+                // Window verbs, as their own namespace rather than more methods on Dwm: asking to
+                // be minimised is a request about the window, not knowledge about the kernel.
+                .context(WindowCommands.NAME, new WindowCommands(windowHost));
             view.setClipboard(new GlfwClipboard());
             view.load(source, ClasspathResources.baseDirOf(qmlPath));
 
@@ -99,7 +116,6 @@ public final class QmlUiSurface implements UiSurface, UiInput {
 
             open = true;
             inert = false;
-            renderedVersion = -1L;
             return true;
         } catch (Throwable t) {
             // A missing or malformed .qml, or a Skija native that would not load. Report once
@@ -166,34 +182,43 @@ public final class QmlUiSurface implements UiSurface, UiInput {
     }
 
     /**
-     * The composition loop: repaint the scene only when it changed, blit it every frame.
+     * The composition loop: repaint the scene into the offscreen layer, then blit it.
      *
      * <p>This is the shape a compositor has, adapted to living inside someone else's frame. MC
-     * redraws the whole world every frame, so the <em>composite</em> can never be skipped — skip
-     * it and the menu vanishes. The <em>scene repaint</em> is the expensive half and is what gets
-     * skipped, which is level-zero damage tracking: notice nothing changed, stop rendering.
+     * redraws the whole world every frame, so the <em>composite</em> can never be skipped — skip it
+     * and the menu vanishes.
      *
-     * <p>Dirtiness comes from qml4j's own global property change counter, the same signal its
-     * renderer uses internally for its idle-layout fast path. Any binding, animation, timer or
-     * input that touched a property moves it.
+     * <p><b>The scene repaint is no longer skipped either, and the reason is a deadlock rather than
+     * a performance judgement.</b> This used to consult qml4j's global property change counter and
+     * repaint only when it had moved — level-zero damage tracking. But
+     * {@code QmlView.renderFrame} ticks the animation tree <em>inside itself</em>, before comparing
+     * versions: an animation only advances, and therefore only moves the counter, as a
+     * <em>consequence</em> of being rendered. Deciding whether to render by looking at the counter
+     * first is circular, so once anything began animating the counter stopped moving, the repaint
+     * was skipped, the tick never happened, and the animation froze on its first frame.
+     *
+     * <p>What that cost, measured on a live client: a wheel notch jumped {@code contentY} by
+     * qml4j's full 48px {@code WHEEL_STEP} in one frame with no interpolation — the "scrolling is
+     * stuttery" report — and {@code Flickable}'s smooth-scroll target, the toggle knob's 83ms
+     * travel and the expander chevron's rotation had never once played. Driving
+     * {@code renderFrame} directly showed the smoothing working immediately: contentY ran
+     * 0 → 89 → 125 → 127 over consecutive frames.
+     *
+     * <p>The price is small and was measured rather than assumed: 74µs per frame while scrolling
+     * against 68µs idle, i.e. +6µs on a ~16ms frame budget. Damage tracking was saving about 8% of
+     * a cost that is already 0.4% of the frame, in exchange for every animation in the UI.
      *
      * <p>Falls back to painting straight at MC's framebuffer if the offscreen layer cannot be
      * created, so a driver that will not give us a render target costs efficiency, not the UI.
      */
     private void composite() {
-        long version = Property.changeVersion();
-        boolean sceneChanged = version != renderedVersion || !backend.hasLayerSnapshot();
-
-        if (sceneChanged) {
-            if (backend.beginLayerScene()) {
-                view.renderFrame(backend);
-                backend.endLayerScene();
-                renderedVersion = version;
-            } else {
-                // No layer available: paint direct and take the cost every frame.
-                view.renderFrame(backend);
-                return;
-            }
+        if (backend.beginLayerScene()) {
+            view.renderFrame(backend);
+            backend.endLayerScene();
+        } else {
+            // No layer available: paint direct at MC's framebuffer.
+            view.renderFrame(backend);
+            return;
         }
         backend.compositeLayer();
     }
@@ -261,10 +286,86 @@ public final class QmlUiSurface implements UiSurface, UiInput {
         return dispatch(() -> view.dispatchPointerMove(lx(xPx), ly(yPx)));
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p><b>Routed to the Flickable's smooth-scroll target rather than to qml4j's own wheel
+     * handling.</b> {@code EventDispatcher.dispatchWheel} writes {@code contentY} directly and sets
+     * {@code targetY} to the same value, so a notch teleports the content by its full 48px
+     * {@code WHEEL_STEP} with nothing left for the animator to interpolate. Measured: one notch
+     * moved {@code contentY} 0 → 48 in a single frame and stayed there — about three quarters of a
+     * settings card jumping past at once, which is what "scrolling is stuttery" was describing.
+     *
+     * <p>{@code Flickable.nudge} instead moves only the TARGET and sets the smoothing flag, leaving
+     * {@code tick} to ease the content toward it over several frames. That tick happens inside
+     * {@code renderFrame}, which is why this only works now that {@link #composite} repaints every
+     * frame.
+     *
+     * <p>Falls back to {@code dispatchWheel} when the point is not over a Flickable, so a scene
+     * without one behaves exactly as before.
+     */
     @Override
     public boolean wheel(float xPx, float yPx, float dxNotches, float dyNotches) {
         // Position is spatial and scales; the notch deltas are not distances and do not.
-        return dispatch(() -> view.dispatchWheel(lx(xPx), ly(yPx), dxNotches, dyNotches));
+        return dispatch(() -> {
+            Flickable scroller = flickableAt(lx(xPx), ly(yPx));
+            if (scroller == null) {
+                return view.dispatchWheel(lx(xPx), ly(yPx), dxNotches, dyNotches);
+            }
+            // Same step qml4j uses, so the distance per notch is unchanged — only its delivery is.
+            // Negated because a wheel reports +y for up while content scrolls the other way.
+            scroller.nudge(-dxNotches * WHEEL_STEP, -dyNotches * WHEEL_STEP);
+            return true;
+        });
+    }
+
+    /**
+     * qml4j's own wheel step, restated because {@code EventDispatcher.WHEEL_STEP} is private.
+     *
+     * <p>Kept identical on purpose: this class changes how a notch is delivered, not how far it
+     * goes. A different value here would silently make dwm scroll at a different rate from every
+     * other qml4j host.
+     */
+    private static final float WHEEL_STEP = 48.0F;
+
+    /**
+     * The innermost {@link Flickable} containing a point, in logical units, or null.
+     *
+     * <p>Walks the tree the way qml4j's own hit test does — deepest match wins, so a nested
+     * scroller inside a scrolling page would take its own wheel events. Bounds are checked in each
+     * item's parent space, with a Flickable's own scroll offset removed on the way down, because
+     * that is the transform the renderer applies.
+     */
+    private Flickable flickableAt(float x, float y) {
+        Item root = view.root();
+        return root == null ? null : findFlickable(root, x, y);
+    }
+
+    private static Flickable findFlickable(Item node, float x, float y) {
+        if (node == null || !node.isVisible()) {
+            return null;
+        }
+        float localX = x - node.x.peekFloat();
+        float localY = y - node.y.peekFloat();
+        if (localX < 0 || localY < 0
+            || localX > node.width.peekFloat() || localY > node.height.peekFloat()) {
+            return null;
+        }
+        float childX = localX;
+        float childY = localY;
+        if (node instanceof Flickable) {
+            Flickable flickable = (Flickable) node;
+            childX += flickable.contentX.peekFloat();
+            childY += flickable.contentY.peekFloat();
+        }
+        // Children first, so the innermost scroller wins.
+        for (int i = node.children.size() - 1; i >= 0; i--) {
+            Flickable hit = findFlickable(node.children.get(i), childX, childY);
+            if (hit != null) {
+                return hit;
+            }
+        }
+        return node instanceof Flickable ? (Flickable) node : null;
     }
 
     /** Framebuffer pixels to logical units, horizontally. */

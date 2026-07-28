@@ -19,6 +19,9 @@ QtObject {
     property int radiusOverlay: 8
     // In-page elements: buttons, list backplates.
     property int radiusControl: 4
+    // A SettingsCard's corner. Between the two above, and its own value rather than either:
+    // Windows Settings cards are visibly rounder than the buttons inside them.
+    property int radiusCard: 6
     // Fluent Standard aligns interactive items to a 40x40 epx target.
     property int rowHeight: 40
 
@@ -54,9 +57,24 @@ QtObject {
     property string textDisabled: "#5dffffff"
 
     // ---- surfaces ----
-    // Tonal layer only, no blur: real Acrylic needs an offscreen sample of MC's frame every
-    // frame, and keeping the game legible behind the menu is desirable anyway.
-    property string panelFill: "#e62c2c2c"
+    // Tonal layer only, no blur: real Acrylic needs an offscreen sample of MC's frame every frame.
+    //
+    // NEARLY OPAQUE (alpha 242), and the reason is arithmetic rather than taste. WinUI's card and
+    // control fills are low-alpha whites — CardBackgroundFillColorDefault is #0DFFFFFF, alpha 13 —
+    // which assumes they composite over the OPAQUE SolidBackgroundFillColorBase (#202020). On that
+    // base a card lands on #2B2B2B, +11 per channel: subtle, but a visible plate. Over a
+    // translucent panel sitting on live gameplay the same white is swamped by whatever is behind
+    // it: measured on a real client at the previous alpha of 230, a card's interior read #2B2D39
+    // against #2C2E3A outside it — a delta of ONE, i.e. no card at all. Every card, expander and
+    // group divider was invisible while every metric was correct.
+    //
+    // So the panel supplies the opaque base the token values were designed against. FULLY opaque,
+    // not merely nearly: at alpha 242 the remaining 5% still admits the scene, and measured against
+    // bright grass a card's interior and the panel around it both read #333330 -- the +11 delta was
+    // real but swamped by injected background. A card that appears over a dark hillside and
+    // vanishes over a field is worse than no card. The cost is deliberate and worth stating: the
+    // game is no longer visible through the window.
+    property string panelFill: "#ff2a2a2a"
     property string solidFill: "#ff202020"
 
     // ---- strokes ----
@@ -87,6 +105,16 @@ QtObject {
     // rather than a brighter tint -- text being edited gets a controlled surface instead of
     // whatever shows through the panel.
     property string controlFillInputActive: "#b31e1e1e"
+
+    // ---- card fills (CardBackgroundFillColor*) ----
+    // A SettingsCard's plate. Distinct from controlFill despite being close to it: a card is a
+    // CONTAINER surface, and WinUI gives containers their own ladder so a control sitting on a
+    // card still reads as raised above it.
+    property string cardFill: "#0dffffff"
+    property string cardFillSecondary: "#08ffffff"
+    // CardStrokeColorDefault. Black-based, unlike every control stroke -- a card's edge is a
+    // shadow line, not a highlight.
+    property string cardStroke: "#19000000"
 
     // ---- alt control fills (ControlAltFillColor*) ----
     // For controls drawn as a hollow shape over the page: an off toggle track, an unchecked box.
