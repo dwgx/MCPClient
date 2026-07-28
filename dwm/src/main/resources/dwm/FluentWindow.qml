@@ -25,7 +25,51 @@ Item {
     // end up under the caption bar. Declared here, resolved against the body Item below.
     default property alias content: body.children
 
-    signal closeRequested()
+    // ---- window state ----------------------------------------------------------------
+    //
+    // Windows models these as WM_SYSCOMMAND verbs (SC_MINIMIZE / SC_MAXIMIZE / SC_RESTORE /
+    // SC_CLOSE) that the non-client area SENDS and the window manager carries out. The frame does
+    // not implement them itself, and that division is worth copying: this file decides what each
+    // button MEANS and asks; something above it decides what happens to the window.
+    //
+    // "normal" and "maximized" are the two states a caption bar can produce here. Minimize is a
+    // verb rather than a state, because there is no taskbar to restore from inside a game — see
+    // minimizeRequested.
+    property string windowState: "normal"
+    readonly property bool isMaximized: win.windowState === "maximized"
+
+    /**
+     * Maximize/restore, i.e. SC_MAXIMIZE and SC_RESTORE.
+     *
+     * <p>Handled locally because the geometry is ours: the shell fills the available area and, on
+     * restore, returns to the size the caller asked for. That is what "restore" means in
+     * Windows too — WINDOWPLACEMENT keeps the normal-state rect and restore puts it back — so the
+     * pre-maximize extent is remembered rather than recomputed.
+     */
+    property int availableWidth: parent ? parent.width : win.contentWidth
+    property int availableHeight: parent ? parent.height : (win.titleBarHeight + win.contentHeight)
+
+    // The normal-state extent, captured on the way into maximized. WINDOWPLACEMENT's rcNormalPosition.
+    property int restoreWidth: 0
+    property int restoreHeight: 0
+
+    function toggleMaximize() {
+        if (win.isMaximized) {
+            // SC_RESTORE.
+            if (win.restoreWidth > 0) {
+                win.contentWidth = win.restoreWidth;
+                win.contentHeight = win.restoreHeight;
+            }
+            win.windowState = "normal";
+        } else {
+            // SC_MAXIMIZE. Remember the normal extent FIRST, or restore has nothing to go back to.
+            win.restoreWidth = win.contentWidth;
+            win.restoreHeight = win.contentHeight;
+            win.contentWidth = win.availableWidth;
+            win.contentHeight = Math.max(0, win.availableHeight - win.titleBarHeight);
+            win.windowState = "maximized";
+        }
+    }
 
     // ---- geometry ----
     // Fluent's plain caption bar is 32px, but a NavigationView shell reads at the documented 40px
@@ -52,7 +96,10 @@ Item {
         y: 0
         width: win.width
         height: win.height
-        radius: Fluent.radiusOverlay
+        // Square when maximized. Windows does this too, and it is not decoration: a rounded corner
+        // on a window flush with the screen edge would show the desktop through the arc. The
+        // published geometry guidance states 0px "where the window is snapped or maximized".
+        radius: win.isMaximized ? 0 : Fluent.radiusOverlay
         color: Fluent.panelFill
         border.width: 1
         border.color: Fluent.panelStroke
@@ -80,10 +127,14 @@ Item {
     //
     // Placed from the right edge inward, so the group stays put when the window resizes.
     //
-    // Minimise and maximise are DELIBERATELY INERT: they carry hover feedback and nothing else.
-    // dwm composites inside Minecraft's own frame and has no OS window to minimise or maximise, so
-    // a signal here would be one no host could implement. They exist because a caption bar missing
-    // them does not read as a window. Close is the one that means something.
+    // ALL THREE NOW ACT. They were deliberately inert on the grounds that dwm has no OS window to
+    // minimise or maximise — true of minimise, and wrong of maximise: the shell owns its own
+    // geometry, so maximize/restore is a state change this file can carry out. Windows draws the
+    // same distinction, which is why they are different SC_ verbs against the same frame.
+    //
+    // The division copied from Windows: the caption bar SENDS a verb and does not implement policy.
+    // Maximize is geometry the shell owns, so it is handled here. Minimize and close change what
+    // the HOST does with the screen, so they are signals for the host to answer.
 
     Rectangle {
         id: minButton
@@ -116,8 +167,16 @@ Item {
             width: minButton.width
             height: minButton.height
             hoverEnabled: true
-            // No onClicked. The press is still consumed here rather than falling through to the
-            // game, which is what a caption bar should do with a click.
+            // SC_MINIMIZE, sent straight to the host.
+            //
+            // Calls WindowHost directly rather than emitting a signal for the parent scene to
+            // handle. Measured on qml4j 0.2.24: a component's generated class does NOT implement
+            // SignalRelay, so an `onMinimizeRequested:` handler written in the enclosing document
+            // has nothing to connect to and is dropped silently -- the button did nothing and the
+            // scene compiled clean. The caption bar therefore addresses the host itself, which is
+            // also closer to what a non-client area does: it sends WM_SYSCOMMAND to the window
+            // manager, not to whatever laid it out.
+            onClicked: WindowHost.minimize()
         }
     }
 
@@ -135,7 +194,10 @@ Item {
             id: maxGlyph
             x: (maxButton.width - maxGlyph.implicitWidth) / 2
             y: (maxButton.height - Fluent.fontCaption) / 2 - 2
-            text: "□"
+            // The glyph CHANGES with state, as Windows' does: a maximized window offers restore,
+            // not maximize. Missing that is the usual tell of a hand-built caption bar -- the
+            // button keeps claiming an action it no longer performs.
+            text: win.isMaximized ? "❐" : "□"
             fontSize: Fluent.fontCaption
             color: Fluent.textSecondary
         }
@@ -147,6 +209,8 @@ Item {
             width: maxButton.width
             height: maxButton.height
             hoverEnabled: true
+            // SC_MAXIMIZE / SC_RESTORE, resolved by the shell because the geometry is its own.
+            onClicked: win.toggleMaximize()
         }
     }
 
@@ -158,7 +222,8 @@ Item {
         height: win.titleBarHeight
         // Only the top-right corner is rounded, and to the WINDOW's radius: this button reaches
         // the shell's corner, and a square plate there would paint red outside the surface.
-        topRightRadius: Fluent.radiusOverlay
+        // Follows the shell to 0 when maximized, or the red would round inside a square corner.
+        topRightRadius: win.isMaximized ? 0 : Fluent.radiusOverlay
         color: closeHit.containsMouse ? win.closeHoverFill : "#00000000"
         // The red fill darkens on press the way WinUI derives its pressed variant from the base.
         opacity: closeHit.pressed ? 0.8 : 1.0
@@ -180,7 +245,8 @@ Item {
             width: closeButton.width
             height: closeButton.height
             hoverEnabled: true
-            onClicked: win.closeRequested()
+            // SC_CLOSE, direct to the host for the same reason as minimize above.
+            onClicked: WindowHost.close()
         }
     }
 

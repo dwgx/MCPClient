@@ -1,6 +1,7 @@
 package net.marcloud.mcp.dwm.qml;
 
 import net.marcloud.mcp.dwm.ui.UiKeys;
+import net.marcloud.mcp.dwm.ui.UiWindowHost;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.client.shader.Framebuffer;
@@ -27,7 +28,7 @@ import org.lwjgl.input.Mouse;
  * <p><b>Nothing may escape into the game loop.</b> Every override is defensive; a fault leaves
  * the scene inert and the client running.
  */
-public class QmlGuiScreen extends GuiScreen {
+public class QmlGuiScreen extends GuiScreen implements UiWindowHost {
 
     private final QmlUiSurface surface;
 
@@ -36,10 +37,40 @@ public class QmlGuiScreen extends GuiScreen {
     private float pointerY;
 
     /**
+     * Whether the surface should be kept alive when this screen goes away.
+     *
+     * <p>Set by {@link #minimize()}, which is the only thing that distinguishes it from
+     * {@link #close()}: minimise dismisses the screen and keeps the scene, so reopening is instant
+     * and the UI is where the user left it. Without this the two caption buttons would be synonyms.
+     */
+    private boolean keepSurfaceOnClose;
+
+    /**
      * @param qmlPath resource path of the scene, resolved by qml4j's loader
      */
     public QmlGuiScreen(String qmlPath) {
-        this.surface = new QmlUiSurface(qmlPath);
+        // `this` as the window host: this class owns the screen lifecycle, which is exactly what
+        // the caption bar's verbs act on. Passing it at construction rather than wiring a setter
+        // keeps the surface's host final -- it cannot change under a scene that already loaded.
+        this.surface = new QmlUiSurface(qmlPath, this);
+    }
+
+    // ---- UiWindowHost ----------------------------------------------------------
+    //
+    // The caption bar sends verbs; this decides what they mean, the same division Windows draws
+    // between a non-client area and the window manager. See UiWindowHost.
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Dismisses the screen but does NOT dispose the scene, so the next open is instant and every
+     * page, scroll position and expander is as it was. That is the closest honest analogue of a
+     * minimised window inside a game that has no taskbar.
+     */
+    @Override
+    public void minimize() {
+        keepSurfaceOnClose = true;
+        close();
     }
 
     @Override
@@ -53,7 +84,13 @@ public class QmlGuiScreen extends GuiScreen {
     @Override
     public void onGuiClosed() {
         Keyboard.enableRepeatEvents(false);
-        surface.close();
+        // Kept alive only for a minimise. Every other dismissal -- Escape, close, the host swapping
+        // screens -- releases the surface, because a scene nobody is going to reopen is a GPU
+        // surface and a Skia context held for nothing.
+        if (!keepSurfaceOnClose) {
+            surface.close();
+        }
+        keepSurfaceOnClose = false;
     }
 
     @Override
@@ -158,8 +195,15 @@ public class QmlGuiScreen extends GuiScreen {
         return false;
     }
 
-    /** Dismiss this screen and hand control back to the game. */
-    protected void close() {
+    /**
+     * Dismiss this screen and hand control back to the game.
+     *
+     * <p>Public rather than protected because it is also {@link UiWindowHost#close()} — the same
+     * action whether it comes from Escape, a caption button or the host. Widening it does not widen
+     * what a caller can do: displaying a screen is already anyone's to do through {@code Minecraft}.
+     */
+    @Override
+    public void close() {
         Minecraft mc = Minecraft.getMinecraft();
         if (mc != null) {
             mc.displayGuiScreen(null);
