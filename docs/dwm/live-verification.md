@@ -185,7 +185,55 @@ base 0x12 over base 0x12 -> 0x23   gap 17   litColor 被压平
 [官方定义](https://learn.microsoft.com/en-us/dotnet/api/system.windows.media.brushmappingmode)
 是"直接在**局部空间**解释",即 DIP —— 除 DPI 会让 Retina 上的亮带**偏细**。已撤回。
 
-## 8. 已知未覆盖
+## 8. 探针必须跟上动画(2026-07-29)
+
+页面变成可滚动 + 平滑滚动之后,探针报了一串失败。**全部是探针自己的缺陷,不是控件回归** ——
+但要先证明这一点才能这么说。
+
+### `scroll_into_view` 读的是当前偏移,应该读目标
+
+它整段跑在**一次 `eval_java`** 里、在游戏线程上,所以循环期间**不会渲染任何帧**。
+而平滑滚动的 wheel 只移动 `targetY`,`contentY` 靠后续帧收敛 ——
+读当前值就等于每次都看到动画前的数值,于是一路滚过头。实测报
+`NOT-IN-VIEW rel=365` 而视口只有 328。
+
+读**目标**才是对的:那是页面**将要**到的位置,把它送过去的那些帧是动画器的事。
+
+### `item_box` / `row_centre` 要减掉 Flickable 的滚动偏移
+
+命中测试是**减**的(`hitTestMouseArea` 往下走时扣掉 `contentX/Y`),而这两个 helper
+只累加 x/y。页面不能滚的时候两者一致,能滚之后就整体偏移 —— 实测页面滚了 96px,
+报出的 box 就比实际可点位置低 96px,Flickable 里的控件全部失灵。
+
+### 展开断言要推帧到收敛
+
+`SettingsCardLiveIT` 里"展开后必须变高"原来只推**一帧**。展开变成 250ms 动画后,
+一帧才长了一两个像素 —— 那条断言**正确地红了**。改成推帧直到 `bodyHeight` 追上
+`targetBodyHeight`,并顺便加了一条"必须到达完整高度,而不是停在中途"。
+
+### 教训
+
+**动画一旦存在,任何"改完立刻断言"的测试都变成了在测动画的第一帧。**
+等的是**状态收敛**而不是固定帧数,这样也不依赖机器快慢。
+
+---
+
+## 9. 世界被占用会伪装成 UI bug
+
+真机跑探针报了一串 `NOT-DWM ... GuiMainMenu`,看起来像界面打不开。真因在客户端日志里:
+
+```
+MinecraftException: The save is being accessed from another location, aborting
+```
+
+上一个客户端没退干净,`session.lock` 还在,世界加载失败,界面开了又被踢回主菜单。
+`pkill -9 -f "net.minecraft.client.main.Main"` 之后重跑就好了。
+
+**先看客户端日志再怀疑自己的改动。**
+
+---
+
+## 10. 已知未覆盖
 
 诚实列出来,别当成已验证:
 

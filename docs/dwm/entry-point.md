@@ -61,33 +61,43 @@ KI-1 的注释已经把这条纪律写明,KI-11 照搬。
 
 ---
 
-## 4. 安全姿态:它现在**不 arm**,这是对的
+## 4. 安全姿态:它**现在 arm 了**(2026-07-28 更新)
 
 引擎只有一条 arming 规则,无 bypass:
 
 > A patch arms if and ONLY if `signer.verify(manifest)` passes.
 > In-code registration confers NO trust.
 
-KI-11 的 `KERNEL_SIGNATURE` 是一个**明确标注的占位符** —— 内核私钥刻意不在开发机上,
-所以签名无法在此产生。签名是一次独立的 ceremony(`PatchSignerCli`),
-需要的两个值已经预先算好写进源码,不需要再跑构建:
+**这一节此前写的是"它不 arm,这是对的"** —— 那时 `KERNEL_SIGNATURE` 是占位符,私钥不在机器上,
+打开界面只能走 `eval_java`。现在密钥仪式做完了,KI-11 携带真实签名并**确实 arm**,
+按右 Shift 即可开界面。真机自报:
 
 ```
-transform-hash  cb3c3fc80be1b47130ab42c70a283b63bccda269d5e1bfb2333894e059fb6029
-patchId         cp-41597d554e8d618ed8927160068aabe553f337d4606035e292d6de8432d6dd34
+[MCP Compat] engine built: 3 patch(es) armed, 0 skipped.
 ```
 
-签名输入覆盖 targetClass / contentHash / keyId / status / kiRef / publisher / version /
-supersedes / platformCondition **全部九项**,所以 CLI 的每个参数都必须与 manifest 逐字一致。
+(此前是 `2 armed, 1 skipped`。)
+
+**仪式是两层的,这一点是踩出来的**:换 kernel 密钥**不够**。
+补丁验签的锚点不是直接读 `kernel-ed25519.pub`,而是 `Compat.defaultTrustAnchors()`
+经 `RootTrust` → `TufTrust` 从 `root-metadata.json` **派生** —— 那份文档声明哪个 targets 密钥
+有权签补丁,并且它自己由 **root 密钥**签署。只换下层的结果是三个补丁全部
+`signature not trusted`,而诊断信息仅此一句。
+
+完整链条与工具见 `key-ceremony.md`。
 
 ### 测试必须测两个方向
 
-只测"未签名不 arm"是**空转的**:一个因为完全无关的原因(状态不对、目标是受保护类、
+只测"签名不受信任就不 arm"是**空转的**:一个因为完全无关的原因(状态不对、目标是受保护类、
 L0 不匹配、runtime 条件永不成立)而永久失效的补丁,也会通过那条断言。
 
-所以 `Ki11SigningContractTest` 用**临时生成的测试密钥**给同一份 manifest 重新签名、
-并且只信任那把钥匙,然后断言它**确实 arm 了** —— 这才证明"除了签名之外别的都对"。
-另外还断言:L0 canary 哈希与源码里钉住的常量一致;以及**换掉 transform 后即使签名有效也会被 L0 拒绝**。
+`Ki11SigningContractTest` 因此断言两个方向,并且**它的第一半在本轮被迫改写** ——
+原来的前提是"占位符签名不验证通过",而仪式一跑那个前提就消失了,测试也确实红了。
+现在用**空锚点**表达同一条规则(无可信密钥即不 arm),与 shipped 常量的内容无关。
+
+第二半改成断言 **shipped KI-11 在真实派生链下必须 arm**。那条正是能抓住"仪式只做一半"的守卫:
+kernel 密钥换了、root 文档还授权旧的,症状就是静默不 arm。
+另外仍断言:L0 canary 哈希与源码里钉住的常量一致;以及**换掉 transform 后即使签名有效也会被 L0 拒绝**。
 
 ---
 

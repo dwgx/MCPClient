@@ -260,6 +260,44 @@ dwm 的实现目前只做**半透明色调层**,不做模糊:
 
 两条都是读源码 + 真机比对确认的,不是推测。
 
+## Settings 控件度量(2026-07-28 新增) [Toolkit]
+
+新增一级出处:**[Toolkit]** —— `CommunityToolkit/Windows` 分支 main,
+`components/SettingsControls/src/`。这不是第三方近似,**它就是 Windows Settings 自己用的控件**。
+
+| 控件 | 资源 key | 值 |
+|---|---|---|
+| SettingsCard | `SettingsCardMinHeight` | 68 |
+| SettingsCard | `SettingsCardPadding` | 16,16,16,16 |
+| SettingsCard | `SettingsCardHeaderIconMaxSize` | 20 |
+| SettingsCard | `SettingsCardHeaderIconMargin` | 2,0,20,0 |
+| SettingsCard | `SettingsCardDescriptionFontSize` | 12 |
+| SettingsCard | `SettingsCardActionIconMaxSize` | 13 |
+| SettingsCard | HeaderPanel margin | 0,0,24,0 |
+| SettingsCard | 背景过渡 | `BrushTransition Duration="0:0:0.083"` |
+| SettingsExpander | `SettingsExpanderItemPadding` | **58,8,44,8** |
+| SettingsExpander | `SettingsExpanderItemBorderThickness` | 0,1,0,0(**只有上边框**) |
+| SettingsExpander | `SettingsExpanderChevronButtonWidth/Height` | 32 |
+| SettingsExpander | chevron 动画 | **`0:0:0.1`** = 100ms |
+| 页面 | 卡片间距 | 4(官方示例的 `StackPanel Spacing="4"`) |
+
+新增色 token(`x:Key="Default"` 暗色):
+
+| Token | 值 | 用途 |
+|---|---|---|
+| `CardBackgroundFillColorDefault` | `#0DFFFFFF` | 卡片底 |
+| `CardBackgroundFillColorSecondary` | `#08FFFFFF` | 次级卡片底 |
+| `CardStrokeColorDefault` | `#19000000` | 卡片描边(**黑基**) |
+| 卡片圆角 | 6 | 介于控件 4 与 overlay 8 之间,自成一档 |
+
+**58 是这批里最值得理解的数字**:它让 expander 子行的文字与父卡片的文字列对齐
+(16 padding + 2 icon lead + 20 icon + 20 gap)。随手取一个缩进是手工 expander 的典型破绽。
+
+**chevron 的 100ms 不是三档时长之一。** 用 83("那是控件状态时长")是一个看起来合理的错答案。
+
+两处刻意偏离官方值(换行阈值 476→320、标题与副标题之间无间距)的完整理由见
+`settings-page.md` §2 —— 都写进了源码注释。
+
 ## 尺寸推导(用于本项目)
 
 由上述 [官方] 数字推出的实现值:
