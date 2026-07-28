@@ -56,12 +56,17 @@ import net.marcloud.mcp.core.compat.PatchManifest;
  * <p><b>Trust / arming.</b> Like KI-1 and KI-4 this must ship SIGNED to arm: the engine's one
  * arming rule is a valid Ed25519 signature over the canonical signing input, verified against the
  * baked-in kernel public key. In-code registration confers no trust.
- * <b>{@link #KERNEL_SIGNATURE} is currently a placeholder</b>, so this patch does NOT arm — the
- * kernel private key is deliberately not on the development machine. Signing is a separate
- * ceremony: run {@code PatchSignerCli} with the key, paste the result over the placeholder. Until
- * then the fail-safe holds in the correct direction (an unsigned patch simply does not run), and
- * {@link net.marcloud.mcp.core.compat.patches.Ki11SigningContractTest} proves both halves — that
- * it does not arm unsigned, and that it WOULD arm under a valid signature.
+ * <b>{@link #KERNEL_SIGNATURE} now carries a real signature</b> and this patch ARMS, so the RSHIFT
+ * hotkey opens the DWM screen without going through {@code eval_java}.
+ *
+ * <p>The signature was produced in a full two-level ceremony, which is worth recording because
+ * rotating the kernel key alone is not sufficient: patch anchors are DERIVED from
+ * {@code root-metadata.json} (see {@code RootTrust} → {@code TufTrust}), so the root document has
+ * to authorize the new kernel key and be re-signed by the root key. {@code RootCeremonyCli} does
+ * that half, {@code KernelKeygenCli} mints the pairs, and {@code scripts/sign-patch.sh} signs each
+ * patch. Both private keys live outside the repository.
+ * {@link net.marcloud.mcp.core.compat.patches.Ki11SigningContractTest} still proves both halves of
+ * the arming rule — that an unsigned manifest does not arm, and that a validly signed one does.
  *
  * <p><b>KI-10 honesty preserved.</b> The signature binds the manifest LABEL, not the executed
  * transform bytes; {@code contentHash} stays author-supplied. This class neither closes nor widens
@@ -109,7 +114,8 @@ public final class Ki11DwmHotkeyPatch implements CompatPatch {
      * resulting patchId is {@code cp-41597d554e8d618ed8927160068aabe553f337d4606035e292d6de8432d6dd34}.
      */
     static final String KERNEL_SIGNATURE =
-            "ed25519:v1:mcp-kernel-ed25519-v1:UNSIGNED-PLACEHOLDER-AWAITING-KEY-CEREMONY";
+            "ed25519:v1:mcp-kernel-ed25519-v1:"
+            + "-ePOfZdeKv45chiVC41Eqn0VhF23-7ZTRbDUmAm2NmkUHDauSaiAR86AQS1agWEh1OGpqfV67WeMEYh-zOV3AA";
 
     private final PatchManifest manifest;
 

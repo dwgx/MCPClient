@@ -14,14 +14,17 @@ import net.marcloud.mcp.core.compat.patches.Ki11DwmHotkeyPatch;
 import org.junit.Test;
 
 /**
- * Proves the placeholder signature is the ONLY thing keeping KI-11 from arming.
+ * Proves a signature is the ONLY thing that decides whether KI-11 arms.
  *
- * <p>KI-11 ships unsigned on purpose: the kernel private key is deliberately not on a development
- * machine, so the signature cannot be produced here. That leaves a claim worth testing in both
- * directions, because either half alone is misle:
+ * <p>KI-11 now ships genuinely signed, so the RSHIFT hotkey works without {@code eval_java}. That
+ * changed what the first test here can assert, but not why the file exists: the claim worth pinning
+ * is still two-directional, because either half alone is misleading.
  *
  * <ul>
- *   <li><b>It must not arm as shipped.</b> Otherwise the sign-only trust model has a hole.</li>
+ *   <li><b>It must NOT arm when the signature is not trusted.</b> Otherwise the sign-only trust
+ *       model has a hole. Exercised by presenting the shipped patch to an engine with EMPTY
+ *       anchors, which is the same posture as an untrusted or forged signature and does not depend
+ *       on the shipped signature being a placeholder — it no longer is.</li>
  *   <li><b>It must arm once validly signed.</b> Otherwise "does not arm" proves nothing — a patch
  *       that is broken for some unrelated reason (wrong status, a protected target, an L0 mismatch,
  *       a runtime condition that never matches) would pass the first test while being permanently
@@ -41,19 +44,52 @@ public final class Ki11SigningContractTest {
     private static final String TRANSFORM_HASH =
             PatchManifest.sha256Hex("ki11-dwm-hotkey-v1");
 
-    /** KI-11 as shipped, signature placeholder included. */
+    /**
+     * KI-11 must not arm when its signature is not trusted.
+     *
+     * <p>Anchors are empty here rather than relying on the shipped signature being invalid: it is
+     * now a real signature, and a test whose premise is "the constant is a placeholder" stops
+     * testing anything the moment the ceremony runs — which is exactly what happened. Empty anchors
+     * are the durable statement of the same rule: no trusted key, no arming, whatever the manifest
+     * carries.
+     */
     @Test
-    public void shippedKi11DoesNotArmBecauseItsSignatureIsAPlaceholder() {
+    public void ki11DoesNotArmWhenItsSignatureIsNotTrusted() {
+        CompatDatabase db = new CompatDatabase();
+        db.register(new Ki11DwmHotkeyPatch());
+
+        CompatEngine engine = CompatEngine.build(db,
+            new Ed25519PatchSigner(TrustAnchors.empty()), null);
+
+        assertTrue("with no trusted anchor KI-11 must not arm",
+            engine.armedPatchIds().isEmpty());
+        assertNull("and its target must not dispatch",
+            engine.apply(MINECRAFT_INTERNAL, new byte[] {1}));
+    }
+
+    /**
+     * KI-11 as SHIPPED must arm, against the real baked-in trust chain.
+     *
+     * <p>This is the assertion that would have caught the ceremony being half-done: rotating the
+     * kernel key without re-signing {@code root-metadata.json} leaves the shipped signature
+     * verifying against a key the root document does not authorize, so the patch silently stops
+     * arming. Going through {@code Compat.defaultTrustAnchors} exercises the whole derivation —
+     * baked root key → root metadata signature → authorized targets key → patch signature.
+     */
+    @Test
+    public void shippedKi11ArmsAgainstTheBakedInTrustChain() {
         CompatDatabase db = new CompatDatabase();
         db.register(new Ki11DwmHotkeyPatch());
 
         CompatEngine engine = CompatEngine.build(db,
             new Ed25519PatchSigner(Compat.defaultTrustAnchors()), null);
 
-        assertTrue("the placeholder signature must not verify, so KI-11 must not arm",
-            engine.armedPatchIds().isEmpty());
-        assertNull("and its target must not dispatch",
-            engine.apply(MINECRAFT_INTERNAL, new byte[] {1}));
+        assertTrue("KI-11 ships signed and must arm; if this fails the two-level ceremony is "
+                + "incomplete — most likely root-metadata.json still authorizes an older kernel "
+                + "key, which verifies as 'signature not trusted' with no further diagnostic",
+            !engine.armedPatchIds().isEmpty());
+        assertTrue("and Minecraft must be in the dispatch index",
+            engine.armedInternalNames().contains(MINECRAFT_INTERNAL));
     }
 
     /**
