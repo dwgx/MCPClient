@@ -36,7 +36,7 @@ headless 测试证明逻辑,**真机证明它真的出现在屏幕上**。这两
 
 ## 2. 探针断言什么
 
-当前 28 条(数字会随新检查增长,以探针自己的输出为准),全部在真实游戏帧内:
+当前 30 条(数字会随新检查增长,以探针自己的输出为准),全部在真实游戏帧内:
 
 - 进世界 → `DwmEntry` 构造并显示 `QmlGuiScreen` → surface 健康(`isOpen`/`inert`/`lastError`)
 - **窗口在 MC 的 framebuffer 里真的有像素** —— `glReadPixels` 读目标,不经 Skia
@@ -237,9 +237,10 @@ MinecraftException: The save is being accessed from another location, aborting
 
 诚实列出来,别当成已验证:
 
-- **KI-11 热键**没验过 —— 它带占位符签名,内核原话 `SKIP unverified patch MCP-KI0011 —
-  signature not trusted`,所以打开界面目前走 `eval_java`。签名 ceremony(`scripts/sign-patch.sh`)
-  需要私钥,**这台机器不做**。
+- ~~**KI-11 热键**没验过~~ **已解决(2026-07-28 密钥仪式)**:补丁携带真实签名,真机自报
+  `3 patch(es) armed, 0 skipped`,按**右 Shift** 开界面。见 `key-ceremony.md`。
+  **但探针仍然走 `eval_java` 开界面** —— 那是探针的选择(直接拿到 surface 引用去做后续断言),
+  不是热键不可用。**热键那条路径探针没测**:要覆盖它得模拟真实按键事件流。
 - **长时间运行**没验 —— 探针跑完就关。帧率影响、显存增长、几十分钟后的稳定性都未知。
 - **Windows 侧完全没验** —— 这批修复全部只在 macOS / Apple GL 2.1 上跑过。
   尤其 buffer 绑定和 vertex attrib array 那两条,不同驱动的行为可能不同。

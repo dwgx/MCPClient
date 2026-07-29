@@ -175,6 +175,23 @@ done
 
 `Ki11SigningContractTest` 见 `entry-point.md` §4。
 
+### `RootCeremonyCli` 没有自己的单测,但它的**产物**被守着(2026-07-29 复核补记)
+
+`core/src/test/.../tools/` 下只有 `KernelKeygenCliTest` 和 `PatchSignerCliTest` —— **没有
+`RootCeremonyCliTest`**。这看起来是个缺口,复核后判断**主要的那半其实被覆盖了**,值得写清是哪半:
+
+这个工具有一条真实可疑的缝:**签名算在 `meta.signingBytes()`(内存对象)上,而随包文件是
+`metadataJson()` 手拼的 JSON**。两份表示若漂移,签名覆盖的是对的对象、发出去的是别的文档,
+而工具自己的 `assertChainVerifies` 校验的是**内存对象**,抓不到这种漂移。
+
+**但 `shippedKi11ArmsAgainstTheBakedInTrustChain` 抓得到** —— 它走
+`Compat.defaultTrustAnchors()`,那条路读的是**随包的 `root-metadata.json` + `.sig`**。
+手拼 JSON 一旦与签名字节不一致,派生锚点就验不过,那条断言直接变红。
+所以这个 round-trip 是**被集成级断言钉住的**,而那恰好是更值得钉的那一层。
+
+**真正没覆盖的**是 CLI 自己的失败路径:kernel 公钥缺失、`--resources` 不是目录、
+`assertChainVerifies` 的拒绝分支。低危(仪式是手动跑的、失败当场可见),但别当成已测。
+
 ---
 
 ## 7. 已知边界
