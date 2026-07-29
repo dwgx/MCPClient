@@ -73,10 +73,10 @@ public final class Compat {
         db.register(new net.marcloud.mcp.core.compat.patches.Ki1MipmapZeroFillPatch());
         // KI-11: nothing could open the DWM screen (DwmEntry had no callers, and the frozen client
         // cannot gain a KeyBinding). Hooks Minecraft.dispatchKeypresses for one edge-detected
-        // hotkey. Registered so it is VISIBLE to list_compat_patches, but it ships with a
-        // PLACEHOLDER signature and therefore does NOT arm: the kernel private key is not on a
-        // development machine, so the signing ceremony is an outstanding step. Ki11SigningContract
-        // Test proves both that it stays inert unsigned and that it arms once validly signed.
+        // hotkey. Ships SIGNED by the kernel key and DOES arm, so RSHIFT opens the screen; arming
+        // is still the normal signature-verify path (in-code registration grants no trust).
+        // Ki11SigningContractTest proves both directions: no trusted anchor means no arming, and
+        // the shipped patch arms against the real derived chain.
         db.register(new net.marcloud.mcp.core.compat.patches.Ki11DwmHotkeyPatch());
         return db;
     }
@@ -90,6 +90,21 @@ public final class Compat {
      * (arm nothing). There is no signature-free path — every patch, including the in-code
      * KI patches, arms only through {@link Ed25519PatchSigner} verification against these
      * anchors.
+     *
+     * <p><b>KNOWN GAP — the L2 root layer cannot currently deny what the baked kernel key
+     * permits.</b> The fallback below restores {@link KernelTrustAnchor#anchors()} whenever the
+     * root derivation yields nothing, and both paths pin the SAME keyId
+     * ({@code mcp-kernel-ed25519-v1}). So a root document that revokes the kernel key by dropping
+     * it from {@code targetsKeys} — or one whose signature is merely invalidated — falls through
+     * and every patch still verifies. Measured: with a revoked root document
+     * {@code RootTrust.effectiveAnchors()} is empty and logs "no patch will arm (fail-closed)",
+     * while this method returns non-empty anchors and all three shipped patches verify.
+     *
+     * <p>That defeats the stated purpose of {@link RootTrust} ("a compromised targets key is
+     * revoked by publishing a new root document that drops it — no client rebuild"). The fallback
+     * exists for build compatibility, not for security, and no test covers the broken-chain path.
+     * Closing it is a deliberate posture change — removing the fallback makes any damaged root
+     * resource disarm every patch — so it is left recorded rather than changed in passing.
      */
     public static TrustAnchors defaultTrustAnchors() {
         // TUF L2 — verify to root. The patch-verification anchors are no longer the kernel

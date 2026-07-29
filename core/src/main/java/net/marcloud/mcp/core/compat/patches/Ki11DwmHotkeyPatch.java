@@ -93,12 +93,12 @@ public final class Ki11DwmHotkeyPatch implements CompatPatch {
     static final String TRANSFORM_SEED = "ki11-dwm-hotkey-v1";
 
     /**
-     * PLACEHOLDER — not a valid signature, so KI-11 does not arm.
+     * A REAL kernel signature: KI-11 arms, and the RSHIFT hotkey opens the DWM screen.
      *
-     * <p>The kernel private key lives outside the repo and outside the development machine, so it
-     * cannot be produced here. This is deliberately left obviously invalid rather than absent:
-     * absent would read as "signing was forgotten", whereas this records that the ceremony is a
-     * known outstanding step. Replace with the output of:
+     * <p>This was a deliberately invalid placeholder until the two-level key ceremony ran. The
+     * private key still lives outside the repository (and outside any working tree), so
+     * re-signing means re-running the ceremony rather than editing this constant by hand. The
+     * command that produced it:
      *
      * <pre>
      *   java -cp core.jar net.marcloud.mcp.core.compat.tools.PatchSignerCli \
@@ -112,6 +112,12 @@ public final class Ki11DwmHotkeyPatch implements CompatPatch {
      * this manifest exactly or the result will not verify. The transform hash is
      * {@code sha256(TRANSFORM_SEED)}, precomputed here so the ceremony needs no build step. The
      * resulting patchId is {@code cp-41597d554e8d618ed8927160068aabe553f337d4606035e292d6de8432d6dd34}.
+     *
+     * <p><b>Rotating the kernel key is not enough on its own.</b> Patch anchors are derived from
+     * {@code root-metadata.json}, so that document has to authorize the new key and be re-signed by
+     * the root key ({@code RootCeremonyCli}), and {@code core} has to be rebuilt before
+     * {@code sign-patch.sh} self-checks against the new public key. See {@code docs/dwm/
+     * key-ceremony.md}.
      */
     static final String KERNEL_SIGNATURE =
             "ed25519:v1:mcp-kernel-ed25519-v1:"
