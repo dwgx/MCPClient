@@ -179,6 +179,25 @@ final class GlStateGuard {
             GL11.glPushMatrix();
             GL11.glMatrixMode(GL11.GL_MODELVIEW);
             GL11.glPushMatrix();
+
+            // AFTER the push, so glPopAttrib in leave() undoes it: give Skia a clean alpha test.
+            //
+            // MC draws its GUI with GL_ALPHA_TEST enabled at GL_GREATER 0.1, and that is inherited
+            // by whatever draws next -- so every Skia fragment with alpha <= 25 (0.1 * 255) was
+            // being DISCARDED BY THE GPU. Measured on a live client with an alpha ladder: 13, 16,
+            // 18, 20, 22 and 24 all left the destination untouched while 26 and 30 composited
+            // normally. That is the whole of the "a settings card's plate is invisible" bug, and it
+            // explains why the card's TEXT was fine -- text is alpha 255 and 197, far above the
+            // cutoff -- while its #0DFFFFFF face (alpha 13) never appeared.
+            //
+            // Skia expresses translucency through blending, never through the fixed-function alpha
+            // test, so disabling it removes a constraint Skia does not use and cannot see. It is
+            // also why no headless test could catch this: a bare GLFW window never enables the
+            // alpha test, and painting into a CPU raster surface does not go through GL at all.
+            //
+            // This is the fifth member of the family documented at the top of this file: state that
+            // MC leaves set and that glPushAttrib alone does not make safe for a foreign renderer.
+            GL11.glDisable(GL11.GL_ALPHA_TEST);
         } catch (Throwable t) {
             System.err.println("[dwm] GlStateGuard.enter faulted: " + t);
         }

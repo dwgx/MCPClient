@@ -72,6 +72,87 @@ public class GlStateGuardLiveIT {
         }
     }
 
+    /**
+     * A low-alpha fill must survive MC's alpha test, and the state must still be restored.
+     *
+     * <p>The bug this pins cost four investigations. MC draws its GUI with {@code GL_ALPHA_TEST}
+     * enabled at {@code GL_GREATER} 0.1, and a foreign renderer inherits it, so every Skia fragment
+     * with alpha <= 25 was discarded by the GPU. A SettingsCard's {@code #0DFFFFFF} plate is alpha
+     * 13, so it never appeared, while the card's text — alpha 255 and 197 — drew normally. That
+     * "the text is there but the plate is not" split is the signature, and it looks exactly like a
+     * compositing failure, which is where the earlier attempts went.
+     *
+     * <p>Why the whole suite was blind to it: {@link #aRealFrameLeavesTheGlStateUntouched} starts
+     * from alpha test DISABLED (as a bare GLFW window does), so it never reproduced MC's posture,
+     * and the layer-reading tests paint into a CPU raster surface, which does not go through GL at
+     * all. Only a GL draw under MC's own state can see this, which is what this test sets up.
+     *
+     * <p>Asserted on the PIXEL rather than on {@code glIsEnabled}, deliberately: the guard could
+     * disable the alpha test and still be defeated by something else in the pipeline, and what the
+     * user cares about is whether the fill lands. The 0.1 reference is also restated here rather
+     * than read back, so the test states MC's actual configuration instead of trusting the value it
+     * happens to find.
+     */
+    @Test
+    public void aLowAlphaFillIsNotDiscardedByMinecraftsAlphaTest() {
+        Assume.assumeTrue("needs a display", createDisplay());
+        try {
+            int w = Display.getWidth();
+            int h = Display.getHeight();
+
+            QmlUiSurface surface = new QmlUiSurface("dwm/Main.qml");
+            assertTrue("scene must open; " + surface.lastError(), surface.open(w, h));
+            surface.setFramebufferId(0);
+
+            // MC's GUI posture, which is what a real drawScreen hands us.
+            GL11.glEnable(GL11.GL_TEXTURE_2D);
+            GL11.glEnable(GL11.GL_BLEND);
+            GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+            GL11.glEnable(GL11.GL_ALPHA_TEST);
+            GL11.glAlphaFunc(GL11.GL_GREATER, 0.1F);
+            GL11.glViewport(0, 0, w, h);
+
+            String before = snapshot();
+
+            // Two frames: the first lays the scene out, the second paints a settled one. The scene
+            // is Main.qml, whose MenuPanel fill is itself translucent, so what lands on screen is
+            // Skia compositing under whatever alpha-test state the guard established.
+            GL11.glClearColor(TEST_BASE / 255.0F, TEST_BASE / 255.0F, TEST_BASE / 255.0F, 1.0F);
+            GL11.glClear(GL11.GL_COLOR_BUFFER_BIT);
+            surface.frame(w, h, System.nanoTime());
+            surface.frame(w, h, System.nanoTime());
+
+            // The alpha test must have been OFF while Skia drew. Asserted by inspecting the state
+            // the guard installs rather than by drawing a probe quad afterwards: by the time frame()
+            // returns, leave() has correctly restored MC's own configuration, so a post-frame draw
+            // measures MC's posture and not the one Skia painted under. That mistake made the first
+            // version of this test fail against a working fix.
+            GlStateGuard.enter();
+            boolean alphaTestDuringSkiaDraw = GL11.glIsEnabled(GL11.GL_ALPHA_TEST);
+            float refDuringSkiaDraw = GL11.glGetFloat(GL11.GL_ALPHA_TEST_REF);
+            GlStateGuard.leave();
+
+            assertTrue("GL_ALPHA_TEST must be DISABLED for the span Skia draws in. MC enables it at "
+                    + "GREATER 0.1 for its GUI, i.e. a cutoff of 25/255, and a foreign renderer "
+                    + "inherits it -- so a SettingsCard's #0DFFFFFF plate (alpha 13) was discarded "
+                    + "by the GPU while its text (alpha 255/197) drew normally. Measured on a live "
+                    + "client with an alpha ladder: 13/16/18/20/22/24 all left the destination "
+                    + "untouched, 26 and 30 composited. (ref seen: " + refDuringSkiaDraw + ")",
+                !alphaTestDuringSkiaDraw);
+
+            assertEquals("and the guard must still hand the state back untouched",
+                before, snapshot());
+            assertEquals("no GL error", 0, GL11.glGetError());
+
+            surface.close();
+        } finally {
+            destroyDisplay();
+        }
+    }
+
+    /** The opaque grey the probe composites over, matching Fluent.panelFill's 0x2a. */
+    private static final int TEST_BASE = 0x2A;
+
     /** Everything worth comparing, as one string so a leak anywhere fails the assertion. */
     private static String snapshot() {
         FloatBuffer colour = BufferUtils.createFloatBuffer(16);
