@@ -248,47 +248,25 @@ Item {
                         }
                     }
 
-                    FluentSettingsItem {
-                        label: "平滑滚动"
-                        width: groups.width
-                        enabled: Motion.uiEffects
-
-                        FluentCheckBox {
-                            objectName: "fxSmoothScroll"
-                            checked: Motion.listBoxSmoothScrolling
-                            enabled: Motion.uiEffects
-                            onToggled: Motion.listBoxSmoothScrolling = checked
-                        }
-                    }
-
-                    FluentSettingsItem {
-                        label: "菜单动画"
-                        width: groups.width
-                        enabled: Motion.uiEffects
-
-                        FluentCheckBox {
-                            objectName: "fxMenuAnimation"
-                            checked: Motion.menuAnimation
-                            enabled: Motion.uiEffects
-                            onToggled: Motion.menuAnimation = checked
-                        }
-                    }
-
-                    FluentSettingsItem {
-                        label: "菜单渐隐(而非滑动)"
-                        width: groups.width
-                        // Subordinate to BOTH the master and menu animation -- the real dependency
-                        // SPI_GETMENUFADE has. Read through Motion so the two-level condition is
-                        // stated once.
-                        enabled: Motion.animateMenus
-
-                        FluentCheckBox {
-                            objectName: "fxMenuFade"
-                            checked: Motion.menuFade
-                            enabled: Motion.animateMenus
-                            onToggled: Motion.menuFade = checked
-                        }
-                    }
+                    // 平滑滚动 / 菜单动画 / 菜单渐隐 USED TO BE OFFERED HERE AND ARE GONE ON
+                    // PURPOSE. Each wrote a Motion flag that NOTHING in this scene reads:
+                    // animateScrolling and menuFadesRatherThanSlides have no consumer at all, and
+                    // animateMenus is read only by the row that greyed out its own child. The
+                    // Flickable scrolls through qml4j's own smoothing, which does not consult the
+                    // policy, and this scene has no menu -- MenuPanel/MenuItem live in Main.qml,
+                    // which the shell does not load.
+                    //
+                    // So all three were switches a user could flip with no observable effect. That
+                    // is the exact defect the `enabled:` bindings above exist to prevent: this file
+                    // already refuses to OFFER a choice that cannot take effect, and offering one
+                    // that silently does nothing is worse, because a disabled control at least
+                    // tells the truth. Windows has the same rule -- the Performance Options list
+                    // shows the effects that machine can actually apply.
+                    //
+                    // They go back in when something reads them: a menu in this scene for the two
+                    // menu flags, and a scroll path that asks the policy for animateScrolling.
+                    // Motion.qml deliberately KEEPS all of them, because it models
+                    // SystemParametersInfo rather than this page's current contents.
                 }
             }
         }
