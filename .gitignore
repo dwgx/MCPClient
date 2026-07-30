@@ -32,8 +32,12 @@ logs/
 */logs/
 */run/
 
-# Compiled C6 JVMTI agent (rebuild via core/src/main/native/core-jvmti/build-clang.sh)
+# Compiled C6 JVMTI agent (rebuild via core/src/main/native/core-jvmti/build-clang.sh).
+# One entry per host: the same C source builds a .dll / .dylib / .so, and the script
+# drops a copy beside itself as well as under the ignored build/ directory.
 core-jvmti.dll
+core-jvmti.dylib
+core-jvmti.so
 
 # --- AI working notes (handoffs, per-area design notes, known-issues, agent
 #     instructions like CLAUDE.md/CONTRIBUTING/SECURITY). AI-only scratch;

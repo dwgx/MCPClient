@@ -109,10 +109,36 @@ fi
 # --- The UI needs a key to open it. KI-11 injects the hotkey hook into
 #     Minecraft.dispatchKeypresses, but the hook is inert unless a scancode is bound, so
 #     the flag below is what actually arms it (RSHIFT by default; override with
-#     -Dmcp.dwm.hotkey=<scancode>). Note KI-11 itself only applies once SIGNED — it
-#     ships with a placeholder signature and therefore does not arm yet, so this flag is
-#     currently a no-op. See docs/dwm/entry-point.md. ---
+#     -Dmcp.dwm.hotkey=<scancode>). KI-11 now ships genuinely signed and DOES arm, so
+#     RSHIFT opens the screen. See docs/dwm/entry-point.md. ---
 EXTRA+=(-Dmcp.core.overlay=true)
+
+# --- C6 JVMTI native debugger, opt-in with MCP_JVMTI=1. ---
+#     The onload-only capabilities (breakpoints, single-step, local variable access) can
+#     ONLY be acquired via -agentpath at startup; a dynamic attach cannot gain them. Both
+#     flags must name the SAME file, because -agentpath loads the module and
+#     DebuggerBridge's System.load then binds the JNI natives onto that already-loaded
+#     module. Build it first with core/src/main/native/core-jvmti/build-clang.sh.
+#
+#     Opt-in rather than always-on for two reasons: a bad -agentpath aborts JVM boot
+#     outright (not a warning), and the agent is a native build artefact that is not
+#     checked in, so a default-on flag would break every clone that has not built it.
+if [ "${MCP_JVMTI:-0}" != "0" ]; then
+  case "$(uname -s)" in
+    Darwin) JVMTI_EXT=dylib ;;
+    Linux)  JVMTI_EXT=so ;;
+    *)      JVMTI_EXT=dll ;;
+  esac
+  JVMTI_LIB="$ROOT/core/src/main/native/core-jvmti/build/core-jvmti.$JVMTI_EXT"
+  if [ -f "$JVMTI_LIB" ]; then
+    EXTRA+=(-agentpath:"$JVMTI_LIB" -Dmcp.core.jvmtiLib="$JVMTI_LIB")
+    echo "[run-mcp] JVMTI debugger: $JVMTI_LIB"
+  else
+    echo "[run-mcp] MCP_JVMTI=1 but $JVMTI_LIB is missing — build it with" >&2
+    echo "[run-mcp]   core/src/main/native/core-jvmti/build-clang.sh" >&2
+    echo "[run-mcp] continuing WITHOUT the native debugger." >&2
+  fi
+fi
 
 # --- Working dir must be the game dir (assets, saves). ---
 cd "$ROOT/test_run"
