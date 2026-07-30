@@ -122,9 +122,13 @@ public class SettingsCardLiveIT {
                     + "is the whole card. inside=" + inside + " outside=" + outside
                     + " (dump: " + px.dump("settings-card") + ")",
                 inside > outside);
-            // At least 4 per channel. #0DFFFFFF over #2A2A2A composites to about +7; a delta of
-            // one or two would mean the plate is technically drawn and practically invisible,
-            // which is the state this test exists to reject.
+            // At least 4 per channel. The measured delta is +7, and it takes TWO layers to get
+            // there: FluentElevation's baseColor is cardStroke #19000000 -- black at alpha 25 --
+            // which darkens #2A2A2A to #26, and the #0DFFFFFF face then lifts that to #31. The
+            // face alone over the panel would be #35, i.e. +11, so quoting the single-layer
+            // arithmetic here would overstate what this assertion can expect. A delta of one or
+            // two would mean the plate is technically drawn and practically invisible, which is
+            // the state this test exists to reject.
             assertTrue("the card's plate must be visibly brighter, not brighter by rounding: "
                     + "inside=" + inside + " outside=" + outside + " delta=" + (inside - outside)
                     + " (dump: " + px.dump("settings-card") + ")",
