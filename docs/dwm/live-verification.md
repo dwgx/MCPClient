@@ -36,7 +36,7 @@ headless 测试证明逻辑,**真机证明它真的出现在屏幕上**。这两
 
 ## 2. 探针断言什么
 
-当前 30 条(数字会随新检查增长,以探针自己的输出为准),全部在真实游戏帧内:
+当前 32 条(数字会随新检查增长,以探针自己的输出为准),全部在真实游戏帧内:
 
 - 进世界 → `DwmEntry` 构造并显示 `QmlGuiScreen` → surface 健康(`isOpen`/`inert`/`lastError`)
 - **窗口在 MC 的 framebuffer 里真的有像素** —— `glReadPixels` 读目标,不经 Skia

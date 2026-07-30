@@ -75,7 +75,7 @@ origin/main        c2cf357  2026-07-11   client + lwjgl2-shim
   和游戏素材,在 CI 上会 `Assume` 自跳过。CI 能给的只有"单测 + 能打包",
   拿不到本线唯一在乎的那种证据(像素)。
 
-所以现状是:**本线的回归网是本地的**(core 656 + dwm 32 单测 + 42 live IT + 真机探针 30/30),
+所以现状是:**本线的回归网是本地的**(core 656 + dwm 32 单测 + 43 live IT + 真机探针 32/32),
 不是 CI 的。谁接手都要知道"绿"是在本机跑出来的。
 
 ---
@@ -85,9 +85,9 @@ origin/main        c2cf357  2026-07-11   client + lwjgl2-shim
 ```bash
 export JAVA_HOME=~/.jdks/jdk-25.0.3+9/Contents/Home   # 必须,见下
 ./mvnw -B -ntp test                                    # core 656 + dwm 32 单测
-./mvnw -B -ntp -pl dwm verify -Ddwm.live.skip=false    # 42 live IT(要显示器)
+./mvnw -B -ntp -pl dwm verify -Ddwm.live.skip=false    # 43 live IT(要显示器)
 ./scripts/run-mcp.sh                                   # 起客户端
-python3 scripts/live-dwm-probe.py                      # 30 项真机验证
+python3 scripts/live-dwm-probe.py                      # 32 项真机验证
 ```
 
 **`JAVA_HOME` 不设会失败,而且失败得像回归。** PATH 上的 `java` 是 Homebrew JDK **21**,
@@ -152,8 +152,9 @@ git diff --stat origin/mcp-core..HEAD -- client                # 只有 pom.xml
 1. **Windows 侧验证那批 GL 修复** —— 尤其 ARRAY_BUFFER 绑定与 vertex attrib array 两条。
    这是唯一的硬前提,没有它合并就是把未验证的驱动假设推给主线。
 2. **决定 CI 策略**(§2)—— 至少让单测在这条线上跑。
-3. ~~卡片面在真机不可见~~ **已证伪(2026-07-30)** —— 卡片面是画出来的,之前是测量方法错。
-   见 `handoff-2026-07-29.md` §3。**遗留的是缺一条守它的断言**,不是缺一个修复。
+3. ~~卡片面在真机不可见~~ **已修复(2026-07-31)** —— 根因是 MC 的 `GL_ALPHA_TEST` 丢弃
+   alpha ≤ 25 的片元(卡片面是 alpha 13)。`GlStateGuard` 现在为 Skia 禁用它。
+   见 `handoff-2026-07-29.md` §3、commit `5669a04`。已配真机断言 + 探针检查。
 4. **`defaultTrustAnchors()` 的信任回退** —— 实测 L2 撤销不生效,已在
    `core/.../compat/Compat.java` 的 javadoc 里记录。改它是安全策略变更,需要 owner 决定。
 

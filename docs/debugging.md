@@ -100,6 +100,21 @@ mcp.call("debug_set_breakpoint", {
 
 比断点安全,比 `eval_java` 有力(`eval_java` 只能看**状态**,看不到**控制流**)。
 
+**这个手段真的解决了问题。** 卡片面那个 bug 骗了四次,靠 `eval_java` 永远查不出来 ——
+因为所有**状态**都是健康的。插桩之后第一次拿到关键事实:`paint` **每帧都在被调用**
+(9212 次),于是排查方向立刻从"为什么没画"转向"画了为什么没效果",最后定位到
+MC 的 `GL_ALPHA_TEST`(§9)。
+
+**两条约束**,都踩过:
+
+- **不能加字段。** `redefine_class` 走标准 JVM 的 `RetransformClasses`,
+  加字段是结构性改动 ⇒ `structural change rejected (need JBR + DCEVM)`。
+  所以插桩只能用 `System.err` 或改已有方法体,不能加静态计数器。
+- **传的是源码不是字节码**,而且**编译时用的是运行中的依赖**。
+  我拿改过的 `Rectangle.java`(带我给上游加的新 `Painter` 重载)去热替换,
+  编译失败 —— 因为运行中的 `Painter` 还是 0.2.24。**要用与运行版本匹配的源码**
+  (`git show v0.2.24:<path>`)。
+
 ---
 
 ## 4. 读像素:两个能杀客户端的坑(都踩过)
@@ -116,6 +131,14 @@ mcp.call("debug_set_breakpoint", {
 **是因为它只读、从不推帧**。
 
 **规则:推帧和读像素分成两次 eval**,让游戏自己在中间渲染。
+
+**③ 在渲染中途查询 GL 状态会崩** —— `SIGSEGV in gleRunVertexSubmitImmediate`。
+
+我在插桩后的 `Rectangle.paint` 里调 `glIsEnabled`/`glGetInteger` 打印状态,崩在顶点提交里:
+**状态查询打断了正在进行的 immediate-mode 顶点流**。
+
+要在渲染路径里看 GL 状态,改成**在帧外**用 `GlStateGuard.enter()` / `leave()` 包起来读
+—— 那正是 `GlStateGuardLiveIT` 现在用的办法。
 
 **② `SkPixmap::getColor` 不做边界检查 → 越界直接段错误。**
 
@@ -192,3 +215,53 @@ mcp.call("debug_set_breakpoint", {
 - **长时间运行未验**:探针跑完就关,帧率影响、显存增长、几十分钟后的稳定性都未知
 - **Windows 侧完全未验**:这条线的 GL 修复只在 Apple GL 2.1 上跑过,
   见 `docs/branch-topology.md`
+
+---
+
+## 9. 案例:卡片面不可见(骗了四次,最后靠插桩定位)
+
+值得完整记下来,因为**每一次误判都对应一个可复用的教训**。
+
+**症状**:随包设置页的卡片面(`#0dffffff`)在真机上完全不可见,而同一张卡的文字正常。
+
+**根因**:MC 画 GUI 时开着 `GL_ALPHA_TEST`(`GL_GREATER`,`ref=0.1`),外来渲染器继承它。
+`0.1 × 255 = 25`,**GPU 丢弃所有 alpha ≤ 25 的片元**。卡片面 alpha 13,文字 alpha 255/197。
+
+### 四次误判,以及各自为什么会发生
+
+| # | 当时的结论 | 为什么错 |
+|---|---|---|
+| 1 | 合成时序问题(`present()` 早 flush) | 层与屏幕**逐点一致** ⇒ 层里就没有,不是 blit 丢了 |
+| 2 | Loader opacity 卡在分数值 | 实测 `pageProgress=1`、整链 opacity 1.0 |
+| 3 | 测量方法错、"bug 不存在" | 我手动推帧后读到正确值,**误以为是常态** —— 推帧改变了状态 |
+| 4 | 渲染器没调用 `paint` | 插桩证明**每帧都调**,9212 次 |
+
+**共同形状:所有可观察的状态都是健康的。** 这与本项目历史上的三个 GL bug 同类
+(`live-verification.md` §0),而这次更深一层:连"画了没有"都是健康的,坏在 GPU 丢片元。
+
+### 定位路径(可复用)
+
+```
+插桩计数 paint          -> 每帧都调,alpha=1.0,尺寸正确   ⇒ 不是没调用
+打印传给 Painter 的颜色  -> argb=0dffffff                  ⇒ 不是颜色算错
+culled() 对 8 个子节点   -> 全 false                       ⇒ 不是裁剪
+插桩改画不透明红色       -> 屏幕 ff0000                    ⇒ canvas/坐标/裁剪全正常
+framebuffer 格式         -> GL_RGBA8, alpha 8 位            ⇒ 不是格式
+blend 状态               -> RGB 正确                        ⇒ 不是 blend
+alpha 阶梯 8..40         -> ≤24 丢弃, ≥26 生效              ⇒ 阈值在 25
+GL_ALPHA_TEST            -> GREATER ref=0.1 => 25.5         ⇒ 命中,8/8 数据点吻合
+```
+
+**"画不透明红色"那一步是整条链的转折点**:它一次性排除了 canvas、坐标、裁剪三个嫌疑,
+把问题锁死在"alpha 特定值"上。**遇到"该画没画"时,先用一个不可能被忽略的颜色画同一个形状。**
+
+### 为什么整套测试都抓不到
+
+- `GlStateGuardLiveIT` 起点是 alpha test **关闭**(裸 GLFW 窗口的默认),从未复现 MC 的姿态
+- 读离屏层的测试画到 **CPU raster surface**,根本不过 GL —— 同一个 `Rectangle.paint`
+  在 raster 上能正确画出 `+10`,**这恰恰是把排查一再引向错误方向的原因**
+- `CompositeReachesTargetLiveIT` 只断言"有一个非洋红像素",卡片面全丢也照样绿
+
+**只有"在 MC 自己的 GL 状态下真的画一次"才能看见它。** 现在
+`GlStateGuardLiveIT.aLowAlphaFillIsNotDiscardedByMinecraftsAlphaTest` 就是那条断言,
+探针里也加了 `a card's plate is brighter than the page behind it, on the SCREEN`。
