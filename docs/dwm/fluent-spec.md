@@ -73,6 +73,23 @@ Fluent Standard:所有项对齐 **40x40 epx** 目标。菜单项高度取 40px �
 上一版这些标 [近似] 的值**大部分是对的**,只有 `ControlStrongStrokeColorDefault` 错了
 (写成 `#9AFFFFFF`,实际 `#8BFFFFFF`)。
 
+> **低 alpha 曾在真机上被整体丢弃 —— 取值正确不等于画得出来(2026-07-31)。**
+>
+> Fluent 表达层次靠的就是这批低 alpha 白/黑,而 MC 画 GUI 时开着
+> `GL_ALPHA_TEST`(`GL_GREATER ref=0.1`)。外来渲染器继承它,`0.1 × 255 = 25`,
+> **GPU 直接丢弃所有 alpha ≤ 25 的片元**。`Fluent.qml` 里**有 10 个 token 落在这条线下**:
+> `divider`(21)、`panelStroke`(18)、`controlStrokeSecondary`(24)、`subtlePressed`(10)、
+> `controlFillDisabled`(11)、`cardFill`(13)、`controlFill`(15)、`controlFillTertiary`(8)、
+> `cardStroke`(25)、`subtleTransparent`(0)。
+>
+> 也就是说**修复前整套微妙层次是全灭的**,而文字(alpha 255/197)照常显示 ——
+> 这正是"控件度量都准、整体却不像 Windows"的真实原因,不是取值问题。
+> `GlStateGuard.enter()` 现在为 Skia 禁用 alpha test(commit `5669a04`)。
+>
+> **给后来取值的人**:这里的 alpha 可以照 WinUI 抄,**但任何新的低 alpha 值都必须在真机上
+> 用像素验证**,而不是在 headless 或离屏 raster 上 —— CPU 光栅化不过 GL,裸 GLFW 窗口
+> 也从不开 alpha test,两者都看不见这类缺陷。完整案例见 `docs/debugging.md` §9。
+
 | Token | 值 | 用途 |
 |---|---|---|
 | `TextFillColorPrimary` | `#FFFFFF` | 主文本 |
