@@ -72,3 +72,6 @@ replay_pid*.log
 # Python bytecode cache — scripts/live-dwm-probe.py is imported by ad-hoc probes
 __pycache__/
 *.pyc
+
+# Ephemeral git worktrees created for parallel agent runs; never committed.
+.claude/worktrees/
