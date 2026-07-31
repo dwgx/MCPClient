@@ -91,35 +91,37 @@ public final class Compat {
      * KI patches, arms only through {@link Ed25519PatchSigner} verification against these
      * anchors.
      *
-     * <p><b>KNOWN GAP — the L2 root layer cannot currently deny what the baked kernel key
-     * permits.</b> The fallback below restores {@link KernelTrustAnchor#anchors()} whenever the
-     * root derivation yields nothing, and both paths pin the SAME keyId
-     * ({@code mcp-kernel-ed25519-v1}). So a root document that revokes the kernel key by dropping
-     * it from {@code targetsKeys} — or one whose signature is merely invalidated — falls through
-     * and every patch still verifies. Measured: with a revoked root document
-     * {@code RootTrust.effectiveAnchors()} is empty and logs "no patch will arm (fail-closed)",
-     * while this method returns non-empty anchors and all three shipped patches verify.
+     * <p><b>Revocation is effective, and that cost a fallback.</b> This used to end in
+     * {@code return KernelTrustAnchor.anchors()} whenever the derivation yielded nothing, which
+     * defeated the entire reason the L2 layer exists: both paths pin the SAME keyId
+     * ({@code mcp-kernel-ed25519-v1}) and the byte-identical key, so a root document that revoked
+     * the kernel key by dropping it from {@code targetsKeys} fell through to a fallback that put it
+     * straight back. Measured before removal: with a revoked document
+     * {@code RootTrust.effectiveAnchors()} was empty and logged "no patch will arm (fail-closed)"
+     * while this method returned non-empty anchors and all three shipped patches verified. An
+     * attacker did not even need to forge a document — merely damaging one reached the same place.
      *
-     * <p>That defeats the stated purpose of {@link RootTrust} ("a compromised targets key is
-     * revoked by publishing a new root document that drops it — no client rebuild"). The fallback
-     * exists for build compatibility, not for security, and no test covers the broken-chain path.
-     * Closing it is a deliberate posture change — removing the fallback makes any damaged root
-     * resource disarm every patch — so it is left recorded rather than changed in passing.
+     * <p>The fallback existed for build compatibility (a branch without the L2 resources), not for
+     * security, and buying that with an unenforceable revocation was the wrong trade: an anchor set
+     * that cannot be narrowed is not a trust root, it is a constant.
+     *
+     * <p><b>The accepted cost.</b> Any missing, damaged or unverifiable root resource now disarms
+     * EVERY patch rather than falling back. That is the fail-closed direction, and it is not silent:
+     * {@link RootTrust} prints why. The client still runs — compat patches are enhancements, so a
+     * broken chain costs the mipmap fix, the local-server channel fix and the DWM hotkey, not the
+     * game. Rebuilding after a key ceremony is mandatory rather than merely advisable, because a
+     * stale {@code root-metadata.json} no longer degrades quietly.
      */
     public static TrustAnchors defaultTrustAnchors() {
-        // TUF L2 — verify to root. The patch-verification anchors are no longer the kernel
-        // (targets) key baked in directly; they are DERIVED by verifying the shipped root
-        // metadata up to the baked-in ROOT key (RootTrust -> TufTrust). A patch arms only if
-        // its targets key was authorized by a document signed by the root — so trust chains
-        // all the way to the single baked root. Fail-closed: if the root chain is missing or
-        // the signature threshold is unmet, RootTrust returns empty anchors (arm nothing).
-        // If the L2 root resources are absent (e.g. an older build), fall back to the direct
-        // kernel anchor so the L0/L1 posture still holds rather than disarming everything.
-        TrustAnchors viaRoot = RootTrust.effectiveAnchors();
-        if (!viaRoot.isEmpty()) {
-            return viaRoot;
-        }
-        return KernelTrustAnchor.anchors();
+        // TUF L2 — verify to root. The patch-verification anchors are not the kernel (targets) key
+        // baked in directly; they are DERIVED by verifying the shipped root metadata up to the
+        // baked-in ROOT key (RootTrust -> TufTrust). A patch arms only if its targets key was
+        // authorized by a document signed by the root, so trust chains all the way to the single
+        // baked root -- and a targets key is revoked by publishing a document that drops it, with
+        // no client rebuild. Returned unconditionally: RootTrust is already fail-closed and returns
+        // empty anchors for every missing or invalid input, and second-guessing that verdict here
+        // is exactly what made revocation unenforceable.
+        return RootTrust.effectiveAnchors();
     }
 
     /**

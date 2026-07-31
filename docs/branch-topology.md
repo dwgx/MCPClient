@@ -155,8 +155,8 @@ git diff --stat origin/mcp-core..HEAD -- client                # 只有 pom.xml
 3. ~~卡片面在真机不可见~~ **已修复(2026-07-31)** —— 根因是 MC 的 `GL_ALPHA_TEST` 丢弃
    alpha ≤ 25 的片元(卡片面是 alpha 13)。`GlStateGuard` 现在为 Skia 禁用它。
    见 `handoff-2026-07-29.md` §3、commit `5669a04`。已配真机断言 + 探针检查。
-4. **`defaultTrustAnchors()` 的信任回退** —— 实测 L2 撤销不生效,已在
-   `core/.../compat/Compat.java` 的 javadoc 里记录。改它是安全策略变更,需要 owner 决定。
+4. ~~**`defaultTrustAnchors()` 的信任回退**~~ **已关闭(2026-07-31)** —— 撤销现在生效;
+   代价是任何 root 资源损坏即全部补丁失效。见 `dwm/handoff-2026-07-29.md` §7。
 
 **明确不做**:把这条线 rebase 到 main / 强推 / 合并 main 进来。三者都不需要 —— 见 §0,
 根本没有分叉。
