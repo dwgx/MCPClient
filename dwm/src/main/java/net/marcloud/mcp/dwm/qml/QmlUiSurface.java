@@ -5,7 +5,6 @@ import io.github.timer_err.qml4j.render.QmlView;
 import io.github.timer_err.qml4j.render.items.core.Flickable;
 import io.github.timer_err.qml4j.render.items.core.Item;
 import net.marcloud.mcp.dwm.ui.UiInput;
-import net.marcloud.mcp.dwm.ui.UiKeys;
 import net.marcloud.mcp.dwm.ui.UiSurface;
 import net.marcloud.mcp.dwm.ui.UiWindowHost;
 
@@ -446,10 +445,5 @@ public final class QmlUiSurface implements UiSurface, UiInput {
     /** Java 8 has no BooleanSupplier that can throw; this keeps the call sites terse. */
     private interface BooleanCall {
         boolean run() throws Throwable;
-    }
-
-    /** True when {@code keyCode} is the key that should dismiss the UI. */
-    public static boolean isDismiss(int keyCode) {
-        return keyCode == UiKeys.ESCAPE;
     }
 }

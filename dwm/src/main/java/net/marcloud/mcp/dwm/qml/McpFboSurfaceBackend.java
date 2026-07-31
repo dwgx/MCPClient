@@ -209,11 +209,6 @@ public final class McpFboSurfaceBackend implements SurfaceBackend {
         sceneToLayer = false;
     }
 
-    /** True when a cached scene image exists and can be composited without a repaint. */
-    boolean hasLayerSnapshot() {
-        return layer.hasSnapshot();
-    }
-
     /**
      * Blit the cached scene over MC's frame. The cheap half of the loop, run every frame.
      *

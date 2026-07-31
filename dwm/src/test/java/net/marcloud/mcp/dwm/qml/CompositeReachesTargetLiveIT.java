@@ -1,12 +1,9 @@
 package net.marcloud.mcp.dwm.qml;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import java.nio.ByteBuffer;
-
-import io.github.timer_err.qml4j.engine.binding.Property;
 
 import org.junit.Assume;
 import org.junit.Test;
@@ -23,8 +20,8 @@ import org.lwjgl.opengl.GL11;
  * framebuffer id; the offscreen layer read back with the panel fill and the accent colour present
  * across 3640 sampled points. And the screen was empty. Skia had queued the {@code drawImage} and
  * nothing ever flushed it: qml4j calls {@code present()} from inside {@code renderFrame}, which runs
- * BEFORE the blit and, on an idle frame where the scene needs no repaint, does not run at all. So
- * the composite was recorded and dropped, every frame.
+ * BEFORE the blit — and the repaint was skippable back then, so on a frame the scene had not changed
+ * on, nothing called present at all. The composite was recorded and dropped, every frame.
  *
  * <p>No state field could have shown that. The only witness is a pixel in the destination, which is
  * what this reads — with {@code glReadPixels} against the bound framebuffer rather than through
@@ -73,15 +70,19 @@ public class CompositeReachesTargetLiveIT {
     }
 
     /**
-     * An IDLE frame must composite too.
+     * EVERY frame must land in the target, including one the scene has nothing new to show on.
      *
-     * <p>The sharper half. When the scene has not changed, the driver skips the repaint and only
-     * blits — the path where nothing called present at all. MC redraws the world every frame, so a
-     * skipped composite means the UI disappears rather than merely goes stale, which is why this
-     * clears the target between frames and demands the second one repaint it.
+     * <p>The sharper half, and the reason the composite is unconditional: MC redraws the whole world
+     * each frame, so the destination pixels are gone by the time we run whether the scene changed or
+     * not. Treating "nothing changed" as "nothing to do" would make the UI VANISH rather than go
+     * stale — the failure mode a stale-frame intuition does not predict.
+     *
+     * <p>Repeated rather than asserted once, because "every frame" is the property: a single
+     * wipe-and-frame cannot tell it apart from "the frame after the first one works", which is the
+     * shape of the bug this guards.
      */
     @Test
-    public void anIdleFrameStillReachesTheTarget() {
+    public void everyFrameRepaintsTheTarget() {
         Assume.assumeTrue("needs a display", createDisplay());
         QmlUiSurface surface = null;
         try {
@@ -91,29 +92,26 @@ public class CompositeReachesTargetLiveIT {
             surface = new QmlUiSurface(SCENE);
             assertTrue("scene must open; " + surface.lastError(), surface.open(w, h));
             surface.setFramebufferId(0);
-
-            // TWO frames before the scene is genuinely idle, not one. Measured: the first frame
-            // leaves qml4j's change counter at 585 while the driver recorded 339, because laying
-            // the scene out itself moves the counter — so frame two still takes the REPAINT path.
-            // A version of this test that cleared after one frame therefore asserted the idle path
-            // and exercised the repaint path, and kept passing with the idle blit broken.
-            surface.frame(w, h, System.nanoTime());
-            surface.frame(w, h, System.nanoTime());
-            long settled = Property.changeVersion();
-
-            // Wipe the target, then take a frame the scene cannot have changed on: the compositor
-            // must blit the cached layer again rather than assume the pixels are still there.
-            GL11.glClearColor(1.0F, 0.0F, 1.0F, 1.0F);
-            GL11.glClear(GL11.GL_COLOR_BUFFER_BIT);
             surface.frame(w, h, System.nanoTime());
 
-            assertEquals("precondition: this frame must be an IDLE one, or the test is exercising "
-                + "the repaint path it claims to avoid", settled, Property.changeVersion());
+            for (int cycle = 1; cycle <= 3; cycle++) {
+                GL11.glClearColor(1.0F, 0.0F, 1.0F, 1.0F);
+                GL11.glClear(GL11.GL_COLOR_BUFFER_BIT);
 
-            int covered = countNonMagenta(w, h);
-            assertTrue("an idle frame must still composite the cached layer into the target; with "
-                    + "nothing repainted the UI would vanish, because MC redraws the world every "
-                    + "frame", covered > 0);
+                // The wipe is the whole basis of the assertion below, and it is not self-evident
+                // that it took: Skia has been driving this context, and a left-behind scissor or a
+                // stale framebuffer binding would make the clear a no-op. Unchecked, the pixels the
+                // PREVIOUS frame composited would satisfy the coverage assertion by themselves.
+                assertEquals("precondition: the target must be wiped before the frame, or the "
+                    + "coverage found afterwards proves nothing", 0, countNonMagenta(w, h));
+
+                surface.frame(w, h, System.nanoTime());
+
+                assertTrue("frame " + cycle + " left the target still wiped: every frame must "
+                        + "composite the scene into it, because MC redraws the world each frame "
+                        + "and a frame that skips the composite makes the UI vanish",
+                        countNonMagenta(w, h) > 0);
+            }
 
             surface.close();
             surface = null;
