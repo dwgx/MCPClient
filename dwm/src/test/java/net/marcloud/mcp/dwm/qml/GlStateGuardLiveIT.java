@@ -128,10 +128,21 @@ public class GlStateGuardLiveIT {
             // measures MC's posture and not the one Skia painted under. That mistake made the first
             // version of this test fail against a working fix.
             GlStateGuard.enter();
+            // Both readings come from INSIDE the guarded span, so they describe the state Skia
+            // paints under. The pixel goes first and the flags after it, so the two describe the
+            // same instant: reading the flags first would let a re-arm between them go unnoticed.
+            int lifted = lowAlphaProbe(w, h);
             boolean alphaTestDuringSkiaDraw = GL11.glIsEnabled(GL11.GL_ALPHA_TEST);
             float refDuringSkiaDraw = GL11.glGetFloat(GL11.GL_ALPHA_TEST_REF);
             GlStateGuard.leave();
 
+            // The pixel is asserted first because it is the property the user has; the flag check
+            // below only explains WHY when it fails.
+            assertTrue("a fill at alpha " + PLATE_ALPHA + " must reach the framebuffer over an 0x"
+                    + Integer.toHexString(TEST_BASE) + " base -- got 0x"
+                    + Integer.toHexString(lifted) + ". Unchanged means the fragment was rejected, "
+                    + "which is the defect itself rather than a proxy for it.",
+                lifted > TEST_BASE);
             assertTrue("GL_ALPHA_TEST must be DISABLED for the span Skia draws in. MC enables it at "
                     + "GREATER 0.1 for its GUI, i.e. a cutoff of 25/255, and a foreign renderer "
                     + "inherits it -- so a SettingsCard's #0DFFFFFF plate (alpha 13) was discarded "
@@ -152,6 +163,45 @@ public class GlStateGuardLiveIT {
 
     /** The opaque grey the probe composites over, matching Fluent.panelFill's 0x2a. */
     private static final int TEST_BASE = 0x2A;
+
+    /** CardBackgroundFillColorDefault's alpha: the value MC's 0.1 cutoff was discarding. */
+    private static final int PLATE_ALPHA = 13;
+
+    /**
+     * Draw a white quad at {@link #PLATE_ALPHA} over the cleared base and return its red channel.
+     *
+     * <p>Immediate-mode GL rather than Skia, and called from INSIDE the guarded span: the subject is
+     * the pipeline state the guard installs, not Skia's own correctness. If the alpha test is still
+     * armed the quad is discarded and the destination stays at the base. Matrices are saved and
+     * restored so the surrounding state comparison still sees an untouched transform.
+     */
+    private static int lowAlphaProbe(int w, int h) {
+        GL11.glMatrixMode(GL11.GL_PROJECTION);
+        GL11.glPushMatrix();
+        GL11.glLoadIdentity();
+        GL11.glOrtho(0, w, h, 0, -1, 1);
+        GL11.glMatrixMode(GL11.GL_MODELVIEW);
+        GL11.glPushMatrix();
+        GL11.glLoadIdentity();
+        GL11.glDisable(GL11.GL_TEXTURE_2D);
+        GL11.glColor4f(1.0F, 1.0F, 1.0F, PLATE_ALPHA / 255.0F);
+        GL11.glBegin(GL11.GL_QUADS);
+        GL11.glVertex2f(0, 0);
+        GL11.glVertex2f(0, 40);
+        GL11.glVertex2f(40, 40);
+        GL11.glVertex2f(40, 0);
+        GL11.glEnd();
+        GL11.glEnable(GL11.GL_TEXTURE_2D);
+        GL11.glMatrixMode(GL11.GL_MODELVIEW);
+        GL11.glPopMatrix();
+        GL11.glMatrixMode(GL11.GL_PROJECTION);
+        GL11.glPopMatrix();
+
+        java.nio.ByteBuffer px = BufferUtils.createByteBuffer(4);
+        // Bottom-left origin; sample inside the quad.
+        GL11.glReadPixels(20, h - 20 - 1, 1, 1, GL11.GL_RGBA, GL11.GL_UNSIGNED_BYTE, px);
+        return px.get(0) & 0xFF;
+    }
 
     /** Everything worth comparing, as one string so a leak anywhere fails the assertion. */
     private static String snapshot() {
