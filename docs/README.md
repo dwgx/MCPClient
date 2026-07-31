@@ -1,6 +1,6 @@
 # docs/ — 索引
 
-2026-07-31。`docs/` 下 17 份文档,之前没有索引,接手的人不知道从哪读。这份就是入口。
+2026-07-31。`docs/` 下 18 份文档,之前没有索引,接手的人不知道从哪读。这份就是入口。
 
 > **本仓库的 `.ai-notes/` 不在这台机器上**(在 Windows 主线工作站),所以那套
 > `STATUS.md` 流程在本线走不了 —— 本线的文档全在 `docs/`。见 `branch-topology.md`。
@@ -13,7 +13,7 @@
 
 1. **`branch-topology.md`** —— 这条线是什么、主线在哪、为什么不合并回去、怎么跑测试。
    **`JAVA_HOME` 必须显式设 JDK 25**,不设会失败得像回归。
-2. **`dwm/handoff-2026-07-29.md`** —— 最新交接:当前状态、本轮做完什么、还剩什么。
+2. **`dwm/handoff-2026-07-31.md`** —— 最新交接:当前状态、本轮做完什么、还剩什么。
 3. **`debugging.md`** —— 手里有哪些调试能力(JVMTI 断点、类热替换、像素读取),
    以及每个的边界与会杀客户端的坑。**动手排查前必读。**
 4. **`dwm/live-verification.md`** —— 真机验证怎么做,以及历史上抓到的、
@@ -34,7 +34,8 @@
 
 | 文档 | 内容 | 状态 |
 |---|---|---|
-| `dwm/handoff-2026-07-29.md` | **最新交接** | 当前 |
+| `dwm/handoff-2026-07-31.md` | **最新交接** | 当前 |
+| `dwm/handoff-2026-07-29.md` | 上一份交接(根因分析仍有效) | **已被取代** |
 | `dwm/session-2026-07-29.md` | 上一轮总纲(卡片/动画/密钥) | 含订正横幅 |
 | `dwm/settings-page.md` | Settings 页结构、动画策略层、分层判断 | 含订正横幅 |
 | `dwm/key-ceremony.md` | 两层 TUF 密钥仪式、**私钥在哪**、怎么重建 | 当前 |
@@ -44,7 +45,7 @@
 | `dwm/dwm-deep-dive.md` | DWM 架构深研 + 待办 | 部分过时 |
 | `dwm/dwm-architecture-comparison.md` | 与真 Windows DWM 逐条对比 | 含订正横幅 |
 | `dwm/research/frame-sequence-verified.md` | 从客户端源码证实的帧序列事实 | 当前 |
-| `dwm/handoff-2026-07-28.md` | 上一份交接 | **已被取代** |
+| `dwm/handoff-2026-07-28.md` | 更早的交接 | **已被取代** |
 | `dwm/session-2026-07-28.md` | 更早一轮总纲 | **已被取代** |
 
 ### macOS
@@ -60,7 +61,7 @@
 
 | 你想知道 | 去 |
 |---|---|
-| 现在该做什么 | `dwm/handoff-2026-07-29.md` §7 |
+| 现在该做什么 | `dwm/handoff-2026-07-31.md` §6 |
 | 这条线能不能合回主线 | `branch-topology.md` §6 |
 | 私钥丢了怎么办 | `dwm/key-ceremony.md` §0(**没有恢复路径**) |
 | 怎么开原生调试器 | `debugging.md` §1(`MCP_JVMTI=1`) |
