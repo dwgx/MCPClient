@@ -145,6 +145,11 @@ class Mcp:
 # --- the snippets ---------------------------------------------------------------------------
 # Each reaches dwm reflectively, because core must not link the dwm module and this probe must
 # not require it to.
+#
+# The surface's own state is read through its package-private accessors (view, uiScale, isInert)
+# rather than its fields, so this probe survives the compositor/input-router split that field
+# names would have pinned. It must be getDeclaredMethod: getMethod only finds PUBLIC methods and
+# would raise NoSuchMethodException on all three.
 
 SURFACE_PREAMBLE = """
         net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getMinecraft();
@@ -184,9 +189,9 @@ def ui_health(mcp):
     return mcp.java("Health", SURFACE_PREAMBLE + """
         java.lang.reflect.Method isOpen = surf.getClass().getMethod("isOpen");
         java.lang.reflect.Method lastErr = surf.getClass().getMethod("lastError");
-        java.lang.reflect.Field inert = surf.getClass().getDeclaredField("inert");
+        java.lang.reflect.Method inert = surf.getClass().getDeclaredMethod("isInert");
         inert.setAccessible(true);
-        return "isOpen=" + isOpen.invoke(surf) + " inert=" + inert.get(surf)
+        return "isOpen=" + isOpen.invoke(surf) + " inert=" + inert.invoke(surf)
              + " lastError=" + lastErr.invoke(surf)
              + " fb=" + mc.getFramebuffer().framebufferObject;
 """)
@@ -199,9 +204,9 @@ def target_pixels(mcp):
     was dropping, so asking Skia would have confirmed the bug as healthy.
     """
     return mcp.java("TargetPix", SURFACE_PREAMBLE + """
-        java.lang.reflect.Field usf = surf.getClass().getDeclaredField("uiScale");
-        usf.setAccessible(true);
-        float scale = (Float) usf.get(surf);
+        java.lang.reflect.Method usm = surf.getClass().getDeclaredMethod("uiScale");
+        usm.setAccessible(true);
+        float scale = (Float) usm.invoke(surf);
         int fb = mc.getFramebuffer().framebufferObject;
         org.lwjgl.opengl.GL30.glBindFramebuffer(org.lwjgl.opengl.GL30.GL_FRAMEBUFFER, fb);
         // Shell.qml places the window at logical 20,20; sample well inside its title bar and body.
@@ -231,9 +236,9 @@ def click(mcp, x, y):
         java.lang.reflect.Method down = surf.getClass().getMethod("pointerDown", float.class, float.class, int.class);
         java.lang.reflect.Method up = surf.getClass().getMethod("pointerUp", float.class, float.class, int.class);
         java.lang.reflect.Method move = surf.getClass().getMethod("pointerMove", float.class, float.class);
-        java.lang.reflect.Field usf = surf.getClass().getDeclaredField("uiScale");
-        usf.setAccessible(true);
-        float scale = (Float) usf.get(surf);
+        java.lang.reflect.Method usm = surf.getClass().getDeclaredMethod("uiScale");
+        usm.setAccessible(true);
+        float scale = (Float) usm.invoke(surf);
         // The SPI takes framebuffer pixels; the caller thinks in the scene's logical units.
         float px = {x}f * scale, py = {y}f * scale;
         move.invoke(surf, px, py);
@@ -252,9 +257,9 @@ def row_centre(mcp, object_name):
     the layout owns has to be read from the layout, or the harness invents its own bugs.
     """
     return mcp.java("RowCentre" + object_name, SURFACE_PREAMBLE + f"""
-        java.lang.reflect.Field vf = surf.getClass().getDeclaredField("view");
-        vf.setAccessible(true);
-        Object view = vf.get(surf);
+        java.lang.reflect.Method vm = surf.getClass().getDeclaredMethod("view");
+        vm.setAccessible(true);
+        Object view = vm.invoke(surf);
         Object it = view.getClass().getMethod("findByObjectName", String.class)
             .invoke(view, "{object_name}");
         if (it == null) return "NO-ROW";
@@ -291,9 +296,9 @@ def item_box(mcp, object_name):
     a fraction of a control's width, which a centre point cannot express.
     """
     return mcp.java("Box" + object_name, SURFACE_PREAMBLE + f"""
-        java.lang.reflect.Field vf = surf.getClass().getDeclaredField("view");
-        vf.setAccessible(true);
-        Object view = vf.get(surf);
+        java.lang.reflect.Method vm = surf.getClass().getDeclaredMethod("view");
+        vm.setAccessible(true);
+        Object view = vm.invoke(surf);
         Object it = view.getClass().getMethod("findByObjectName", String.class)
             .invoke(view, "{object_name}");
         if (it == null) return "NO-ITEM";
@@ -338,9 +343,9 @@ def drag(mcp, from_x, y, to_x):
         java.lang.reflect.Method down = surf.getClass().getMethod("pointerDown", float.class, float.class, int.class);
         java.lang.reflect.Method up = surf.getClass().getMethod("pointerUp", float.class, float.class, int.class);
         java.lang.reflect.Method move = surf.getClass().getMethod("pointerMove", float.class, float.class);
-        java.lang.reflect.Field usf = surf.getClass().getDeclaredField("uiScale");
-        usf.setAccessible(true);
-        float scale = (Float) usf.get(surf);
+        java.lang.reflect.Method usm = surf.getClass().getDeclaredMethod("uiScale");
+        usm.setAccessible(true);
+        float scale = (Float) usm.invoke(surf);
         float y = {y}f * scale;
         float x0 = {from_x}f * scale, x1 = {to_x}f * scale;
         move.invoke(surf, x0, y);
@@ -358,9 +363,9 @@ def item_property(mcp, object_name, prop):
     """Read a named item's QML property, so an assertion can be about state rather than about
     whether a call returned."""
     return mcp.java("Prop" + object_name + prop, SURFACE_PREAMBLE + f"""
-        java.lang.reflect.Field vf = surf.getClass().getDeclaredField("view");
-        vf.setAccessible(true);
-        Object view = vf.get(surf);
+        java.lang.reflect.Method vm = surf.getClass().getDeclaredMethod("view");
+        vm.setAccessible(true);
+        Object view = vm.invoke(surf);
         Object it = view.getClass().getMethod("findByObjectName", String.class)
             .invoke(view, "{object_name}");
         if (it == null) return "NO-ITEM";
@@ -373,9 +378,9 @@ def hover(mcp, x, y):
     """Move the pointer without pressing, for hover-state assertions."""
     return mcp.java("Hover", SURFACE_PREAMBLE + f"""
         java.lang.reflect.Method move = surf.getClass().getMethod("pointerMove", float.class, float.class);
-        java.lang.reflect.Field usf = surf.getClass().getDeclaredField("uiScale");
-        usf.setAccessible(true);
-        float scale = (Float) usf.get(surf);
+        java.lang.reflect.Method usm = surf.getClass().getDeclaredMethod("uiScale");
+        usm.setAccessible(true);
+        float scale = (Float) usm.invoke(surf);
         move.invoke(surf, {x}f * scale, {y}f * scale);
         return "moved";
 """)
@@ -383,9 +388,9 @@ def hover(mcp, x, y):
 
 def current_page(mcp):
     return mcp.java("CurPage", SURFACE_PREAMBLE + """
-        java.lang.reflect.Field vf = surf.getClass().getDeclaredField("view");
-        vf.setAccessible(true);
-        Object view = vf.get(surf);
+        java.lang.reflect.Method vm = surf.getClass().getDeclaredMethod("view");
+        vm.setAccessible(true);
+        Object view = vm.invoke(surf);
         Object nav = view.getClass().getMethod("findByObjectName", String.class).invoke(view, "nav");
         if (nav == null) return "NO-NAV";
         java.lang.reflect.Field cp = nav.getClass().getField("currentPage");
@@ -415,9 +420,9 @@ def focus_and_read_field(mcp, text):
     was measured.
     """
     return mcp.java("FieldRoundTrip", SURFACE_PREAMBLE + f"""
-        java.lang.reflect.Field vf = surf.getClass().getDeclaredField("view");
-        vf.setAccessible(true);
-        Object view = vf.get(surf);
+        java.lang.reflect.Method vm = surf.getClass().getDeclaredMethod("view");
+        vm.setAccessible(true);
+        Object view = vm.invoke(surf);
         Object root = view.getClass().getMethod("root").invoke(view);
         java.util.ArrayDeque<Object> queue = new java.util.ArrayDeque<>();
         queue.add(root);
@@ -452,12 +457,12 @@ def scroll_into_view(mcp, object_name):
     nothing about whether wheel input reaches the Flickable.
     """
     return mcp.java("ScrollTo" + object_name, SURFACE_PREAMBLE + f"""
-        java.lang.reflect.Field vf = surf.getClass().getDeclaredField("view");
-        vf.setAccessible(true);
-        Object view = vf.get(surf);
-        java.lang.reflect.Field usf = surf.getClass().getDeclaredField("uiScale");
-        usf.setAccessible(true);
-        float scale = (Float) usf.get(surf);
+        java.lang.reflect.Method vm = surf.getClass().getDeclaredMethod("view");
+        vm.setAccessible(true);
+        Object view = vm.invoke(surf);
+        java.lang.reflect.Method usm = surf.getClass().getDeclaredMethod("uiScale");
+        usm.setAccessible(true);
+        float scale = (Float) usm.invoke(surf);
         java.lang.reflect.Method wheel = surf.getClass().getMethod(
             "wheel", float.class, float.class, float.class, float.class);
 
@@ -523,9 +528,9 @@ def click_and_focused(mcp, x, y, object_name):
     "looks focused" would be asking the thing under test.
     """
     return mcp.java("ClickFocus" + object_name, SURFACE_PREAMBLE + f"""
-        java.lang.reflect.Field vf = surf.getClass().getDeclaredField("view");
-        vf.setAccessible(true);
-        Object view = vf.get(surf);
+        java.lang.reflect.Method vm = surf.getClass().getDeclaredMethod("view");
+        vm.setAccessible(true);
+        Object view = vm.invoke(surf);
         // Clear focus FIRST, and report what it was. The check above this one focuses the field
         // with setFocus, so without this the click would be asserting against focus that was
         // already there — measured: with the button translation reverted, this check still passed
@@ -536,9 +541,9 @@ def click_and_focused(mcp, x, y, object_name):
 
         java.lang.reflect.Method down = surf.getClass().getMethod("pointerDown", float.class, float.class, int.class);
         java.lang.reflect.Method up = surf.getClass().getMethod("pointerUp", float.class, float.class, int.class);
-        java.lang.reflect.Field usf = surf.getClass().getDeclaredField("uiScale");
-        usf.setAccessible(true);
-        float scale = (Float) usf.get(surf);
+        java.lang.reflect.Method usm = surf.getClass().getDeclaredMethod("uiScale");
+        usm.setAccessible(true);
+        float scale = (Float) usm.invoke(surf);
         float px = {x}f * scale, py = {y}f * scale;
         // Button 0 is LWJGL's left, which is what MC hands the SPI.
         down.invoke(surf, px, py, 0);
@@ -568,9 +573,9 @@ def type_and_read(mcp, text, object_name):
     before clicking, so the characters can only land if the CLICK is what gave the field focus.
     """
     return mcp.java("TypeInto" + object_name, SURFACE_PREAMBLE + f"""
-        java.lang.reflect.Field vf = surf.getClass().getDeclaredField("view");
-        vf.setAccessible(true);
-        Object view = vf.get(surf);
+        java.lang.reflect.Method vm = surf.getClass().getDeclaredMethod("view");
+        vm.setAccessible(true);
+        Object view = vm.invoke(surf);
         Object wrapper = view.getClass().getMethod("findByObjectName", String.class)
             .invoke(view, "{object_name}");
         if (wrapper == null) return "NO-ITEM";
@@ -877,14 +882,14 @@ def hover_and_read(mcp, x, y, object_name):
     """
     return mcp.java("HoverRead" + object_name, SURFACE_PREAMBLE + f"""
         java.lang.reflect.Method move = surf.getClass().getMethod("pointerMove", float.class, float.class);
-        java.lang.reflect.Field usf = surf.getClass().getDeclaredField("uiScale");
-        usf.setAccessible(true);
-        float scale = (Float) usf.get(surf);
+        java.lang.reflect.Method usm = surf.getClass().getDeclaredMethod("uiScale");
+        usm.setAccessible(true);
+        float scale = (Float) usm.invoke(surf);
         move.invoke(surf, {x}f * scale, {y}f * scale);
 
-        java.lang.reflect.Field vf = surf.getClass().getDeclaredField("view");
-        vf.setAccessible(true);
-        Object view = vf.get(surf);
+        java.lang.reflect.Method vm = surf.getClass().getDeclaredMethod("view");
+        vm.setAccessible(true);
+        Object view = vm.invoke(surf);
         Object it = view.getClass().getMethod("findByObjectName", String.class)
             .invoke(view, "{object_name}");
         if (it == null) return "NO-ITEM";
@@ -905,9 +910,9 @@ def hover_and_read(mcp, x, y, object_name):
 def hovered(mcp, object_name):
     """Whether the named control's own MouseArea currently reports the pointer inside it."""
     return mcp.java("Hovered" + object_name, SURFACE_PREAMBLE + f"""
-        java.lang.reflect.Field vf = surf.getClass().getDeclaredField("view");
-        vf.setAccessible(true);
-        Object view = vf.get(surf);
+        java.lang.reflect.Method vm = surf.getClass().getDeclaredMethod("view");
+        vm.setAccessible(true);
+        Object view = vm.invoke(surf);
         Object it = view.getClass().getMethod("findByObjectName", String.class)
             .invoke(view, "{object_name}");
         if (it == null) return "NO-ITEM";

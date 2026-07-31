@@ -6,8 +6,6 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
-import java.lang.reflect.Field;
-
 import io.github.timer_err.qml4j.render.QmlView;
 import io.github.timer_err.qml4j.render.items.core.Item;
 import io.github.timer_err.qml4j.render.items.input.TextField;
@@ -188,16 +186,12 @@ public class PointerButtonLiveIT {
     }
 
     private static float scaleOf(QmlUiSurface surface) throws Exception {
-        Field f = QmlUiSurface.class.getDeclaredField("uiScale");
-        f.setAccessible(true);
-        float s = (Float) f.get(surface);
+        float s = surface.uiScale();
         return s > 0.0F ? s : 1.0F;
     }
 
     private static QmlView viewOf(QmlUiSurface surface) throws Exception {
-        Field f = QmlUiSurface.class.getDeclaredField("view");
-        f.setAccessible(true);
-        return (QmlView) f.get(surface);
+        return surface.view();
     }
 
     private static TextField fieldOf(QmlUiSurface surface) throws Exception {

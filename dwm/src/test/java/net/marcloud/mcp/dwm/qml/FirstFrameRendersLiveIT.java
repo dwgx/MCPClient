@@ -139,15 +139,11 @@ public class FirstFrameRendersLiveIT {
     }
 
     private static Object backendOf(QmlUiSurface surface) throws Exception {
-        Field f = QmlUiSurface.class.getDeclaredField("backend");
-        f.setAccessible(true);
-        return f.get(surface);
+        return surface.backend();
     }
 
     private static QmlView viewOf(QmlUiSurface surface) throws Exception {
-        Field f = QmlUiSurface.class.getDeclaredField("view");
-        f.setAccessible(true);
-        return (QmlView) f.get(surface);
+        return surface.view();
     }
 
     private static boolean createDisplay() {

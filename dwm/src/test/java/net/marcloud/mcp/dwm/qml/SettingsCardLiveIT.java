@@ -425,22 +425,16 @@ public class SettingsCardLiveIT {
     }
 
     private static QmlView viewOf(QmlUiSurface surface) throws Exception {
-        Field f = QmlUiSurface.class.getDeclaredField("view");
-        f.setAccessible(true);
-        return (QmlView) f.get(surface);
+        return surface.view();
     }
 
     private static float scale(QmlUiSurface surface) throws Exception {
-        Field f = QmlUiSurface.class.getDeclaredField("uiScale");
-        f.setAccessible(true);
-        float s = (Float) f.get(surface);
+        float s = surface.uiScale();
         return s > 0.0F ? s : 1.0F;
     }
 
     private static ScenePixels layerPixels(QmlUiSurface surface) throws Exception {
-        Field bf = QmlUiSurface.class.getDeclaredField("backend");
-        bf.setAccessible(true);
-        Object backend = bf.get(surface);
+        Object backend = surface.backend();
         assertNotNull("the backend must exist after a frame", backend);
 
         Field lf = backend.getClass().getDeclaredField("layer");

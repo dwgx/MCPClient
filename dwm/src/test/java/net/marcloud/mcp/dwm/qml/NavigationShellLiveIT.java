@@ -291,9 +291,7 @@ public class NavigationShellLiveIT {
     }
 
     private static QmlView viewOf(QmlUiSurface surface) throws Exception {
-        Field f = QmlUiSurface.class.getDeclaredField("view");
-        f.setAccessible(true);
-        return (QmlView) f.get(surface);
+        return surface.view();
     }
 
     private static boolean createDisplay() {

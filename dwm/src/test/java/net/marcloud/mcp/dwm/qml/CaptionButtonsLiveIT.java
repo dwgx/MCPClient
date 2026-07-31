@@ -4,8 +4,6 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
-import java.lang.reflect.Field;
-
 import io.github.timer_err.qml4j.render.QmlView;
 import io.github.timer_err.qml4j.render.items.core.Item;
 import net.marcloud.mcp.dwm.ui.UiWindowHost;
@@ -225,9 +223,7 @@ public class CaptionButtonsLiveIT {
     }
 
     private static float scaleOf(QmlUiSurface surface) throws Exception {
-        Field f = QmlUiSurface.class.getDeclaredField("uiScale");
-        f.setAccessible(true);
-        float s = (Float) f.get(surface);
+        float s = surface.uiScale();
         return s > 0.0F ? s : 1.0F;
     }
 
@@ -356,9 +352,7 @@ public class CaptionButtonsLiveIT {
     }
 
     private static QmlView viewOf(QmlUiSurface surface) throws Exception {
-        Field f = QmlUiSurface.class.getDeclaredField("view");
-        f.setAccessible(true);
-        return (QmlView) f.get(surface);
+        return surface.view();
     }
 
     private static Item byName(QmlView view, String objectName) {

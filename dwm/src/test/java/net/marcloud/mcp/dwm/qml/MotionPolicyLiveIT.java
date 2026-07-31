@@ -4,8 +4,6 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
-import java.lang.reflect.Field;
-
 import io.github.timer_err.qml4j.render.QmlView;
 import io.github.timer_err.qml4j.render.items.core.Item;
 
@@ -250,9 +248,7 @@ public class MotionPolicyLiveIT {
     }
 
     private static QmlView viewOf(QmlUiSurface surface) throws Exception {
-        Field f = QmlUiSurface.class.getDeclaredField("view");
-        f.setAccessible(true);
-        return (QmlView) f.get(surface);
+        return surface.view();
     }
 
     private static void closeQuietly(QmlUiSurface surface) {

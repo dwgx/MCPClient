@@ -257,6 +257,37 @@ public final class QmlUiSurface implements UiSurface, UiInput {
         return lastError;
     }
 
+    // ---- test seam --------------------------------------------------------------
+    //
+    // Package-private, and deliberately not public: the live ITs and scripts/live-dwm-probe.py
+    // need to see this state, but the surface's PUBLIC contract is UiSurface + UiInput, and
+    // widening it so a test can look inside would make the seam permanent.
+    //
+    // They exist because the alternative was reflection on FIELD NAMES, which pinned the layout
+    // of this class from the outside: 37 of the 43 live ITs read `view`, `backend` or `uiScale`
+    // through getDeclaredField, so renaming or moving any of the three broke all of them at once
+    // and the compiler said nothing. The ITs now call these directly and javac checks them; the
+    // probe still reflects, because it runs inside core and cannot link dwm at all, but it asks
+    // for a METHOD, so the only thing it pins is this seam rather than the field layout behind it.
+
+    QmlView view() {
+        return view;
+    }
+
+    McpFboSurfaceBackend backend() {
+        return backend;
+    }
+
+    /** The raw scale in force, unclamped: a caller wanting a safe divisor applies its own floor. */
+    float uiScale() {
+        return uiScale;
+    }
+
+    /** True once something faulted, which is why {@link #isOpen()} can be false while open. */
+    boolean isInert() {
+        return inert;
+    }
+
     // ---- UiInput ----------------------------------------------------------------
     //
     // Coordinates arrive as framebuffer pixels (the SPI contract) and are divided by the DPI

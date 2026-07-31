@@ -4,8 +4,6 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
-import java.lang.reflect.Field;
-
 import io.github.timer_err.qml4j.render.QmlView;
 import io.github.timer_err.qml4j.render.items.core.Item;
 import io.github.timer_err.qml4j.render.items.layout.Column;
@@ -104,9 +102,7 @@ public class PanelSizingLiveIT {
     // ---- harness ---------------------------------------------------------------
 
     private static Item panelOf(QmlUiSurface surface) throws Exception {
-        Field f = QmlUiSurface.class.getDeclaredField("view");
-        f.setAccessible(true);
-        QmlView view = (QmlView) f.get(surface);
+        QmlView view = surface.view();
         Item panel = view.findByObjectName("menuPanel");
         assertNotNull("Main.qml must name its panel so this test can find it", panel);
         return panel;
