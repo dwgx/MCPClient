@@ -289,6 +289,120 @@ def row_centre(mcp, object_name):
 """)
 
 
+def wheel(mcp, x, y, notches):
+    """One wheel notch through dwm's own SPI, at a point in LOGICAL units.
+
+    The point has to land inside the Flickable or the notch goes nowhere: QmlUiSurface.wheel looks up
+    the innermost Flickable under the cursor and falls back to qml4j's own dispatch when there is
+    none. Aiming at the nav rail instead of the page therefore leaves targetY untouched, which reads
+    as "scrolling is broken" rather than "you missed".
+    """
+    return mcp.java("Wheel", SURFACE_PREAMBLE + f"""
+        java.lang.reflect.Method usm = surf.getClass().getDeclaredMethod("uiScale");
+        usm.setAccessible(true);
+        float scale = ((Number) usm.invoke(surf)).floatValue();
+        java.lang.reflect.Method w = surf.getClass().getMethod(
+            "wheel", float.class, float.class, float.class, float.class);
+        // Notches are not distances and do not scale; the position is spatial and does.
+        return "wheel=" + w.invoke(surf, {x}f * scale, {y}f * scale, 0.0F, {notches}.0F);
+""")
+
+
+def check_card_plate_on_screen(mcp):
+    """Assert a SettingsCard's plate is brighter than the page behind it, in MC's framebuffer.
+
+    Nothing else covers this, and its absence let a GPU-level bug survive four investigations.
+    SettingsCardLiveIT samples the offscreen LAYER of a test fixture (dwm/CardGallery.qml), so it
+    passes while the shipped page shows nothing, and CompositeReachesTargetLiveIT is satisfied by any
+    single non-magenta pixel -- a page with every card plate missing stays green. The bug was MC's
+    GL_ALPHA_TEST (GREATER 0.1) discarding every Skia fragment at alpha <= 25, which is where
+    CardBackgroundFillColorDefault's alpha 13 lives; the card's TEXT drew fine at alpha 255/197,
+    and that split is what made it look like a compositing fault for so long.
+
+    Three measurement traps, each of which produced a false reading while I was finding that bug:
+
+      * scroll_into_view only guarantees an item's first 40px are visible -- its contract, sized for
+        a 40px nav row. A card is 68 tall, so it can honestly report "in-view" with the bottom half
+        below the fold, and a midpoint sample then reads the page instead of the plate.
+      * the clip that matters is the FLICKABLE's viewport (measured: logical y 112..440), not the
+        window (480 tall). Checking against the window called a card at y=420 safe when the 328px
+        viewport had already cut it off.
+      * a wheel notch only moves targetY; contentY converges over later frames. Sampling straight
+        after a scroll catches the content mid-flight.
+
+    So: scroll, let the game render, re-read the box, and only then read pixels. Frames are NOT
+    pumped by hand here -- doing that and then calling GL in the same eval SIGSEGVs in libGL, because
+    GlStateGuard has restored MC's state by the time frame() returns. target_pixels() is safe for
+    exactly the same reason: it only reads.
+
+    The reference point is the 20px group gap ABOVE the card rather than a constant, so this asserts
+    CONTRAST and cannot be broken by a theme change.
+    """
+    if "NO-ITEM" in scroll_into_view(mcp, "fxMaster"):
+        record("the animation card can be scrolled into view", False, "fxMaster not found")
+        return
+    # Then nudge until the WHOLE card is inside the viewport, re-measuring between notches. Where the
+    # card lands after scroll_into_view depends on where the preceding checks left the page -- one run
+    # ended at y=372..440 (just inside) and another at y=388..456 (clipped), so this cannot be left
+    # to chance. One notch per call, with a real pause, because a notch only moves targetY and the
+    # game's own frames are what carry contentY to it.
+    box = ""
+    for _ in range(8):
+        time.sleep(0.5)
+        box = item_box(mcp, "fxMaster")
+        if "," not in box:
+            record("the card's box is readable after scrolling", False, box)
+            return
+        bx, by, bw, bh = [int(float(v)) for v in box.split(",")]
+        # Measured: the Flickable's viewport is logical y 112..440. A card whose bottom edge is past
+        # that is partly clipped, and sampling its middle would read the page, not the plate.
+        if by >= 112 and by + bh <= 440:
+            break
+        wheel(mcp, 460, 300, -1 if by + bh > 440 else 1)
+    else:
+        record("the card is fully inside the Flickable viewport before sampling", False,
+               f"card y={by}..{by + bh} against viewport 112..440 after 8 notches")
+        return
+    # x=460 sits clear of the icon column, the text block (ends about 307) and the toggle (from 508).
+    result = mcp.java("CardPlateOnScreen", SURFACE_PREAMBLE + f"""
+        java.lang.reflect.Method usm = surf.getClass().getDeclaredMethod("uiScale");
+        usm.setAccessible(true);
+        float scale = ((Number) usm.invoke(surf)).floatValue();
+        int fh = mc.getFramebuffer().framebufferHeight;
+        // MC's own framebuffer via glReadPixels, never through Skia: asking Skia would be asking the
+        // queue whose missing flush was an earlier bug of this exact shape whether it is well.
+        org.lwjgl.opengl.GL30.glBindFramebuffer(org.lwjgl.opengl.GL30.GL_FRAMEBUFFER,
+            mc.getFramebuffer().framebufferObject);
+        java.nio.ByteBuffer px = org.lwjgl.BufferUtils.createByteBuffer(4);
+        int[] ys = {{{by + bh // 2}, {by - 8}}};
+        int[] lum = new int[2];
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < 2; i++) {{
+            int dx = Math.round(460 * scale);
+            // glReadPixels is bottom-left origin; the scene is authored top-left.
+            int dy = fh - Math.round(ys[i] * scale) - 1;
+            px.clear();
+            org.lwjgl.opengl.GL11.glReadPixels(dx, dy, 1, 1, org.lwjgl.opengl.GL11.GL_RGBA,
+                org.lwjgl.opengl.GL11.GL_UNSIGNED_BYTE, px);
+            int r = px.get(0) & 0xFF, g = px.get(1) & 0xFF, b = px.get(2) & 0xFF;
+            lum[i] = (r * 30 + g * 59 + b * 11) / 100;
+            sb.append(String.format("(460,%d)=%02x%02x%02x ", ys[i], r, g, b));
+        }}
+        return sb.append("delta=").append(lum[0] - lum[1]).toString();
+""")
+    if not result.startswith("(460,"):
+        record("a card's plate is brighter than the page behind it, on the SCREEN", False,
+               result[:200])
+        return
+    delta = int(result.rsplit("delta=", 1)[1].strip())
+    # Measured +7, and it takes TWO layers to get there: FluentElevation's cardStroke #19000000 --
+    # black at alpha 25 -- darkens the 2a panel to 26 first, then the #0dffffff face lifts it to 31.
+    # The face alone over the panel would be +11, so a bar set from that single-layer arithmetic
+    # could never be met. 4 rejects a plate that is drawn and practically invisible.
+    record("a card's plate is brighter than the page behind it, on the SCREEN",
+           delta >= 4, result.strip()[:200])
+
+
 def item_box(mcp, object_name):
     """A named item's absolute box in logical units, as "x,y,w,h", or a diagnostic string.
 
@@ -736,6 +850,9 @@ def main():
 
     print("\n-- control interaction, on the settings page")
     check_controls(mcp)
+
+    print("\n-- a card's plate reaches the SCREEN, not just the offscreen layer")
+    check_card_plate_on_screen(mcp)
 
     print("\n-- the world still renders behind the UI")
     step("the client survived every interaction", "alive", lambda v: alive())

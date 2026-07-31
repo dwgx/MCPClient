@@ -75,7 +75,7 @@ origin/main        c2cf357  2026-07-11   client + lwjgl2-shim
   和游戏素材,在 CI 上会 `Assume` 自跳过。CI 能给的只有"单测 + 能打包",
   拿不到本线唯一在乎的那种证据(像素)。
 
-所以现状是:**本线的回归网是本地的**(core 656 + dwm 32 单测 + 43 live IT + 真机探针 32/32),
+所以现状是:**本线的回归网是本地的**(core 662 + dwm 35 单测 + 43 live IT + 真机探针 33/33),
 不是 CI 的。谁接手都要知道"绿"是在本机跑出来的。
 
 ---
@@ -87,7 +87,7 @@ export JAVA_HOME=~/.jdks/jdk-25.0.3+9/Contents/Home   # 必须,见下
 ./mvnw -B -ntp test                                    # core 656 + dwm 32 单测
 ./mvnw -B -ntp -pl dwm verify -Ddwm.live.skip=false    # 43 live IT(要显示器)
 ./scripts/run-mcp.sh                                   # 起客户端
-python3 scripts/live-dwm-probe.py                      # 32 项真机验证
+python3 scripts/live-dwm-probe.py                      # 33 项真机验证
 ```
 
 **`JAVA_HOME` 不设会失败,而且失败得像回归。** PATH 上的 `java` 是 Homebrew JDK **21**,
