@@ -9,25 +9,45 @@
 
 ## 0. 实测拓扑(不是记忆,是 `git rev-list` 的输出)
 
+> **订正(2026-08-02)**:本节原来画成 `main → mcp-core → 本线` 的一条直链,并写"三条线是严格
+> 祖先关系"。**那是错的**:`main` 与 `mcp-core` 在 `288be3c` 就**分叉了**,互不为祖先。
+> 下面是重新实测的形状。实用结论没变(不需要 merge/rebase),但有两点被那个错误掩盖,见 §0.1。
+
 ```
-origin/main        c2cf357  2026-07-11   client + lwjgl2-shim
-    │
-    └─ origin/mcp-core  1dbf475  2026-07-17   + core + board + pg(内核与能力包)
-           │                                   dwm 在这里被剥成空概念模块
-           │
-           └─ feat/dwm-qml4j  2026-07-30      + dwm 的 qml4j 实现(本线)
-                              47 commits ahead
+                    288be3c  Netty 4.1.124 -> 4.2.16   ← 分叉点
+                       │
+        ┌──────────────┴───────────────┐
+        │                              │
+origin/main  c2cf357                origin/mcp-core  1dbf475
+  .gitattributes + 两个 CI            + core + board + pg(内核与能力包)
+  (3 个提交)                          dwm 在这里被剥成空概念模块
+        │                              │
+        └──────────────┬───────────────┘
+                       │  a3bc32f  merge: macOS arm64 support into the dwm/qml4j line
+                       │
+              feat/dwm-qml4j  5c8e092
+              + dwm 的 qml4j 实现(本线),62 commits ahead of mcp-core
 ```
 
-三条线是**严格祖先关系**,实测:
+实测(`git merge-base --is-ancestor` / `git rev-list --count`):
 
 | 关系 | 结果 |
 |---|---|
 | `origin/main` 是本线祖先 | ✔ 完全包含 |
 | `origin/mcp-core` 是本线祖先 | ✔ 完全包含 |
+| **`main` 是 `mcp-core` 的祖先** | **✘ 不是** —— 两者在 `288be3c` 分叉 |
+| `main` 有 `mcp-core` 没有的提交 | **3**(`67573e8` / `a5bc68e` / `c2cf357`) |
+| `mcp-core` 有 `main` 没有的提交 | **124** |
 | `main` 有我们没有的提交 | **0** |
 | `mcp-core` 有我们没有的提交 | **0** |
 | 本线未推送的提交 | **0** |
+
+### 0.1 那个错误掩盖了什么
+
+1. **"62 commits ahead" 里有 3 个不是本线的工作。** 那 3 个是 `main` 的
+   (`.gitattributes` + 两个 CI 提交),经 `a3bc32f` 合进来的。**本线自己的工作是 59 个。**
+2. **合回 `mcp-core` 会顺带把 `main` 那 3 个提交带过去。** 它们无害(语言统计 + CI 触发条件),
+   但合并时应当知道它们在里面,而不是以为只有 dwm 的改动。
 
 **所以"和远程同步"在这条线上不需要任何 merge / rebase / pull。** 没有分叉,没有冲突,
 没有落后。要做的只有 `git push`(已做)。
