@@ -77,10 +77,18 @@ Fluent Standard:所有项对齐 **40x40 epx** 目标。菜单项高度取 40px �
 >
 > Fluent 表达层次靠的就是这批低 alpha 白/黑,而 MC 画 GUI 时开着
 > `GL_ALPHA_TEST`(`GL_GREATER ref=0.1`)。外来渲染器继承它,`0.1 × 255 = 25`,
-> **GPU 直接丢弃所有 alpha ≤ 25 的片元**。`Fluent.qml` 里**有 10 个 token 落在这条线下**:
-> `divider`(21)、`panelStroke`(18)、`controlStrokeSecondary`(24)、`subtlePressed`(10)、
-> `controlFillDisabled`(11)、`cardFill`(13)、`controlFill`(15)、`controlFillTertiary`(8)、
-> `cardStroke`(25)、`subtleTransparent`(0)。
+> **GPU 直接丢弃所有 alpha ≤ 25 的片元**。`Fluent.qml` 里**有 15 个 token 落在这条线下**
+> (2026-08-02 重新逐个数过;**旧版写"10 个"是错的**,而且那份清单同时多算 `subtleTransparent`
+> —— alpha 0 本来就不可见,不算被丢 —— 又漏了 6 个,其中 `subtleHover` 是用户可见的悬停背板):
+>
+> `controlStrokeSecondary`(24)、`cardStroke`(25)、`controlAltFillSecondary`(25)、
+> `divider`(21)、`controlFillSecondary`(21)、`panelStroke`(18)、
+> `controlAltFillQuarternary`(18)、`controlFill`(15)、`subtleHover`(15)、`cardFill`(13)、
+> `controlFillDisabled`(11)、`controlAltFillTertiary`(11)、`subtlePressed`(10)、
+> `controlFillTertiary`(8)、`cardFillSecondary`(8)。
+>
+> 按**不同取值**数是 9 个(多个 token 共用同一个值);按**token 名**数是 15 个。
+> 旧的"10"两边都不是。核对方法:数 `Fluent.qml` 里 `property string` 且 `0 < alpha <= 25` 的行。
 >
 > 也就是说**修复前整套微妙层次是全灭的**,而文字(alpha 255/197)照常显示 ——
 > 这正是"控件度量都准、整体却不像 Windows"的真实原因,不是取值问题。

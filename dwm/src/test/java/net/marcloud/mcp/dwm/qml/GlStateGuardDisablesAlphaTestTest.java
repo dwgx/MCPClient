@@ -19,10 +19,12 @@ import org.junit.Test;
  * a foreign renderer inherits a cutoff of 25/255 and every Skia fragment at or below that alpha is
  * discarded by the GPU while the state fields all report health.
  *
- * <p>That is not a corner case for this module. Ten of {@code Fluent.qml}'s colour tokens have alpha
- * <= 25 -- {@code divider} (21, used in seven files), {@code panelStroke} (18), {@code cardFill}
- * (13), {@code controlFill} (15) among them -- so with the alpha test armed the entire set of subtle
- * Fluent layers is invisible while every metric remains correct.
+ * <p>That is not a corner case for this module. FIFTEEN of {@code Fluent.qml}'s colour tokens have
+ * alpha <= 25 -- {@code divider} (21, used in seven files), {@code panelStroke} (18),
+ * {@code cardFill} (13), {@code controlFill} (15) and {@code subtleHover} (15) among them -- so with
+ * the alpha test armed the entire set of subtle Fluent layers is invisible while every metric
+ * remains correct. (Counted again 2026-08-02: earlier revisions of this file and of the handoffs
+ * said "ten", which matched neither the 15 token NAMES nor the 9 distinct VALUES below the line.)
  *
  * <p>Source-level assertions, because the ORDER is the part that is easy to get wrong and cannot be
  * observed from outside: the disable has to sit after {@code glPushAttrib} so that
@@ -55,9 +57,10 @@ public class GlStateGuardDisablesAlphaTestTest {
         String src = guardSource();
         assertTrue("GlStateGuard.enter() must disable GL_ALPHA_TEST. MC leaves it enabled at "
                 + "GREATER 0.1 for its GUI, and Skia inherits it -- which discards every fragment "
-                + "at alpha <= 25, i.e. ten of Fluent's tokens including every divider and panel "
-                + "stroke. Skia expresses translucency through blending and never through the "
-                + "fixed-function alpha test, so this removes a constraint it cannot see.",
+                + "at alpha <= 25, i.e. FIFTEEN of Fluent's tokens including every divider, panel "
+                + "stroke and the hover backplate. Skia expresses translucency through blending and "
+                + "never through the fixed-function alpha test, so this removes a constraint it "
+                + "cannot see.",
             Pattern.compile("glDisable\\s*\\(\\s*GL11\\.GL_ALPHA_TEST\\s*\\)").matcher(src).find());
     }
 
