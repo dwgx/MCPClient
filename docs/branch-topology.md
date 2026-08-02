@@ -25,8 +25,8 @@ origin/main  c2cf357                origin/mcp-core  1dbf475
         └──────────────┬───────────────┘
                        │  a3bc32f  merge: macOS arm64 support into the dwm/qml4j line
                        │
-              feat/dwm-qml4j  5c8e092
-              + dwm 的 qml4j 实现(本线),62 commits ahead of mcp-core
+              feat/dwm-qml4j
+              + dwm 的 qml4j 实现(本线)
 ```
 
 实测(`git merge-base --is-ancestor` / `git rev-list --count`):
@@ -44,8 +44,16 @@ origin/main  c2cf357                origin/mcp-core  1dbf475
 
 ### 0.1 那个错误掩盖了什么
 
-1. **"62 commits ahead" 里有 3 个不是本线的工作。** 那 3 个是 `main` 的
-   (`.gitattributes` + 两个 CI 提交),经 `a3bc32f` 合进来的。**本线自己的工作是 59 个。**
+1. **"ahead of mcp-core" 的计数里有 3 个不是本线的工作。** 那 3 个是 `main` 的
+   (`.gitattributes` + 两个 CI 提交),经 `a3bc32f` 合进来的。所以**本线自己的工作 = 总数 − 3**。
+
+   **这里不写具体数字**,因为它每次提交都变 —— 本文第一版写死"47",订正版写死"62",
+   而后者在写完的同一轮里就变成了 67。要数就现场数:
+
+   ```bash
+   git rev-list --count origin/mcp-core..HEAD          # 总数
+   git rev-list --count origin/mcp-core..origin/main   # 减掉这个(=3),得本线自己的
+   ```
 2. **合回 `mcp-core` 会顺带把 `main` 那 3 个提交带过去。** 它们无害(语言统计 + CI 触发条件),
    但合并时应当知道它们在里面,而不是以为只有 dwm 的改动。
 
@@ -86,7 +94,8 @@ origin/main  c2cf357                origin/mcp-core  1dbf475
 ## 2. CI 从未在这条线上跑过
 
 `.github/workflows/build.yml` 的 `push` 触发分支是 `[main, mcp-core, rank1-encryption-test]`
-—— **不含 `feat/dwm-qml4j`**。所以这 47 个提交推上去之后,**GitHub Actions 一次都没跑**。
+—— **不含 `feat/dwm-qml4j`**。所以本线的提交推上去之后,**GitHub Actions 一次都没跑**
+(原文写"这 47 个提交",是写作当时的数;同 §0.1,别在文档里钉这个数)。
 
 这不是疏忽被发现,是一个需要决定的事:
 
