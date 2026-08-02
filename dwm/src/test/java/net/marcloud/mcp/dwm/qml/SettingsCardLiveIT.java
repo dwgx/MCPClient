@@ -248,6 +248,10 @@ public class SettingsCardLiveIT {
         ScenePixels px = null;
         try {
             surface = open();
+            // Before sampling: confirm the premise. The icon decodes on a worker thread, so the two
+            // frames open() pumps may or may not have adopted it -- and a missing icon and an
+            // undrawn one read identically from the pixels.
+            awaitDecoded(surface, iconOf(byName(viewOf(surface).root(), "plainCard")));
             px = layerPixels(surface);
             assertNotNull("the layer must be readable", px);
 
@@ -357,6 +361,50 @@ public class SettingsCardLiveIT {
         }
         return null;
     }
+
+    /**
+     * Pump frames until an {@code Image} has decoded, because a fixed frame count races the decoder.
+     *
+     * <p>qml4j loads and decodes every {@code Image.source} on a daemon worker
+     * ({@code ImageLoader.decode} submits to a pool unconditionally -- the {@code asynchronous}
+     * property does not gate it), and the render thread only adopts the result on a later frame,
+     * once {@code decodeReadyGen} has caught up with {@code decodeGen}. An icon therefore needs the
+     * worker to finish loading, rasterizing the SVG and decoding it, and then one more frame.
+     *
+     * <p>Two frames do not guarantee that, and the flake was real rather than theoretical: a full
+     * {@code verify} run reported {@code litPixels=0} here while the same class passed alone, and a
+     * re-run of the identical order passed 43/43. Waiting on {@code status} (Qt's
+     * Null=0/Ready=1/Loading=2/Error=3) is the convergence signal, which is the same lesson
+     * {@code live-verification.md} §8 records for animation: wait for the state, not for a
+     * frame count.
+     *
+     * <p><b>What is proven about this wait, and what is not.</b> Starving the loop to zero
+     * iterations makes it throw, so it does read the live {@code status} and would fire. But it was
+     * never observed pumping a single extra frame -- not on a warm cache, and not with
+     * {@code SvgRaster}'s cache cleared to force a real rasterize. On this machine the worker wins
+     * the race every time it was measured, so the flake's window stays unreproduced and this guard
+     * is currently doing nothing observable. It is kept because the alternative to an unfired guard
+     * is the failure that was actually seen: a missing icon reported as a drawing defect.
+     */
+    private static void awaitDecoded(QmlUiSurface surface, Item image) throws Exception {
+        for (int i = 0; i < 120; i++) {
+            if (Math.round(numberProp(image, "status")) == IMAGE_READY) {
+                // One further frame, so the adopted image is actually PAINTED before we sample.
+                surface.frame(Display.getWidth(), Display.getHeight(), System.nanoTime());
+                return;
+            }
+            surface.frame(Display.getWidth(), Display.getHeight(), System.nanoTime());
+            Thread.sleep(4);
+        }
+        throw new AssertionError("an icon Image did not reach status Ready within 120 frames, so "
+            + "the pixel assertion below would be measuring a NOT-YET-DECODED icon and reporting it "
+            + "as a drawing defect. Last status=" + Math.round(numberProp(image, "status"))
+            + " (Qt: 0 Null, 1 Ready, 2 Loading, 3 Error) -- 2 means the worker is still going and "
+            + "the budget is too small; 3 means the source or the SVG itself is broken.");
+    }
+
+    /** qml4j mirrors Qt's Image.status: Null=0, Ready=1, Loading=2, Error=3. */
+    private static final int IMAGE_READY = 1;
 
     private static Item iconOf(Item card) {
         for (Item child : card.children) {
