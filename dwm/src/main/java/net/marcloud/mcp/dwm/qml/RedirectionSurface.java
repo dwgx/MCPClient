@@ -15,18 +15,24 @@ import io.github.humbleui.skija.Surface;
  * composites those surfaces into the desktop. Same idea here, for one surface: qml4j paints the
  * scene into this texture, and each game frame blits the texture over MC's framebuffer.
  *
- * <p><b>Why it is worth the extra memory.</b> It is the only way to get damage tracking in this
- * architecture. MC redraws the whole world every frame, so the composite can never be skipped —
- * skip it and the menu simply disappears. But the <em>scene render</em> can be skipped, and that
- * is the expensive half: an idle menu costs one textured blit instead of a full Skia paint of
- * every rounded rect, glyph and divider.
+ * <p><b>Why it is worth the extra memory, now that damage tracking is gone.</b> It was originally
+ * the vehicle for damage tracking: MC redraws the whole world every frame so the composite can never
+ * be skipped, but the <em>scene render</em> could be, and an idle menu then cost one textured blit
+ * instead of a full Skia paint. That skip has been removed — see
+ * {@code QmlUiSurface.composite()} for why it was circular and froze every animation on its first
+ * frame — so the scene now repaints every frame and this surface earns its memory on the two
+ * remaining grounds:
  *
- * <p><b>Simpler than a real compositor's damage tracking.</b> A Wayland or Windows compositor has
- * to union damage across the last N frames, because the buffer it is handed has been recycled and
- * still holds content from two frames ago (hence EGL's buffer_age). We own this surface, never
- * present it and never let it rotate, so its contents are exactly what we last drew. Level-zero
- * damage tracking — "notice nothing changed and stop rendering" — is therefore the whole of it,
- * with no buffer-age arithmetic.
+ * <ul>
+ *   <li><b>Ownership of the drawing target.</b> The scene paints into a surface we control instead
+ *       of straight into MC's framebuffer, which is what makes the UI's alpha, clip and matrix state
+ *       ours rather than a negotiation with whatever MC left set.
+ *   <li><b>A snapshot to composite from.</b> {@link #endScene()} hands back a GPU image on the same
+ *       {@link DirectContext}, so the blit stays on the GPU with no readback.
+ * </ul>
+ *
+ * <p>The damage-tracking rationale is recorded rather than deleted because the reason it went away
+ * is not a performance judgement and is easy to reintroduce by accident.
  *
  * <p>Every native call is fault-isolated: a failure leaves the surface null and the caller falls
  * back to drawing direct, rather than throwing on the render thread.
