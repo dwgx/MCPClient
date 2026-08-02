@@ -90,6 +90,35 @@ Fluent Standard:所有项对齐 **40x40 epx** 目标。菜单项高度取 40px �
 > 用像素验证**,而不是在 headless 或离屏 raster 上 —— CPU 光栅化不过 GL,裸 GLFW 窗口
 > 也从不开 alpha test,两者都看不见这类缺陷。完整案例见 `docs/debugging.md` §9。
 
+> **第二个 alpha 陷阱:SVG 图标的 tint 不能用 8 位 hex(2026-08-02,已修)**
+>
+> 上面那条是 GPU 丢片元;这条是**解析器根本不画**,而症状一样是"取值正确却看不见"。
+>
+> **Skia 的 SVG 解析器不接受任何 8 位 hex**,两种字节序都不接受 —— 实测
+> `#5DFFFFFF` 与 `#FFFFFF5D` **都**光栅化成全透明,而 parse 与 render 双双报成功。
+> 所以这**不是** AARRGGBB / RRGGBBAA 的顺序问题(我一度这么判断,是错的)。
+>
+> | 传给 SVG 的形式 | 结果 |
+> |---|---|
+> | `#ffffff` | `argb=ffffffff` ✔ |
+> | `#5d5d5d` | `argb=ff5d5d5d` ✔ |
+> | `#5dffffff`(QML 的 AARRGGBB) | `argb=00000000` **什么都没画** |
+> | `#ffffff5d`(CSS 的 RRGGBBAA) | `argb=00000000` **什么都没画** |
+> | `rgba(255,255,255,0.36)` | `argb=5cffffff` ✔ 带 alpha |
+> | `ffffff`(缺 `#`) | `argb=00000000` |
+>
+> **踩到的地方**:`FluentSettingsCard` 的 disabled tint 是 `5dffffff`,而 `PageSettings` 把
+> 卡片的 `enabled` 绑在 `Motion.uiEffects` 上 —— 那是**用户可拨的开关**。关掉总开关,
+> 卡片图标**不是变暗而是整个消失**。`FluentSettingsExpander` 的 disabled chevron 同理。
+> 另有一条尚不可达:`FluentSettingsCard` 的 action chevron 在 **enabled 常态**下用
+> `c5ffffff`,今天因为 `clickable` 默认 false 而不显示,**谁把某张卡设成 `clickable: true`
+> 就会拿到一个隐形 chevron**。
+>
+> **修法**:`SvgRaster.tint` 把 8 位 hex 译成 `rgba()`,alpha 折进颜色(`ResourceLoader`
+> 只收到一个路径,没有别的通道能碰到节点)。QML 侧的 `#AARRGGBB` 约定不动。
+> 回归测试 `SvgTintPaintsAtEveryAlphaTest` 断言的是**画出来的像素 alpha**,
+> 而不是替换后的字符串 —— 因为这一整类缺陷的形状就是"parse 成功、render 成功、什么都没画"。
+
 | Token | 值 | 用途 |
 |---|---|---|
 | `TextFillColorPrimary` | `#FFFFFF` | 主文本 |

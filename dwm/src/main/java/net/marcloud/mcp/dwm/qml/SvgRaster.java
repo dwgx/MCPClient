@@ -152,14 +152,48 @@ final class SvgRaster {
         if (svg == null || tint == null || tint.isEmpty()) {
             return svg;
         }
-        // The '#' is added when absent, and this is not cosmetic: a bare "4cc2ff" is not a valid
-        // SVG colour, and Skia's SVG parser answers an invalid paint by drawing NOTHING while
-        // parsing and rendering report success. Measured -- it produced a 101-byte, fully
-        // transparent PNG whose Image reported status Ready with a correct intrinsic size. The
-        // tint arrives without the '#' because it travels inside a resource path, where '#'
-        // would read as a fragment.
-        String colour = tint.startsWith("#") ? tint : "#" + tint;
         String source = new String(svg, StandardCharsets.UTF_8);
-        return source.replace("currentColor", colour).getBytes(StandardCharsets.UTF_8);
+        return source.replace("currentColor", cssColour(tint)).getBytes(StandardCharsets.UTF_8);
+    }
+
+    /**
+     * A tint as a colour Skia's SVG parser will actually paint.
+     *
+     * <p><b>Skia paints no 8-digit hex at all</b>, in either byte order -- measured, because the
+     * obvious diagnosis was that QML's {@code #AARRGGBB} was being read as CSS's {@code #RRGGBBAA}.
+     * It is not an ordering problem: {@code #5DFFFFFF} and {@code #FFFFFF5D} both rasterize to a
+     * fully transparent image while parsing and rendering report success. {@code rgba()} does paint
+     * and does carry alpha ({@code rgba(255,255,255,0.36)} measured back as {@code 5CFFFFFF}), so an
+     * 8-digit tint is translated rather than passed through.
+     *
+     * <p>This is the same failure mode the {@code '#'} prefix below guards, and it is worth naming
+     * once: an invalid paint costs the whole shape, silently. A disabled settings card was therefore
+     * losing its icon outright rather than dimming it -- see
+     * {@code SvgTintPaintsAtEveryAlphaTest}.
+     *
+     * <p>Alpha is folded into the colour rather than left to the {@code Image}'s own opacity because
+     * the tint is all a {@link ResourceLoader} receives: qml4j hands this class a path and takes
+     * bytes, so there is no channel to reach the node with.
+     */
+    private static String cssColour(String tint) {
+        String hex = tint.startsWith("#") ? tint.substring(1) : tint;
+        if (hex.length() == 8) {
+            try {
+                int a = Integer.parseInt(hex.substring(0, 2), 16);
+                int r = Integer.parseInt(hex.substring(2, 4), 16);
+                int g = Integer.parseInt(hex.substring(4, 6), 16);
+                int b = Integer.parseInt(hex.substring(6, 8), 16);
+                // Three decimals: 1/255 is 0.0039, so two would collapse adjacent alphas.
+                return String.format("rgba(%d,%d,%d,%.3f)", r, g, b, a / 255.0F);
+            } catch (NumberFormatException e) {
+                // Not hex after all. Fall through to the literal form, which at worst reproduces
+                // the old behaviour for this one value rather than dropping every icon.
+                System.err.println("[dwm] tint is not 8-digit hex, passing through: " + tint);
+            }
+        }
+        // The '#' is added when absent, and this is not cosmetic: a bare "4cc2ff" is not a valid SVG
+        // colour and paints nothing. The tint arrives without it because it travels inside a
+        // resource path, where '#' would read as a fragment.
+        return tint.startsWith("#") ? tint : "#" + tint;
     }
 }
