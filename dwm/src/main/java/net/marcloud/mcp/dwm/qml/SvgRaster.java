@@ -3,6 +3,7 @@ package net.marcloud.mcp.dwm.qml;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
 
 import io.github.humbleui.skija.Canvas;
@@ -184,7 +185,15 @@ final class SvgRaster {
                 int g = Integer.parseInt(hex.substring(4, 6), 16);
                 int b = Integer.parseInt(hex.substring(6, 8), 16);
                 // Three decimals: 1/255 is 0.0039, so two would collapse adjacent alphas.
-                return String.format("rgba(%d,%d,%d,%.3f)", r, g, b, a / 255.0F);
+                //
+                // Locale.ROOT is load-bearing, not defensive habit. The default locale decides the
+                // decimal separator, so on a de_DE or fr_FR machine "%.3f" yields 0,365 and this
+                // emits rgba(255,255,255,0,365) -- a five-argument rgba() that Skia rejects by
+                // painting NOTHING. Measured: the comma form rasterizes to peak alpha 0 while the
+                // dot form gives 93. That is the very defect this method exists to fix, walking
+                // back in through the formatter, and it would only have shown up on someone
+                // else's machine.
+                return String.format(Locale.ROOT, "rgba(%d,%d,%d,%.3f)", r, g, b, a / 255.0F);
             } catch (NumberFormatException e) {
                 // Not hex after all. Fall through to the literal form, which at worst reproduces
                 // the old behaviour for this one value rather than dropping every icon.

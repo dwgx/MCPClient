@@ -8,6 +8,7 @@ import io.github.humbleui.skija.Bitmap;
 import io.github.humbleui.skija.ColorAlphaType;
 import io.github.humbleui.skija.Image;
 import io.github.humbleui.skija.ImageInfo;
+import java.util.Locale;
 import org.junit.Test;
 
 /**
@@ -65,6 +66,35 @@ public class SvgTintPaintsAtEveryAlphaTest {
                     + "8-digit hex in either order, so an AARRGGBB tint has to be translated to "
                     + "rgba() -- otherwise a disabled card's icon vanishes instead of dimming.",
                 peak > 0);
+        }
+    }
+
+    /**
+     * The translation must not depend on the machine's locale.
+     *
+     * <p>{@code String.format("%.3f", ...)} takes its decimal separator from the default locale, so
+     * on a de_DE or fr_FR machine the alpha comes out as {@code 0,365} and the result is
+     * {@code rgba(255,255,255,0,365)} -- five arguments, which Skia answers by painting nothing.
+     * Measured: the comma form rasterizes to peak alpha 0 against 93 for the dot form. That is the
+     * same defect this class exists to catch, re-entering through the formatter, and it would never
+     * have failed on the machine it was written on.
+     */
+    @Test
+    public void theTranslationSurvivesACommaDecimalLocale() {
+        Locale saved = Locale.getDefault();
+        try {
+            Locale.setDefault(Locale.GERMANY);
+            String emitted = new String(
+                SvgRaster.tint("stroke=\"currentColor\"".getBytes(
+                    java.nio.charset.StandardCharsets.UTF_8), "5dffffff"),
+                java.nio.charset.StandardCharsets.UTF_8);
+            assertTrue("the alpha must use a '.' whatever the locale, or Skia sees a 5-argument "
+                    + "rgba() and paints nothing. Emitted: " + emitted,
+                emitted.contains("0.365"));
+            assertEquals("and it must still reach the raster under that locale", 0x5D,
+                peakAlpha("5dffffff"), 2.0);
+        } finally {
+            Locale.setDefault(saved);
         }
     }
 
