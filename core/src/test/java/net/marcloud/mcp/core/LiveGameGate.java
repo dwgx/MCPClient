@@ -125,12 +125,28 @@ public final class LiveGameGate {
         // it class-loads Minecraft and throws, and paying that on every ordinary
         // `mvn test` buys nothing once the gate has already decided to skip.
         Liveness live = LIVE ? probe(probe) : Liveness.notAsked();
-        switch (gate(LIVE, live.up())) {
+        enforce(gate(LIVE, live.up()), what, live.reason());
+    }
+
+    /**
+     * Turn a {@link Gate} into the JUnit outcome it means: return to RUN, an assumption violation to
+     * SKIP, an assertion error to FAIL.
+     *
+     * <p>Separate from {@link #require} for the same reason {@link #gate} is: this mapping IS the
+     * point of this class, and folded into {@code require} it was untestable, because {@code require}
+     * reads the static {@link #LIVE} that a test in the same JVM cannot flip. It therefore shipped
+     * with no coverage at all -- {@code Assume.assumeTrue(failMessage(...), false)} substituted for
+     * the {@code fail} below leaves every unit test green while restoring the exact silent-success
+     * behaviour this class exists to abolish. Taking the decision as an argument makes all three arms
+     * assertable without a game and without a property.
+     */
+    static void enforce(Gate decision, String what, String reason) {
+        switch (decision) {
             case RUN -> {
                 // The game is here; the caller's body runs.
             }
             case SKIP -> Assume.assumeTrue(skipMessage(what), false);
-            case FAIL -> fail(failMessage(what, live.reason()));
+            case FAIL -> fail(failMessage(what, reason));
         }
     }
 }

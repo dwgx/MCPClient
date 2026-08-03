@@ -124,6 +124,35 @@ public final class HoldController {
         return done;
     }
 
+    /**
+     * Lift the use key if this controller still has it asserted, and mark the hold finished.
+     *
+     * <p>For the case where the controller is DISCARDED rather than ticked to a conclusion: the
+     * applier rebinding to a fresh intent, or otherwise dropping its reference. Everything else this
+     * class owns is its own fields, but the key is a static {@code KeyBinding} in the client, so an
+     * abandoned assertion outlives the object -- vanilla keeps restarting the use
+     * ({@code Minecraft.java:2158}) with nothing driving it, and the slot that could cancel no longer
+     * holds this controller.
+     *
+     * <p>Deliberately NOT a {@code tick} and deliberately no outcome: the caller is not asking the
+     * hold to conclude, it is asking it to let go of what belongs to the game. Idempotent, and a
+     * no-op once terminal, because every terminal path already released.
+     */
+    public void releaseIfHolding(ActActuator act) {
+        if (done) {
+            return;
+        }
+        // Through finish() so there is ONE place that decides what "let go" means, and it asks the
+        // actuator rather than inferring from heldTicks: whether the key is down is a fact the client
+        // holds, while a tick count is only a proxy for it.
+        //
+        // CANCELLED rather than a new outcome state: from this controller's side being rebound IS a
+        // cancellation, and the outcome is discarded by the caller anyway -- inventing a fifth state
+        // for a value nobody reads would be vocabulary without a consumer.
+        finish(act, ActOutcome.cancelled(
+                "hold cancelled after " + heldTicks + " ticks: the interact slot was rebound"));
+    }
+
     /** Advance one tick against {@code act}. */
     public ActOutcome tick(ActActuator act) {
         if (done) {
@@ -134,10 +163,10 @@ public final class HoldController {
             // eating or blocking with nothing driving it, and for a bow the release IS the shot, so
             // the cancel must go through vanilla's stop path to end the draw.
             act.releaseUseKey();
-            return finish(ActOutcome.cancelled("hold cancelled after " + heldTicks + " ticks"));
+            return finish(act, ActOutcome.cancelled("hold cancelled after " + heldTicks + " ticks"));
         }
         if (!act.inWorld()) {
-            return finish(ActOutcome.failed("not in world"));
+            return finish(act, ActOutcome.failed("not in world"));
         }
         return switch (state) {
             case STARTING -> start(act);
@@ -148,7 +177,7 @@ public final class HoldController {
 
     private ActOutcome start(ActActuator act) {
         if (mode == InteractIntent.HoldMode.THEN_RELEASE && holdTicks <= 0) {
-            return finish(ActOutcome.failed("hold mode THEN_RELEASE needs holdTicks >= 1, got "
+            return finish(act, ActOutcome.failed("hold mode THEN_RELEASE needs holdTicks >= 1, got "
                     + holdTicks + "; a bow needs at least " + BOW_MIN_CHARGE_TICKS
                     + " draw ticks to fire anything"));
         }
@@ -156,7 +185,7 @@ public final class HoldController {
             // The write itself could not be made -- no client, or the use binding is missing from
             // KeyBinding's static keyCode hash. Retrying does not fix either, so fail on tick one
             // rather than pumping a key that is not there.
-            return finish(ActOutcome.failed("could not assert vanilla's use key, so a hold is not "
+            return finish(act, ActOutcome.failed("could not assert vanilla's use key, so a hold is not "
                     + "possible; nothing was started"));
         }
         heldTicks = 1;
@@ -167,7 +196,7 @@ public final class HoldController {
         if (!act.isUsingItem()) {
             if (!act.useItemInAir()) {
                 act.releaseUseKey();
-                return finish(ActOutcome.failed("use rejected in air, so there is nothing to hold "
+                return finish(act, ActOutcome.failed("use rejected in air, so there is nothing to hold "
                         + "(empty hand, no arrows for a bow, or already-full hunger)"));
             }
             if (!act.isUsingItem()) {
@@ -176,7 +205,7 @@ public final class HoldController {
                 // pretending nothing did, but there is no state to hold and the caller asked for a
                 // hold, so this is not the success they requested.
                 act.releaseUseKey();
-                return finish(ActOutcome.failed("the item used instantly and has no use duration to "
+                return finish(act, ActOutcome.failed("the item used instantly and has no use duration to "
                         + "hold; the use did happen, but HOLD is for food, a bow or blocking"));
             }
         }
@@ -190,7 +219,7 @@ public final class HoldController {
             // unattended. At one tick of draw a bow is far below BOW_MIN_CHARGE_TICKS, so the
             // release fires nothing.
             act.releaseUseKey();
-            return finish(ActOutcome.failed("this item does not self-terminate: vanilla gave the use "
+            return finish(act, ActOutcome.failed("this item does not self-terminate: vanilla gave the use "
                     + initialCount + " ticks, so UNTIL_DONE would hold indefinitely -- use "
                     + "THEN_RELEASE with a tick count instead (a bow fires on release)"));
         }
@@ -204,7 +233,7 @@ public final class HoldController {
     private ActOutcome hold(ActActuator act) {
         // Read before re-asserting. After re-assertion the read is our own write and says nothing.
         if (!act.useKeyHeld()) {
-            return finish(ActOutcome.failed("the use key was cleared after " + heldTicks
+            return finish(act, ActOutcome.failed("the use key was cleared after " + heldTicks
                     + " ticks, so vanilla has already stopped the use -- most likely a screen opened "
                     + "(KeyBinding.unPressAllKeys) or the window lost focus"));
         }
@@ -216,7 +245,7 @@ public final class HoldController {
             boolean ranOut = lastCount <= COMPLETION_COUNT_SLACK;
             act.releaseUseKey();
             if (!ranOut) {
-                return finish(ActOutcome.failed("the use ended after " + heldTicks + " ticks with "
+                return finish(act, ActOutcome.failed("the use ended after " + heldTicks + " ticks with "
                         + lastCount + " ticks still on its clock, so it was interrupted rather than "
                         + "finished -- the held stack changed (a hotbar switch clears the use)"));
             }
@@ -224,11 +253,11 @@ public final class HoldController {
                 // Asked to hold N ticks and vanilla finished early: honest success, but the caller's
                 // release never happened, and for a bow that is the difference between a shot and a
                 // meal, so the message must not read like a release.
-                return finish(ActOutcome.done("the use completed on its own after " + heldTicks
+                return finish(act, ActOutcome.done("the use completed on its own after " + heldTicks
                         + " ticks, before the requested " + holdTicks
                         + "; no release was needed"));
             }
-            return finish(ActOutcome.done("use completed after " + heldTicks + " ticks of holding"));
+            return finish(act, ActOutcome.done("use completed after " + heldTicks + " ticks of holding"));
         }
 
         if (mode == InteractIntent.HoldMode.THEN_RELEASE && heldTicks >= holdTicks) {
@@ -238,13 +267,13 @@ public final class HoldController {
         int deadline = initialCount + SERVER_FINISH_SLACK_TICKS;
         if (mode == InteractIntent.HoldMode.UNTIL_DONE && heldTicks > deadline) {
             act.releaseUseKey();
-            return finish(ActOutcome.failed("still using after " + heldTicks + " ticks, but vanilla "
+            return finish(act, ActOutcome.failed("still using after " + heldTicks + " ticks, but vanilla "
                     + "gave this use only " + initialCount + " ticks -- the server never sent the "
                     + "finish (status id 9), so the use is not going to complete"));
         }
 
         if (!act.holdUseKey()) {
-            return finish(ActOutcome.failed("lost the ability to assert the use key after "
+            return finish(act, ActOutcome.failed("lost the ability to assert the use key after "
                     + heldTicks + " ticks; the hold cannot continue"));
         }
         heldTicks++;
@@ -270,7 +299,7 @@ public final class HoldController {
         // tick short would put a 3-tick draw (an arrow) below BOW_MIN_CHARGE_TICKS (no arrow).
         drawnAtRelease = initialCount - act.itemInUseCount();
         if (!act.releaseUseKey()) {
-            return finish(ActOutcome.failed("held " + heldTicks + " ticks but the use key could not "
+            return finish(act, ActOutcome.failed("held " + heldTicks + " ticks but the use key could not "
                     + "be released, so vanilla will not end the use"));
         }
         state = State.RELEASING;
@@ -288,7 +317,7 @@ public final class HoldController {
     private ActOutcome confirmRelease(ActActuator act) {
         int drawn = drawnAtRelease;
         if (act.isUsingItem()) {
-            return finish(ActOutcome.failed("released the use key after " + heldTicks
+            return finish(act, ActOutcome.failed("released the use key after " + heldTicks
                     + " ticks but the player is still using the item, so vanilla did not end the use "
                     + "-- a bow would not have fired"));
         }
@@ -297,11 +326,30 @@ public final class HoldController {
                 : drawn >= BOW_FULL_CHARGE_TICKS
                         ? "; a bow would be at full charge (" + BOW_FULL_CHARGE_TICKS + "+ ticks)"
                         : "";
-        return finish(ActOutcome.done("held " + heldTicks + " ticks then released, " + drawn
+        return finish(act, ActOutcome.done("held " + heldTicks + " ticks then released, " + drawn
                 + " draw ticks counted by vanilla" + charge));
     }
 
-    private ActOutcome finish(ActOutcome out) {
+    /**
+     * Produce a terminal outcome, guaranteeing the use key is not left asserted.
+     *
+     * <p>The release lives HERE rather than at each of the sixteen terminal sites because the key is
+     * the one thing this controller owns that outlives it: {@code KeyBinding.pressed} sits in a
+     * static binding, so a path that ends without lifting it leaves the client holding right-click
+     * with nothing driving the hold -- vanilla restarts the use every tick
+     * ({@code Minecraft.java:2158}) and, since the assertion survives world teardown, it is still
+     * down when the player next spawns. Two paths shipped with exactly that hole (losing the world
+     * mid-hold, and losing the ability to re-assert the key), and auditing sixteen call sites to keep
+     * them all correct is the kind of discipline that fails silently on the seventeenth.
+     *
+     * <p>Guarded on {@code useKeyHeld()} so the paths that already released -- cancel, and the
+     * THEN_RELEASE conclusion where the release IS the shot -- are not double-counted, and so a
+     * failure before the key was ever asserted does not report a release that never happened.
+     */
+    private ActOutcome finish(ActActuator act, ActOutcome out) {
+        if (out.terminal() && act.useKeyHeld()) {
+            act.releaseUseKey();
+        }
         done = out.terminal();
         return out;
     }

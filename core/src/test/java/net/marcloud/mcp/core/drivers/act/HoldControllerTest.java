@@ -345,4 +345,32 @@ public class HoldControllerTest {
         assertFalse(out.ok());
         assertEquals(0, act.holdUseKeyCalls);
     }
+
+    /**
+     * Losing the world MID-hold must release the key, not just stop.
+     *
+     * <p>The test above sets {@code inWorld} false before the first tick, so the key was never
+     * asserted and {@code holdUseKeyCalls == 0} passes without proving anything about teardown. The
+     * case that matters is the one it cannot reach: death, a dimension change or a disconnect while
+     * the key IS down. {@code KeyBinding.pressed} lives in a static binding, so it outlives world
+     * teardown -- an assertion abandoned here is still down when the player next spawns, a phantom
+     * right-click held from the first tick of the new world with nothing on our side aware of it.
+     */
+    @Test
+    public void losingTheWorldMidHoldStillReleasesTheKey() {
+        FakeActuator act = holdingFood();
+        HoldController c = new HoldController(InteractIntent.holdUntilDone());
+
+        assertFalse("precondition: the hold is running", c.tick(act).terminal());
+        assertTrue("precondition: the key is asserted", act.useKeyHeld());
+
+        act.inWorld = false;
+        ActOutcome out = c.tick(act);
+
+        assertTrue("losing the world is terminal", out.terminal());
+        assertFalse("and it is a failure, not a success", out.ok());
+        assertFalse("the key must not be left asserted across world teardown -- it is static and "
+                + "survives into the next world", act.useKeyHeld());
+        assertTrue("and the release must be an explicit call", act.releaseUseKeyCalls > 0);
+    }
 }

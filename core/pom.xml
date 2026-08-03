@@ -33,8 +33,18 @@
              is not usable as org.objectweb.asm; pin the same 9.8 pg-engine already
              uses so both modules parse/emit with one ASM version. BSD-3. -->
         <asm.version>9.8</asm.version>
-        <!-- The *LiveIT scaffolds are opt-in; see the failsafe config below. -->
-        <core.it.skip>true</core.it.skip>
+        <!-- The *LiveIT scaffolds are opt-in; see the failsafe config below.
+
+             Two names on purpose, and the indirection is the point. core.it.skip is the knob this
+             module documents (mirroring dwm.live.skip next door), while skipITs is the one failsafe
+             itself documents. Defaulting core.it.skip to ${skipITs} makes BOTH work: a literal
+             <skipITs> in the plugin configuration otherwise beats the command line, so
+             -DskipITs=false was silently ignored and answered BUILD SUCCESS with zero ITs run —
+             the same literal-beats-CLI hazard this config already avoids for argLine, and the same
+             silent success the honest gate exists to abolish. An operator reaching for the
+             documented failsafe flag must not be quietly told nothing. -->
+        <skipITs>true</skipITs>
+        <core.it.skip>${skipITs}</core.it.skip>
     </properties>
 
     <dependencies>

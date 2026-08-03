@@ -120,10 +120,39 @@ public class FailsafeWiringContractTest {
                         + "not a hardcoded true that no operator can override; got " + skip,
                 skip.startsWith("${") && skip.endsWith("}"));
 
-        String property = skip.substring(2, skip.length() - 1);
-        assertEquals("the property must default to true so `mvn verify` stays quiet for anyone "
-                        + "who did not ask for a live run",
-                "true", firstText(root, property));
+        // Follow the chain to its literal, rather than demanding the first hop already BE the
+        // literal. core.it.skip defaults to ${skipITs} on purpose: a literal <skipITs> in the plugin
+        // configuration beats the command line, so failsafe's own documented -DskipITs=false was
+        // silently ignored and answered BUILD SUCCESS with zero ITs -- the same literal-beats-CLI
+        // hazard the argLine assertion below guards against. Both knobs must work, and the first
+        // version of this assertion rejected the fix for it.
+        String value = skip;
+        for (int hop = 0; hop < 4 && value != null && value.startsWith("${") && value.endsWith("}");
+                hop++) {
+            value = firstText(root, value.substring(2, value.length() - 1));
+        }
+        assertEquals("the property chain must bottom out at true so `mvn verify` stays quiet for "
+                        + "anyone who did not ask for a live run; resolved to " + value,
+                "true", value);
+    }
+
+    /**
+     * The knob failsafe itself documents must reach the plugin, not just ours.
+     *
+     * <p>Not a style point: an operator who reaches for {@code -DskipITs=false} and is told "Tests
+     * are skipped. BUILD SUCCESS" has been handed the exact silent success this whole change set
+     * exists to abolish, and nothing in the output names the alternative property.
+     */
+    @Test
+    public void failsafesOwnSkipItsPropertyIsHonoured() {
+        Element root = pomRoot();
+        String ours = firstText(root, "core.it.skip");
+        assertNotNull("core.it.skip must be declared", ours);
+        assertEquals("core.it.skip must delegate to failsafe's own skipITs property so BOTH the "
+                        + "module's documented knob and failsafe's documented knob work; a bare "
+                        + "literal here makes -DskipITs=false a no-op",
+                "${skipITs}", ours);
+        assertEquals("and skipITs must itself default to true", "true", firstText(root, "skipITs"));
     }
 
     @Test

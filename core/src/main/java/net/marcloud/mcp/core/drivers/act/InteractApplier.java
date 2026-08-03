@@ -97,6 +97,14 @@ public final class InteractApplier implements ActApplier {
     }
 
     private void bind(InteractIntent ii, ActIntent identity) {
+        // Tear down before dropping the reference, not just after cancel. A live HOLD owns state
+        // OUTSIDE this object -- vanilla's use key, asserted in a static KeyBinding -- so nulling the
+        // field abandons an assertion that nothing is left to lift. Vanilla then re-fires
+        // rightClickMouse on every tick nothing is in use (Minecraft.java:2158), which eats the rest
+        // of the stack or re-draws the bow forever, and act_cancel cannot rescue it because the slot
+        // no longer holds the controller that knows how to let go. The cancel path always did this;
+        // the replace path beside it did not, and a test that asserted only "the new intent ran"
+        // could not tell the difference.
         reset();
         boundTo = identity;
         switch (ii.kind()) {
@@ -107,7 +115,17 @@ public final class InteractApplier implements ActApplier {
         }
     }
 
+    /**
+     * Drop every controller, releasing any live game state first.
+     *
+     * <p>The release is unconditional rather than "only when replacing": every path that reaches here
+     * is one where this applier stops driving the controller, and an asserted key with no driver is
+     * the same failure regardless of which path abandoned it.
+     */
     private void reset() {
+        if (hold != null) {
+            hold.releaseIfHolding(actuator);
+        }
         boundTo = null;
         dig = null;
         hold = null;
