@@ -100,7 +100,9 @@ public final class InteractApplier implements ActApplier {
         // Tear down before dropping the reference, not just after cancel. A live HOLD owns state
         // OUTSIDE this object -- vanilla's use key, asserted in a static KeyBinding -- so nulling the
         // field abandons an assertion that nothing is left to lift. Vanilla then re-fires
-        // rightClickMouse on every tick nothing is in use (Minecraft.java:2158), which eats the rest
+        // rightClickMouse whenever nothing is in use (Minecraft.java:2158, at most once every five
+        // ticks -- rightClickMouse sets rightClickDelayTimer to 4 and it decrements one per tick), which
+        // eats the rest
         // of the stack or re-draws the bow forever, and act_cancel cannot rescue it because the slot
         // no longer holds the controller that knows how to let go. The cancel path always did this;
         // the replace path beside it did not, and a test that asserted only "the new intent ran"

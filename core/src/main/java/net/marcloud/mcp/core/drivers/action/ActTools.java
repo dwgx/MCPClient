@@ -194,10 +194,14 @@ public final class ActTools {
                         + "ends the use (eating: act_status reports whether the food was actually "
                         + "consumed or the hold was interrupted); give holdTicks to hold that long "
                         + "then let go, which for a bow is what FIRES the arrow -- a draw shorter than "
-                        + "about 3 ticks shoots nothing. Note the whole hold ends FAILED if anything "
-                        + "opens a GUI, because vanilla clears every key when a screen appears. "
-                        + "While a use is held vanilla also scales walking to 0.2x, so a MOVE running "
-                        + "at the same time will travel far less than its own report suggests. "
+                        + "3 ticks shoots nothing. A hold ends FAILED if a screen opens (chat, the "
+                        + "pause menu, a chest), and READ THAT MESSAGE rather than assuming the use "
+                        + "stopped: a screen clears the key AND gates off vanilla's own code for "
+                        + "ending a use, so the item usually keeps being used with nobody driving it "
+                        + "and a drawn bow fires whenever the screen closes. act_status distinguishes "
+                        + "the two endings. While a use is held vanilla also scales walking to 0.2x, "
+                        + "so a MOVE running at the same time will travel far less than its own "
+                        + "report suggests. "
                         + "Returns per-slot effectiveTick "
                         + "and phase. Read act_status to see how each intent progresses.")
                 .inputSchema(objectSchema(Map.of(

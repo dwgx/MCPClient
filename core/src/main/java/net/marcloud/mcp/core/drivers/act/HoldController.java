@@ -44,7 +44,7 @@ public final class HoldController {
      *
      * <p>{@code ItemBow.onPlayerStoppedUsing} computes {@code f = (t^2 + 2t)/3} where {@code t} is
      * draw ticks / 20, and returns without creating an arrow when {@code f < 0.1}. Solving gives
-     * 2.83 ticks, so 2 ticks yields 0.070 (nothing) and 3 ticks yields 0.108 (an arrow). The same
+     * 2.80 ticks, so 2 ticks yields 0.070 (nothing) and 3 ticks yields 0.108 (an arrow). The same
      * formula reaches {@code f == 1.0} at exactly 20 ticks, which is full charge.
      */
     public static final int BOW_MIN_CHARGE_TICKS = 3;
@@ -112,6 +112,8 @@ public final class HoldController {
      * pulled away: the dangerous direction of this error.
      */
     private int initialSlot = -1;
+    /** Set the tick the key was found cleared, so the NEXT tick can observe what vanilla did. */
+    private boolean keyLost;
     /** Draw ticks vanilla had counted at the moment of release, for the RELEASING message. */
     private int drawnAtRelease;
 
@@ -245,9 +247,39 @@ public final class HoldController {
     private ActOutcome hold(ActActuator act) {
         // Read before re-asserting. After re-assertion the read is our own write and says nothing.
         if (!act.useKeyHeld()) {
+            // ASK whether the use actually ended; do not infer it from the key. The first version
+            // reported "vanilla has already stopped the use", and that is exactly backwards in the
+            // most common way to lose the key -- a screen opening. Vanilla's stop branch
+            // (Minecraft.java:2118-2122) lives inside "if (currentScreen == null ||
+            // currentScreen.allowUserInput)" at Minecraft.java:1829, and allowUserInput is a bare
+            // field defaulting false that ONLY GuiInventory and GuiContainerCreative set. So with
+            // chat, the pause menu, a chest or a furnace open, the very screen that cleared the key
+            // also gates off the code that would have ended the use: the meal keeps ticking and a bow
+            // stays drawn, then fires whenever the screen closes. Telling the caller the use had
+            // stopped meant telling it the opposite of the truth on the path it will hit most.
+            if (!keyLost) {
+                // Give vanilla one tick to react before saying which ending this was, because at this
+                // instant the two are indistinguishable: we read at the top of the tick and vanilla's
+                // stop branch runs later in it, so isUsingItem() is still true either way. Waiting one
+                // tick turns a guess into an observation -- the same trade confirmRelease makes.
+                // Stop re-asserting meanwhile: re-pressing the key would fight whatever cleared it.
+                keyLost = true;
+                return ActOutcome.running("the use key was cleared after " + heldTicks
+                        + " ticks; waiting one tick to see whether vanilla ends the use");
+            }
+            if (act.isUsingItem()) {
+                return finish(act, ActOutcome.failed("the use key was cleared after " + heldTicks
+                        + " ticks but the use is STILL RUNNING, so this hold no longer controls it. "
+                        + "Vanilla's own stop branch is gated behind currentScreen == null || "
+                        + "allowUserInput (Minecraft.java:1829), so a screen that clears the key also "
+                        + "stops vanilla ending the use -- the item keeps being used, and a drawn bow "
+                        + "will fire when that screen closes. Close the screen and read act_status, or "
+                        + "submit a fresh hold to take the use back over"));
+            }
             return finish(act, ActOutcome.failed("the use key was cleared after " + heldTicks
-                    + " ticks, so vanilla has already stopped the use -- most likely a screen opened "
-                    + "(KeyBinding.unPressAllKeys) or the window lost focus"));
+                    + " ticks and the use has ended with it -- most likely the window lost focus "
+                    + "while in-game (Minecraft.java:1467-1469 clears every binding, but only when "
+                    + "the game had focus)"));
         }
 
         if (!act.isUsingItem()) {

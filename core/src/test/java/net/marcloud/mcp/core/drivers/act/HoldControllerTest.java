@@ -315,11 +315,24 @@ public class HoldControllerTest {
         assertFalse(act.isUsingItem());
     }
 
+    /**
+     * A screen opening clears the key but does NOT end the use, and the report must say so.
+     *
+     * <p>The claim this replaces was backwards on the commonest path there is. Vanilla's stop branch
+     * ({@code Minecraft.java:2118-2122}) sits inside
+     * {@code if (currentScreen == null || currentScreen.allowUserInput)} at
+     * {@code Minecraft.java:1829}, and {@code allowUserInput} defaults false with only
+     * {@code GuiInventory} and {@code GuiContainerCreative} setting it. So the very screen that wipes
+     * the bindings also gates off the code that would have ended the use: chat, the pause menu, a
+     * chest, a furnace. Reporting "vanilla has already stopped the use" told the caller the opposite
+     * of the truth -- the meal keeps ticking, a drawn bow stays drawn and fires when the screen
+     * closes, and a caller that believed the use was over would never look again.
+     *
+     * <p>The sibling test below keeps the focus-loss case, where the coupling DOES hold, so the two
+     * endings stay distinguishable rather than collapsing into one message.
+     */
     @Test
-    public void aKeyClearedByAScreenFailsHonestlyRatherThanContinuing() {
-        // KeyBinding.unPressAllKeys wipes every binding when a GUI opens (Minecraft.java:1469). The
-        // hold must notice, because vanilla has already stopped the use by then; silently
-        // re-asserting would report a hold that is not happening.
+    public void aScreenThatClearsTheKeyWithoutEndingTheUseIsReportedAsStillRunning() {
         FakeActuator act = holdingFood();
         HoldController c = new HoldController(InteractIntent.holdThenRelease(30));
 
@@ -331,13 +344,59 @@ public class HoldControllerTest {
                 break;
             }
             if (i == 3) {
-                act.useKeyDown = false;   // a screen opened between our tick and the next
+                // A chest opens: the bindings are wiped AND vanilla's stop branch is gated off.
+                act.useKeyDown = false;
+                act.screenGatesVanillaStop = true;
+            }
+        }
+
+        assertTrue("must terminate", out != null && out.terminal());
+        assertFalse("losing control of a use is a failure", out.ok());
+        assertTrue("the message must say the use is STILL RUNNING rather than claiming vanilla "
+                        + "stopped it: " + out.message(),
+                out.message().contains("STILL RUNNING"));
+        assertTrue("and must warn that a drawn bow fires when the screen closes, since that is the "
+                        + "consequence the caller cannot see: " + out.message(),
+                out.message().contains("fire when that screen closes"));
+    }
+
+    /**
+     * The OTHER way to lose the key, where vanilla's coupling does hold and the use really does end.
+     *
+     * <p>Renamed from "a key cleared by a screen": that was the wrong mechanism. A screen gates
+     * vanilla's stop branch off entirely (see the test above), so it is the case where the use
+     * survives. The case where losing the key genuinely ends the use is focus loss while in-game --
+     * {@code Minecraft.java:1467-1469} clears every binding, and only then, since
+     * {@code unPressAllKeys} has exactly that one caller and it is guarded on
+     * {@code inGameHasFocus}. Keeping the two apart is the point: the caller's next move differs
+     * (nothing to do, versus a use still running that it no longer controls).
+     */
+    @Test
+    public void aKeyClearedByFocusLossEndsTheUseAndSaysSo() {
+        FakeActuator act = holdingFood();
+        HoldController c = new HoldController(InteractIntent.holdThenRelease(30));
+
+        ActOutcome out = null;
+        for (int i = 0; i < 50; i++) {
+            out = c.tick(act);
+            act.advanceGameTick();
+            if (out.terminal()) {
+                break;
+            }
+            if (i == 3) {
+                // Focus lost: the bindings are wiped and vanilla's own coupling still applies, so
+                // advanceGameTick ends the use on the next step.
+                act.useKeyDown = false;
             }
         }
         assertTrue("must terminate", out != null && out.terminal());
         assertFalse("must not report success for a hold that was wiped: " + out.message(), out.ok());
-        assertTrue("must name the cleared key and point at the screen: " + out.message(),
-            out.message().contains("use key was cleared") && out.message().contains("screen"));
+        assertTrue("must name the cleared key: " + out.message(),
+                out.message().contains("use key was cleared"));
+        assertTrue("and must say the use ended with it, rather than leaving the caller to wonder: "
+                + out.message(), out.message().contains("the use has ended with it"));
+        assertFalse("this path must NOT claim the use is still running -- that is the screen case: "
+                + out.message(), out.message().contains("STILL RUNNING"));
     }
 
     @Test

@@ -297,9 +297,15 @@ class FakeActuator implements ActActuator {
      *   <li><b>The count runs down</b> ({@code EntityPlayer.onUpdate:275-295}, reached from
      *       {@code Minecraft.java:2202}). Once per tick, and on a client it keeps going past zero:
      *       {@code onItemUseFinish} there is server-only.
-     *   <li><b>The server's finish arrives</b> ({@code Minecraft.java:2261}
-     *       {@code processReceivedPackets} → {@code handleStatusUpdate} id 9), after
-     *       {@link #serverFinishDelayTicks}, which is what actually clears the use on a client.
+     *   <li><b>The server's finish arrives</b> ({@code handleStatusUpdate} id 9 →
+     *       {@code EntityPlayer.java:509-511}), after {@link #serverFinishDelayTicks}, which is what
+     *       actually clears the use on a client. An earlier version of this note cited
+     *       {@code Minecraft.java:2261} as the delivery point; that line is in the
+     *       {@code theWorld == null} branch and is unreachable in a world. Inbound packets are
+     *       enqueued by {@code PacketThreadUtil} and drained at {@code Minecraft.java:1101}, i.e.
+     *       BEFORE {@code runTick} rather than at the end of it. The delay this fake applies is still
+     *       the right shape -- the finish is a round trip, not instantaneous -- but do not trust the
+     *       old line number if you are reasoning about within-tick ordering.
      * </ol>
      *
      * <p>Steps 2 and 4 in that order are what makes an UNTIL_DONE hold observable at all: the finish
@@ -313,7 +319,34 @@ class FakeActuator implements ActActuator {
      * {@code rightClickDelayTimer == 0}, which this ignores, so restart is modelled at its earliest
      * possible tick. That is the worst case, and the worst case is what a hold has to survive.
      */
+    /**
+     * Model a screen being open, which SUSPENDS vanilla's key-up-ends-the-use coupling.
+     *
+     * <p>Not a detail. That whole block, the stop branch included, sits inside
+     * {@code if (currentScreen == null || currentScreen.allowUserInput)} at
+     * {@code Minecraft.java:1829}, and {@code allowUserInput} is a bare field defaulting false that
+     * only {@code GuiInventory} and {@code GuiContainerCreative} set. So with chat, the pause menu, a
+     * chest or a furnace open, the key can be down or up and vanilla ends nothing -- the use keeps
+     * ticking. Until this flag existed the fake coupled key-up to use-stop unconditionally, so it
+     * agreed with a controller that reported "vanilla has already stopped the use", and no test could
+     * see that the claim was backwards on the commonest path there is.
+     */
+    boolean screenGatesVanillaStop = false;
+
     void advanceGameTick() {
+        if (screenGatesVanillaStop) {
+            // Vanilla's own gate is closed: no stop, no restart. The use itself still runs down,
+            // because EntityPlayer.onUpdate is reached from a different call site that the screen
+            // guard does not cover.
+            if (usingItem) {
+                useCount--;
+                if (useCount <= -serverFinishDelayTicks) {
+                    usingItem = false;
+                    useCount = 0;
+                }
+            }
+            return;
+        }
         if (usingItem && !useKeyDown) {
             usingItem = false;
             useCount = 0;
