@@ -137,6 +137,63 @@ public class ActToolsTest {
         assertEquals("INTERACT:DIG", st.intentKind());
     }
 
+    /**
+     * The HOLD channel exists in the act package but was, for one commit, reachable only from Java:
+     * {@code parseInteract} had no {@code hold} case, so the whole eat / draw-a-bow / block capability
+     * was invisible to the model it was built for. A controller nobody can call is not a feature, so
+     * these three pin the wiring rather than the controller.
+     */
+    @Test
+    public void actSetAcceptsHoldUntilDoneWhenNoTicksAreGiven() {
+        clock.advance();
+        CallToolResult r = call(tools.actSet(), Map.of("interact", Map.of("kind", "hold")));
+        assertFalse("not an error", Boolean.TRUE.equals(r.isError()));
+        var st = runtime.status().slots().get(ActSlot.INTERACT.ordinal());
+        assertTrue("a hold must reach the INTERACT slot", st.hasIntent());
+        assertEquals("INTERACT:HOLD", st.intentKind());
+    }
+
+    @Test
+    public void actSetAcceptsHoldThenReleaseWhenTicksAreGiven() {
+        clock.advance();
+        CallToolResult r = call(tools.actSet(),
+                Map.of("interact", Map.of("kind", "hold", "holdTicks", 20)));
+        assertFalse("not an error", Boolean.TRUE.equals(r.isError()));
+        assertEquals("INTERACT:HOLD",
+                runtime.status().slots().get(ActSlot.INTERACT.ordinal()).intentKind());
+    }
+
+    /**
+     * Negative ticks are a caller mistake, not a mode. Rejecting them here rather than clamping
+     * keeps the two modes distinguishable: silently treating -1 as "until done" would make a typo
+     * look like a deliberate eat.
+     */
+    @Test
+    public void actSetRejectsNegativeHoldTicksRatherThanGuessingAMode() {
+        CallToolResult r = call(tools.actSet(),
+                Map.of("interact", Map.of("kind", "hold", "holdTicks", -1)));
+        assertTrue("negative holdTicks is an error result", Boolean.TRUE.equals(r.isError()));
+        // Assert on WHICH complaint, not merely that one happened. Without the hold case at all,
+        // kind:"hold" falls through to the unknown-kind branch and also returns isError -- so the
+        // weaker assertion passed even with the whole feature removed. That is the no-op assertion
+        // shape this repo has caught in itself twice; naming holdTicks is what makes it teeth.
+        assertTrue("the error must be about holdTicks, not about an unrecognised kind: " + text(r),
+                text(r).contains("holdTicks"));
+        assertFalse("and nothing was partially submitted",
+                runtime.status().slots().get(ActSlot.INTERACT.ordinal()).hasIntent());
+    }
+
+    /** The description must name 'hold' and say why 'use' cannot eat, or nobody will find it. */
+    @Test
+    public void theActSetDescriptionNamesHoldAndWhyUseIsNotEnough() {
+        String desc = tools.actSet().tool().description();
+        assertTrue("the kind list must include hold", desc.contains("'hold'"));
+        assertTrue("the description must say a single 'use' cannot eat/draw/block",
+                desc.contains("CANNOT"));
+        assertTrue("holdTicks must be documented as the mode selector",
+                desc.contains("holdTicks"));
+    }
+
     @Test
     public void actSetWithNoSlotsIsAnHonestError() {
         CallToolResult r = call(tools.actSet(), Map.of());

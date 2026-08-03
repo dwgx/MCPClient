@@ -1,15 +1,22 @@
 package net.marcloud.mcp.core.drivers.act;
 
 import net.marcloud.mcp.core.GameAccess;
-import org.junit.Assume;
+import net.marcloud.mcp.core.LiveGameGate;
 import org.junit.Test;
 
 import static org.junit.Assert.assertTrue;
 
 /**
  * LIVE scaffold (default SKIPPED). Requires a running Minecraft client with the player in a world
- * holding something with a use duration. Gated behind {@code -Dmcp.it.live=true}; without it every
- * test {@link Assume#assumeTrue assume-skips} and never fails.
+ * holding something with a use duration.
+ *
+ * <p>Gated through {@link LiveGameGate}: no {@code -Dmcp.it.live=true} skips, but asking for a live
+ * run this JVM cannot host FAILS rather than reporting a green skip. This file first shipped with
+ * the older double-{@code Assume} shape — {@code Assume(LIVE)} then {@code Assume(inWorld)} with the
+ * probe's throwable swallowed — which is exactly the defect {@code LiveGameGate} was introduced to
+ * remove, re-created here because the two changes were written in parallel and neither could see
+ * the other. Worth recording: a fix that lands as a helper does not stop the next author
+ * reinventing the bug.
  *
  * <p>Mirrors {@code DigLiveIT}/{@code InteractLiveIT}. This one carries more weight than those,
  * because the hold channel's mechanism is entirely live: {@code KeyBinding.setKeyBindState} writing a
@@ -37,20 +44,8 @@ import static org.junit.Assert.assertTrue;
  */
 public class HoldLiveIT {
 
-    private static final boolean LIVE = Boolean.getBoolean("mcp.it.live");
-
-    private static void requireLive() {
-        Assume.assumeTrue("requires live game window; run with -Dmcp.it.live=true", LIVE);
-    }
-
     private static void requireInWorld(ActActuator act) {
-        boolean up;
-        try {
-            up = act.inWorld();
-        } catch (Throwable noGame) {
-            up = false;
-        }
-        Assume.assumeTrue("requires the player to be in a world", up);
+        LiveGameGate.require("player in a world holding a usable item", act::inWorld);
     }
 
     /**
@@ -63,7 +58,6 @@ public class HoldLiveIT {
      */
     @Test
     public void theUseKeyCanBeAssertedAndReadBack() {
-        requireLive();
         ActActuator act = new LivePlayerActuator(new GameAccess());
         requireInWorld(act);
 
@@ -85,7 +79,6 @@ public class HoldLiveIT {
      */
     @Test
     public void holdUntilDoneTerminatesOnTheLiveClient() {
-        requireLive();
         ActActuator act = new LivePlayerActuator(new GameAccess());
         requireInWorld(act);
 
@@ -112,7 +105,6 @@ public class HoldLiveIT {
      */
     @Test
     public void holdThenReleaseTerminatesOnTheLiveClient() {
-        requireLive();
         ActActuator act = new LivePlayerActuator(new GameAccess());
         requireInWorld(act);
 

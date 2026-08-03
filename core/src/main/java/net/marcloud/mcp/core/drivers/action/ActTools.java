@@ -186,8 +186,19 @@ public final class ActTools {
                         + "jump,sneak,sprint (bool), durationTicks (<=0 = hold until cancelled)}. "
                         + "look:{mode 'set'|'look_at', yaw/pitch (SET degrees), block:[x,y,z] or "
                         + "entityId (LOOK_AT), slewDegPerTick (<=0 = instant snap)}. "
-                        + "interact:{kind 'dig'|'use'|'place'|'attack'|'hotbar', block:[x,y,z], "
-                        + "face 0-5, entityId, hotbarSlot 0-8, mode}. Returns per-slot effectiveTick "
+                        + "interact:{kind 'dig'|'use'|'place'|'attack'|'hotbar'|'hold', block:[x,y,z], "
+                        + "face 0-5, entityId, hotbarSlot 0-8, holdTicks, mode}. 'use' is a SINGLE "
+                        + "right-click, which vanilla cancels a couple of ticks later -- so it CANNOT "
+                        + "eat, draw a bow or block. 'hold' is the sustained one: it keeps vanilla's "
+                        + "use key asserted every tick. Omit holdTicks to hold until the game itself "
+                        + "ends the use (eating: act_status reports whether the food was actually "
+                        + "consumed or the hold was interrupted); give holdTicks to hold that long "
+                        + "then let go, which for a bow is what FIRES the arrow -- a draw shorter than "
+                        + "about 3 ticks shoots nothing. Note the whole hold ends FAILED if anything "
+                        + "opens a GUI, because vanilla clears every key when a screen appears. "
+                        + "While a use is held vanilla also scales walking to 0.2x, so a MOVE running "
+                        + "at the same time will travel far less than its own report suggests. "
+                        + "Returns per-slot effectiveTick "
                         + "and phase. Read act_status to see how each intent progresses.")
                 .inputSchema(objectSchema(Map.of(
                         "move", Map.of("type", "object",
@@ -197,7 +208,9 @@ public final class ActTools {
                         "look", Map.of("type", "object",
                                 "description", "camera aim: mode set|look_at, yaw,pitch,block,entityId,slewDegPerTick"),
                         "interact", Map.of("type", "object",
-                                "description", "world interaction: kind dig|use|place|attack|hotbar, block,face,entityId,hotbarSlot")),
+                                "description", "world interaction: kind dig|use|place|attack|hotbar|hold, "
+                                        + "block,face,entityId,hotbarSlot,holdTicks (hold: omit "
+                                        + "holdTicks to eat until done, give it to draw-then-release)")),
                         List.of()))
                 .annotations(ToolAnnotations.builder()
                         .title("Set actuation intents")
@@ -352,10 +365,25 @@ public final class ActTools {
                 }
                 return InteractIntent.hotbar(slot);
             }
+            case "hold": {
+                // The presence of holdTicks picks the mode, because the two are not interchangeable
+                // and the held item cannot decide it: a bow and a raised sword are both 72000-tick
+                // items, so "how long" is a tactical choice only the caller holds. Absent means
+                // UNTIL_DONE (eat until vanilla says the meal ended), a stated count means
+                // THEN_RELEASE (draw that long, then let go -- and for a bow the release IS the shot).
+                int holdTicks = intArg(m, "holdTicks", 0);
+                if (holdTicks < 0) {
+                    throw new IllegalArgumentException(
+                            "act_set interact 'hold' needs 'holdTicks' >= 0, got " + holdTicks);
+                }
+                return holdTicks > 0
+                        ? InteractIntent.holdThenRelease(holdTicks)
+                        : InteractIntent.holdUntilDone();
+            }
             default:
                 throw new IllegalArgumentException(
-                        "act_set interact 'kind' must be one of dig|use|place|attack|hotbar, got '"
-                                + kindStr + "'");
+                        "act_set interact 'kind' must be one of dig|use|place|attack|hotbar|hold, "
+                                + "got '" + kindStr + "'");
         }
     }
 
