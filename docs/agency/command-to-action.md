@@ -265,6 +265,84 @@ dy-2=0  dy-1=0  dy0=1  dy1=1      (0 = 实体阻挡,1 = 通行)
 脚下实体、脚与头部通行,与玩家站在平地上完全吻合。**§3 那个"一个字符的可行性等级"取自
 vanilla 自己裁决**的修法,现在有真机支持。
 
+### ④b `world_view` 的真实体积 —— 比审计估的大一个量级
+
+| radius | 字符 | 约 token | 往返 |
+|---|---|---|---|
+| 4 | 11,444 | 2.9k | 85ms(首次) |
+| 8 | 39,844 | 10.0k | 16ms |
+| **16** | **150,526** | **37.6k** | 54ms |
+
+**一次 r=16 的观察就是 37.6k token。** 审计里"2 KB vs 38 KB"那个对比量的是别的东西。
+延迟不是问题(54ms),**体积才是** —— 这单独就足以支持 §4 第 4 步(按类型过滤、返回坐标的查询)。
+
+> **顺带修掉一个探针 bug,而 `live-dwm-probe.py` 也有。** 读取循环一看到缓冲里出现 `"id":2`
+> 就 break,而 r=16 的回复是 **180,149 字节 / 4 个 recv 块** —— 于是截断成
+> `unparseable reply: Unterminated string`。**"标记出现"不等于"消息到齐"**;
+> 现在改成解析成功才算到齐。dwm 探针从没撞到只是因为它的 payload 一直够小。
+
+### ④c 撞墙的速度信号:反驳是对的,而我一度搞错
+
+前提两边都确认后实测:
+
+| 状态 | 真值 | `world_view` 的 `vel` |
+|---|---|---|
+| 自由行走 | `dPos=(0,0.109)` `collidedH=false` | `[0.0,-0.02,0.09]` |
+| 撞墙卡住 | `dPos=(0,0)` `collidedH=true` | `[0.0,-0.02,0.0]` |
+
+**`vel` 能区分**,Z 分量归零。所以那条"卡住信号已经接好了"的反驳**成立**。
+
+> **我第一次测这条时得出了相反结论,而错法正是本仓库反复记录的那一条:采样前没确认前提。**
+> 我标成"自由行走"的那组,玩家其实卡在别的东西上(`collidedH=true`、位置冻结),
+> 于是两行读数当然一样。**先 `item_box` / 先确认前提**,这条教训在 dwm 侧写过三遍,我又犯一次。
+
+保留的限制不是"没有信号",而是**信号只在观察路径上**:`vel` 来自 `WorldViewCapture.java:94`,
+而 act 包里的 controller 拿不到它;`ActActuator` 也没有 `isCollidedHorizontally`
+—— 后者比速度更干净(它就是布尔值,不用比阈值)。
+
+### ④d 吃东西:两层缺陷,其中一层是我们自己的 bug
+
+Unknown 7 确认,但真因比文档写的深一层。前提完整成立(生存模式、`canEat=true`、面包在手、饥饿 6/20):
+
+```
+act_set interact{kind:use}  ->  phase=FAILED  ticksActive=1  message="use rejected in air"
+食物 6 未变 · useCount=0 · itemInUse=null · 面包 5 个没少
+```
+
+**第一层是我们的 bug。** `LivePlayerActuator.useItemInAir()`(`:189-201`)直接返回
+`PlayerControllerMP.sendUseItem` 的布尔值。而对食物,vanilla 的 `onItemRightClick`
+返回**同一个 stack**,所以 `sendUseItem` 返回 **false —— 尽管它已经成功启动了使用**。实测直接调它:
+
+```
+call0 sendUseItem=false  useCount=32  itemInUse=yes
+```
+
+`useCount=32` 就是面包的 `getMaxItemUseDuration()`。**使用开始了,而 `InteractController`
+把这个 false 读成"拒绝"并报 `use rejected in air`。** 一个成功的开始被误报成失败,
+而错误消息还把人指向错误的方向(以为是"对空使用不被允许")。
+
+**第二层是那个陷阱,确认触发。** 手动 `sendUseItem` 让 `useCount=32` 之后,不再维持按键:
+约 8 tick 内 `useCount` 掉到 0、`itemInUse=null`、食物不变。
+出处核对过:`Minecraft.java:2117-2121` ——
+`if (thePlayer.isUsingItem()) { if (!keyBindUseItem.isKeyDown()) { onStoppedUsingItem(...) } }`。
+
+所以 §4 第 6 步(保持通道)是**必需的**,而且它前面还有一个更便宜的修复:
+**先让 `useItemInAir` 不要把成功当失败。**
+
+### ④e 真机验证的环境约束:窗口失焦 = 世界停摆
+
+`[Server thread/INFO]: Saving and pausing game...` —— **vanilla 单人在窗口失焦时自动暂停。**
+从脚本起的客户端窗口从不获得焦点,所以过了初始宽限期后世界时间冻住
+(实测冻在 `T 185140`,而 `serverRunning=true`)。
+
+- `mc.isGamePaused()=true` 且 **`Display.isActive()=false` 是驱动因素**
+- 把 `currentScreen` 设 null **没用** —— vanilla 失焦时会重新打开 `GuiIngameMenu`
+- 游戏线程仍在服务任务,所以 `eval_java` 照常工作 —— **只有世界推进停了**
+- 聚焦窗口后立刻恢复 ~21 tick/秒
+
+**任何依赖 tick 的真机探针必须先确保窗口有焦点**,否则它读到的是冻结状态而且不会报错。
+dwm 探针从没撞到,因为它自己用 `surface.frame(...)` 推帧,不靠游戏的 tick 循环。
+
 ### ⑤ 开环 MOVE 在平地走的是完美直线 —— 比我预期的好
 
 ```

@@ -71,6 +71,11 @@ class Mcp:
                  "params": {"name": tool, "arguments": args}},
             ):
                 sock.sendall((json.dumps(msg) + "\n").encode())
+            # Read until the id=2 line is COMPLETE, not merely present. Breaking the moment
+            # '"id":2' appears anywhere in the buffer truncates any reply larger than one recv --
+            # measured, world_view at radius 16 is 180149 bytes over 4 chunks, and the naive
+            # version returned "unparseable reply: Unterminated string". live-dwm-probe.py has the
+            # same shape and has simply never sent a payload big enough to hit it.
             buf = b""
             deadline = time.time() + self.timeout
             while time.time() < deadline:
@@ -81,21 +86,39 @@ class Mcp:
                 if not chunk:
                     break
                 buf += chunk
-                if b'"id":2' in buf:
+                if self._complete_reply(buf) is not None:
                     break
         finally:
             sock.close()
 
+        line = self._complete_reply(buf)
+        if line is None:
+            return {"error": f"no complete reply in {len(buf)} bytes"}
+        try:
+            reply = json.loads(line)
+        except ValueError as e:
+            return {"error": f"unparseable reply: {e}"}
+        content = reply.get("result", {}).get("content", [])
+        text = content[0].get("text", "") if content else ""
+        return {"text": text, "isError": reply.get("result", {}).get("isError", False)}
+
+    @staticmethod
+    def _complete_reply(buf):
+        """The id=2 line, but only once it parses as whole JSON. None while still arriving.
+
+        Presence of the marker is not the same as arrival of the message: a large reply spans
+        several recv calls, so this is what makes the read loop wait for the rest instead of
+        truncating mid-string.
+        """
         for line in buf.split(b"\n"):
-            if b'"id":2' in line:
-                try:
-                    reply = json.loads(line)
-                except ValueError as e:
-                    return {"error": f"unparseable reply: {e}"}
-                content = reply.get("result", {}).get("content", [])
-                text = content[0].get("text", "") if content else ""
-                return {"text": text, "isError": reply.get("result", {}).get("isError", False)}
-        return {"error": "no reply"}
+            if b'"id":2' not in line:
+                continue
+            try:
+                json.loads(line)
+            except ValueError:
+                return None
+            return line
+        return None
 
     def java(self, class_name, body):
         """Run a snippet on the GAME thread and return its text.
@@ -140,6 +163,34 @@ def probe_in_world(mcp):
         return "AT " + from + " onGround=" + p.onGround + " dim=" + w.provider.getDimensionId();
     """)
     return record("the player is in a world", out.startswith("AT "), out.strip()[:200])
+
+
+def is_ticking(mcp):
+    """Whether the world is actually advancing, and why not if it is not.
+
+    Vanilla single-player pauses on focus loss: Display.isActive() false makes runTick set
+    isGamePaused and reopen GuiIngameMenu, and the world stops advancing while the game thread
+    keeps servicing eval_java. So every tick-dependent check reads a frozen world and fails for a
+    reason that has nothing to do with the code under test -- which is exactly what happened before
+    this guard existed. Setting currentScreen to null does not help; vanilla reopens it.
+    """
+    out = mcp.java("Ticking", PREAMBLE + """
+        return "paused=" + mc.isGamePaused() + " active=" + org.lwjgl.opengl.Display.isActive()
+             + " t=" + mc.theWorld.getTotalWorldTime();
+    """)
+    if "paused=false" in out:
+        return True, out.strip()
+    return False, out.strip()
+
+
+def require_ticking(mcp, what):
+    """Skip rather than fail when the world is frozen. A false FAIL is worse than a skip."""
+    ok, detail = is_ticking(mcp)
+    if not ok:
+        record(what, False,
+               "SKIPPED-NOT-MEASURED: the world is not ticking, so this proves nothing about the "
+               "code. Focus the game window and re-run. " + detail[:160])
+    return ok
 
 
 def probe_path(mcp, offset):
@@ -242,6 +293,15 @@ def probe_open_loop_straight_line(mcp):
     impossible" (docs/agency/command-to-action.md section 6, unknown 5). Submit forward for 40
     ticks, then compare the bearing actually travelled against the yaw it was facing.
     """
+    if not require_ticking(mcp, "an open-loop MOVE intent actually displaces the player"):
+        return False
+    # A use in progress slows locomotion to 20% in vanilla (onLivingUpdate scales moveForward
+    # while isUsingItem), and the use check runs just before this one -- so clear it or this
+    # measures eating, not walking.
+    mcp.java("ClearUse", PREAMBLE + """
+        if (p.isUsingItem()) mc.playerController.onStoppedUsingItem(p);
+        return "isUsing=" + p.isUsingItem();
+    """)
     before = mcp.java("NavPosA", PREAMBLE + """
         return "POS " + p.posX + " " + p.posZ + " yaw=" + p.rotationYaw;
     """)
@@ -283,6 +343,60 @@ def probe_open_loop_straight_line(mcp):
                   f"moved {dist:.2f} blocks in ~40 ticks")
 
 
+def probe_use_reports_started(mcp):
+    """A use with a DURATION must not be reported as a rejection.
+
+    LivePlayerActuator.useItemInAir returned sendUseItem's value, which answers "did the stack
+    change" -- false for food, a bow, a potion, even though the use began. InteractController then
+    failed with "use rejected in air" on a use that had started. Measured: sendUseItem false while
+    getItemInUseCount went to 32.
+
+    Survival is required: a creative player has disableDamage set, so canEat is false and the eat
+    would legitimately not start. Getting that wrong once already produced a false confirmation.
+    """
+    if not require_ticking(mcp, "a use with a duration is not reported as a rejection"):
+        return False
+    setup = mcp.java("UseSetup", PREAMBLE + """
+        mc.playerController.setGameType(net.minecraft.world.WorldSettings.GameType.SURVIVAL);
+        p.capabilities.isCreativeMode = false;
+        p.capabilities.disableDamage = false;
+        p.getFoodStats().setFoodLevel(6);
+        p.inventory.currentItem = 0;
+        p.inventory.mainInventory[0] = new net.minecraft.item.ItemStack(
+            net.minecraft.init.Items.bread, 5);
+        if (p.isUsingItem()) mc.playerController.onStoppedUsingItem(p);
+        return "canEat=" + p.canEat(false) + " held="
+             + (p.getHeldItem() == null ? "null" : p.getHeldItem().getDisplayName());
+    """)
+    if "canEat=true" not in setup:
+        return record("a use with a duration is not reported as a rejection", False,
+                      "PREMISE FAILED, so this proves nothing: " + setup.strip()[:200])
+
+    mcp.call("act_cancel", {"slots": ["interact"]})
+    mcp.call("act_set", {"interact": {"kind": "use"}})
+    time.sleep(0.6)
+
+    status = mcp.call("act_status", {}).get("text", "")
+    slot = ""
+    try:
+        for s in json.loads(status).get("slots", []):
+            if s.get("slot") == "interact":
+                slot = json.dumps(s)
+    except ValueError:
+        slot = status[:200]
+    started = mcp.java("UseAfter", PREAMBLE + """
+        return "useCount=" + p.getItemInUseCount()
+             + " isUsing=" + p.isUsingItem();
+    """).strip()
+    mcp.call("act_cancel", {"slots": ["interact"]})
+
+    rejected = '"use rejected in air"' in slot
+    print(f"        {slot[:220]}\n        {started[:120]}")
+    return record("a use with a duration is not reported as a rejection", not rejected,
+                  "InteractController still reports 'use rejected in air' while the use started"
+                  if rejected else "reported as started")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=25599)
@@ -312,6 +426,9 @@ def main():
 
     print("\n-- perception: is vanilla's walkability verdict callable")
     probe_walkability_codes(mcp)
+
+    print("\n-- the use path reports a started use honestly")
+    probe_use_reports_started(mcp)
 
     if not args.skip_move:
         print("\n-- unknown 5: does open-loop MOVE displace the player at all")

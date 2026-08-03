@@ -197,7 +197,13 @@ public final class LivePlayerActuator implements ActActuator {
         if (held == null) {
             return false;
         }
-        return pc.sendUseItem(p, w, held);
+        // sendUseItem answers "did the stack change", which is false for every item with a use
+        // DURATION even when the use started -- see the seam contract on ActActuator.useItemInAir.
+        // So take either signal: the stack changed (instant use, e.g. a thrown snowball), or the
+        // player is now using an item (sustained use, e.g. eating). Measured live with bread:
+        // sendUseItem false, getItemInUseCount 32.
+        boolean stackChanged = pc.sendUseItem(p, w, held);
+        return stackChanged || p.isUsingItem();
     }
 
     @Override

@@ -77,7 +77,18 @@ public interface ActActuator {
     /** Right-click a block face at within-block hit offset (hx,hy,hz). */
     boolean rightClickBlock(int x, int y, int z, Face face, double hx, double hy, double hz);
 
-    /** Use the held item in the air. */
+    /**
+     * Use the held item in the air; returns whether the use STARTED.
+     *
+     * <p><b>Not the same question as {@code PlayerControllerMP.sendUseItem}'s return value</b>, and
+     * the difference is load-bearing. That method answers "did the stack change", so for anything
+     * with a use DURATION -- food, a bow, a potion -- it returns false even though the use began:
+     * vanilla's {@code onItemRightClick} for those items calls {@code setItemInUse} and hands back
+     * the same stack. Measured on a live client with bread: {@code sendUseItem} returned false while
+     * {@code getItemInUseCount()} went to 32 and {@code getItemInUse()} became non-null. Reporting
+     * that as a rejection made {@code InteractController} fail with "use rejected in air" on a use
+     * that had in fact started, which points the reader at the wrong thing entirely.
+     */
     boolean useItemInAir();
 
     /** Attack the entity with {@code id}; returns whether the attack was dispatched. */
