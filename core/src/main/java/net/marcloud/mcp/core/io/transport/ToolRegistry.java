@@ -478,7 +478,29 @@ public final class ToolRegistry {
                         + "(raytrace), and env (dimension/biome/time). 'profile'=sparse|explore|combat "
                         + "sets token budget; 'mode'=full|diff (diff = changes since your last "
                         + "world_view); 'radius' overrides grid size; 'sections' picks a subset. Prefer "
-                        + "this over capture_screen for decisions — you can play without screenshots.")
+                        + "this over capture_screen for decisions — you can play without screenshots. "
+                        + "GRID COLUMNS: each has dx,dz (offset from you), surface (topmost non-air "
+                        + "block in the sampled window) with surfaceDy its height relative to your "
+                        + "feet, feet and head (the blocks at your own two body levels), an optional "
+                        + "run-length 'profile' of the vertical window as [block,fromDy,length] "
+                        + "triples, and two TERRAIN-SAFETY keys that are OMITTED in their common "
+                        + "case, so absence is meaningful. "
+                        + "'walk' = vanilla's own passability verdict for the square you would stand "
+                        + "in; ABSENT means WALKABLE, and the values are 2 clear-but-in-water-or-on-a-"
+                        + "closed-trapdoor, 0 blocked (solid or a door), -2 lava, -3 fence/wall/"
+                        + "closed-gate/rail, -4 OPEN trapdoor, \"?\" the verdict could not be obtained "
+                        + "— \"?\" is NOT walkable, it means unknown. It judges the 1x2 volume at your "
+                        + "own feet height, so an ordinary 1-block step-up reads 0 (blocked) even "
+                        + "though you could step onto it. 'drop' = blocks of free fall below that "
+                        + "square; ABSENT means 0 (solid footing), a number is the depth, and \"deep\" "
+                        + "means the probe hit its 24-block bound, i.e. certainly lethal. Fall damage "
+                        + "is max(0, drop-3) hearts-of-damage, so drop<=3 is harmless, drop=13 is "
+                        + "half your health and drop>=23 kills a full-health player — treat the "
+                        + "number as a LOWER bound, since it is whole-block arithmetic. "
+                        + "'blockCounts' is a histogram of each column's SURFACE block only, one "
+                        + "count per column within the sampled vertical window — NOT a census of the "
+                        + "volume, so anything buried or under a ceiling is absent from it. Never "
+                        + "conclude a block type is missing from its absence there; ask find_block.")
                 .annotations(ToolAnnotations.builder()
                         .title("World view (structured observation)")
                         .readOnlyHint(true)
@@ -536,12 +558,18 @@ public final class ToolRegistry {
                 .title("Find a block by type")
                 .description("[requires: in-world] WHERE a block type is, nearest first, as "
                         + "coordinates. Use this instead of scanning world_view when the question "
-                        + "is 'where is the nearest X' -- world_view is ~34k tokens at radius 16 "
-                        + "and its blockCounts says a type is PRESENT without saying where, while "
-                        + "scan_surroundings discards positions entirely. 'types' is "
-                        + "comma-separated and namespace-optional ('iron_ore' or "
+                        + "is 'where is the nearest X' -- world_view is ~34k tokens at radius 16, "
+                        + "and its blockCounts only counts each column's SURFACE block, so a buried "
+                        + "or roofed-over type is absent from it entirely and its absence proves "
+                        + "NOTHING; scan_surroundings does census a volume but discards positions. "
+                        + "This tool scans the volume itself, so it finds what blockCounts cannot. "
+                        + "'types' is comma-separated and namespace-optional ('iron_ore' or "
                         + "'minecraft:iron_ore'), so a name read out of a world_view can be fed "
-                        + "straight back. Returns block/x/y/z/dist per hit; air is never matched.")
+                        + "straight back. Returns block/x/y/z/dist per hit; air is never matched. "
+                        + "'dist' is measured from the block you are standing in to the target "
+                        + "block's index, NOT eye-to-block-centre the way reach is checked, so a hit "
+                        + "reported just inside 4.5 can still be out of reach when it is below or "
+                        + "above you -- get closer rather than trusting dist as a reach test.")
                 .annotations(ToolAnnotations.builder()
                         .title("Find a block by type")
                         .readOnlyHint(true)

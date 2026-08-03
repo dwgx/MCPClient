@@ -251,6 +251,23 @@ public class ActToolsTest {
         assertEquals(ActPhase.IDLE.name(), move.get("phase"));
     }
 
+    /**
+     * {@code move:{to:[x,y,z]}} carries a y that {@code NavController} records and never steers
+     * toward -- deliberately, since this walks rather than flies. That fact reached the model
+     * only through {@link net.marcloud.mcp.core.drivers.act.NavIntent}'s javadoc, so a caller
+     * feeding a find_block position and reading back "arrived" had no way to know it says
+     * nothing about height. Same defect shape as the undocumented grid keys; see
+     * {@code GridSemanticsAreDocumentedTest}.
+     */
+    @Test
+    public void theActSetDescriptionStatesThatYIsNotSteeredToward() {
+        String desc = tools.actSet().tool().description();
+        assertTrue("act_set takes to:[x,y,z] but never steers toward y; unstated, the model "
+                + "reads 'arrived' as being at that y", desc.contains("NEVER STEERED TOWARD"));
+        assertTrue("the description must say what 'arrived' actually measures",
+                desc.contains("HORIZONTAL"));
+    }
+
     @Test
     public void registerAllRegistersThreeToolsAsBuiltins() {
         var exec = new net.marcloud.mcp.core.io.IoSupervisor(2, 2000L);

@@ -50,10 +50,31 @@ public record LocalGrid(int radius, String mode, int originX, int originY, int o
      *                  Boxed so "probed and found no floor" stays distinguishable from 0, which
      *                  would read as flat ground: the opposite of the truth.
      * @param walk      vanilla's own passability verdict for the feet layer, from
-     *                  {@code WalkNodeProcessor.func_176170_a}: -1 water, -2 lava, -3 fence/wall,
-     *                  -4 closed trapdoor, 0 solid/blocked, 1 clear, 2 clear-but-wet. Borrowed
-     *                  rather than invented so there is no second taxonomy of what can be stood on
-     *                  to keep in step with the game.
+     *                  {@code WalkNodeProcessor.func_176170_a}. Borrowed rather than invented so
+     *                  there is no second taxonomy of what can be stood on to keep in step with the
+     *                  game. Values, for the arguments {@link #walkVerdict} actually passes
+     *                  (avoidWater/breakDoors/enterDoors all false):
+     *                  <ul>
+     *                    <li>{@code 2} — clear, but standing in water or on a CLOSED trapdoor</li>
+     *                    <li>{@code 1} — clear ({@link #WALK_CLEAR}; omitted from the wire)</li>
+     *                    <li>{@code 0} — blocked: any solid, or a wooden/closed iron door</li>
+     *                    <li>{@code -2} — lava, and only while the player is not already in it</li>
+     *                    <li>{@code -3} — fence, wall, closed gate, or a rail the player is not
+     *                        already on or above</li>
+     *                    <li>{@code -4} — OPEN trapdoor</li>
+     *                  </ul>
+     *                  {@code -1} (water while avoiding it) is unreachable here because we pass
+     *                  {@code avoidWater=false}; water reads as {@code 2} instead.
+     *
+     *                  <p><b>Vanilla's own javadoc has {@code -4} and {@code 2} the wrong way
+     *                  round</b> ({@code WalkNodeProcessor:183-187} says "-4 for closed trapdoor …
+     *                  2 … except for open trapdoor"), and the first version of this comment copied
+     *                  it. The code says the opposite: a trapdoor always sets {@code flag}
+     *                  ({@code :230-233}), then {@code :242} branches on {@code !isPassable}, and
+     *                  {@code BlockTrapDoor.isPassable} is {@code !OPEN} ({@code :53-56}) — so an
+     *                  OPEN trapdoor (a vertical panel across the cell) returns {@code -4} at
+     *                  {@code :251}, while a CLOSED one (flat against the floor, cell traversable)
+     *                  falls through to {@code flag ? 2 : 1}. Read the dispatch, not the comment.
      */
     public record Column(int dx, int dz, Integer surfaceDy, String surface,
                          String feet, String head, List<Run> profile,
