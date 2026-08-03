@@ -1,6 +1,10 @@
 # docs/ — 索引
 
-2026-07-31。`docs/` 下 18 份文档,之前没有索引,接手的人不知道从哪读。这份就是入口。
+2026-07-31(2026-08-03 补 agency 区)。`docs/` 之前没有索引,接手的人不知道从哪读。这份就是入口。
+
+> **这些文档一度全是 dwm 与 macOS —— 内核侧一份都没有**,而内核才是这个项目的本体
+> (dwm 是可拆卸辅助层)。`agency/command-to-action.md` 是第一份内核侧文档。
+> 如果你接手的任务是"让它像人一样在游戏里做事",从那一份开始,不是从 dwm 交接开始。
 
 > **本仓库的 `.ai-notes/` 不在这台机器上**(在 Windows 主线工作站),所以那套
 > `STATUS.md` 流程在本线走不了 —— 本线的文档全在 `docs/`。见 `branch-topology.md`。
@@ -11,6 +15,8 @@
 
 按顺序读这四份,别的按需:
 
+0. **任务是内核/游戏行动能力?先读 `agency/command-to-action.md`**,它有六个待你定的架构岔路。
+   任务是 UI?跳过它,走下面四份。
 1. **`branch-topology.md`** —— 这条线是什么、主线在哪、为什么不合并回去、怎么跑测试。
    **`JAVA_HOME` 必须显式设 JDK 25**,不设会失败得像回归。
 2. **`dwm/handoff-2026-07-31.md`** —— 最新交接:当前状态、本轮做完什么、还剩什么。
@@ -48,6 +54,12 @@
 | `dwm/handoff-2026-07-28.md` | 更早的交接 | **已被取代** |
 | `dwm/session-2026-07-28.md` | 更早一轮总纲 | **已被取代** |
 
+### agency(内核侧 —— 一条命令怎么变成游戏里的动作)
+
+| 文档 | 内容 | 状态 |
+|---|---|---|
+| `agency/command-to-action.md` | 行动/感知层现状、差距、关键路径、**必须 owner 定的六个岔路** | 当前;**全静态读,没跑过游戏** |
+
 ### macOS
 
 | 文档 | 内容 |
@@ -61,7 +73,11 @@
 
 | 你想知道 | 去 |
 |---|---|
-| 现在该做什么 | `dwm/handoff-2026-07-31.md` §6 |
+| **为什么"一条命令"还做不到、下一步做什么** | `agency/command-to-action.md` §0 §4 |
+| **有哪些架构取舍在等我拍** | `agency/command-to-action.md` §5(六个 Fork) |
+| **行动/感知层已经建好了什么(别重建)** | `agency/command-to-action.md` §1 |
+| **vanilla 自带寻路在哪** | `agency/command-to-action.md` §5 Fork B(`client/src/.../pathfinding/`) |
+| 现在该做什么(dwm 侧) | `dwm/handoff-2026-07-31.md` §6 |
 | 这条线能不能合回主线 | `branch-topology.md` §6 |
 | 私钥丢了怎么办 | `dwm/key-ceremony.md` §0(**没有恢复路径**) |
 | 怎么开原生调试器 | `debugging.md` §1(`MCP_JVMTI=1`) |
