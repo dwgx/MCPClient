@@ -31,7 +31,7 @@ package net.marcloud.mcp.core.drivers.act;
  *       hold FAILED with the screen named as the likely cause. Silently re-asserting would hide a
  *       use vanilla has already stopped.
  *   <li><b>Movement is decalibrated while using.</b> {@code EntityPlayerSP:788-792} scales
- *       {@code moveStrafe}/{@code moveForward} to 0.2x whenever {@code isUsingItem()}, which throws
+ *       {@code moveStrafe}/{@code moveForward} to 0.2x whenever {@code isUsingItem() && !isRiding()}, which throws
  *       off {@code NavController}'s steering and {@code MoveApplier}'s stuck test. Not fixed here,
  *       and not silently absorbed either: the STARTING message says so, so a caller reading
  *       {@code act_status} while their walk crawls has the reason in front of them.
@@ -240,7 +240,7 @@ public final class HoldController {
         initialSlot = act.heldSlot();
         state = State.HOLDING;
         return ActOutcome.running("holding the use key, use count " + initialCount
-                + "; note vanilla scales movement to 0.2x while an item is in use "
+                + "; note vanilla scales movement to 0.2x while an item is in use, unless riding "
                 + "(EntityPlayerSP:788-792), so a walk running alongside this will be slow");
     }
 

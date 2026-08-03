@@ -200,7 +200,7 @@ public final class ActTools {
                         + "stopped: a screen clears the key AND gates off vanilla's own code for "
                         + "ending a use, so the item usually keeps being used with nobody driving it "
                         + "and a drawn bow fires whenever the screen closes. act_status distinguishes "
-                        + "the two endings. While a use is held vanilla also scales walking to 0.2x, "
+                        + "the two endings. While a use is held vanilla also scales walking to 0.2x (unless riding), "
                         + "so a MOVE running at the same time will travel far less than its own "
                         + "report suggests. "
                         + "Returns per-slot effectiveTick "

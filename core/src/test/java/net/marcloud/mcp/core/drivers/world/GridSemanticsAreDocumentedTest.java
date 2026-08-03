@@ -106,6 +106,46 @@ public class GridSemanticsAreDocumentedTest {
                 + "it would read as walkable", "?", everyKeyColumn().get("walk"));
     }
 
+    /**
+     * The fall-damage arithmetic in the description must be on vanilla's scale, and internally
+     * consistent with the worked examples beside it.
+     *
+     * <p>Written because it was not. The description said damage was "max(0, drop-3)
+     * hearts-of-damage", and vanilla's number is HP -- a 20-HP scale, so ten hearts, two HP each
+     * ({@code SharedMonsterAttributes.maxHealth} base 20.0, damage applied as
+     * {@code ceil(distance - 3)} at {@code EntityLivingBase:1151-1161}). A model reading "drop-3
+     * hearts" computes ten hearts for drop=13 and concludes death, while the very next clause in the
+     * same sentence called it half your health. Both cannot be true, and the wrong one is the one a
+     * model would act on -- refusing a survivable drop, or worse, trusting the arithmetic elsewhere.
+     *
+     * <p>Pinning the worked examples rather than the phrasing: the boundary values are what a caller
+     * actually reasons with, and they are derivable, so they can be checked rather than trusted.
+     */
+    @Test
+    public void theFallDamageLegendIsOnVanillasHpScaleAndItsExamplesAgree() {
+        String desc = description("world_view");
+        final int playerMaxHp = 20;          // SharedMonsterAttributes.maxHealth base value
+        final int freeFallBlocks = 3;        // ceil(distance - 3) in EntityLivingBase
+
+        assertTrue("the unit must be HP, not hearts: vanilla's damage numbers are on a 20-HP scale, "
+                        + "and calling them hearts doubles every consequence the caller computes",
+                desc.contains("max(0, drop-" + freeFallBlocks + ") HP"));
+        assertTrue("and the scale must be stated, since 'HP' alone does not say how many hearts that "
+                + "is", desc.contains(playerMaxHp + " HP = 10 hearts"));
+
+        // The worked examples must follow from the formula, or the legend contradicts itself.
+        int halfHealthDrop = freeFallBlocks + playerMaxHp / 2;
+        int fatalDrop = freeFallBlocks + playerMaxHp;
+        assertTrue("drop=" + halfHealthDrop + " is the half-health case (" + halfHealthDrop + "-"
+                        + freeFallBlocks + " = " + playerMaxHp / 2 + " of " + playerMaxHp + " HP)",
+                desc.contains("drop=" + halfHealthDrop + " exactly half your health"));
+        assertTrue("drop>=" + fatalDrop + " is the fatal case, and it must be stated as fatal AT "
+                        + "FULL HEALTH rather than unconditionally",
+                desc.contains("drop>=" + fatalDrop + " fatal at full health"));
+        assertTrue("harmless up to the free-fall allowance",
+                desc.contains("drop<=" + freeFallBlocks + " harmless"));
+    }
+
     @Test
     public void anUnboundedDropIsSentAsDeepSoTheCapIsDistinguishable() {
         LocalGrid.Column bottomless = new LocalGrid.Column(0, 0, 0, "air", "air", "air",
