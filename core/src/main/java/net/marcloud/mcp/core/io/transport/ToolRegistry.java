@@ -55,6 +55,7 @@ public final class ToolRegistry {
         tools.add(disconnectReport());
         tools.add(scanSurroundings());
         tools.add(worldView());
+        tools.add(findBlock());
         tools.add(captureScreen());
         // Typed send_* tools (packet-exposure W6): build a specific C-packet and
         // dispatch it via the same veto-guarded ActionManager.sendRawPacket path.
@@ -525,6 +526,71 @@ public final class ToolRegistry {
                 return ok(json);
             } catch (Exception e) {
                 return error("world_view failed: " + e.getMessage());
+            }
+        });
+    }
+
+    private SyncToolSpecification findBlock() {
+        Tool tool = Tool.builder()
+                .name("find_block")
+                .title("Find a block by type")
+                .description("[requires: in-world] WHERE a block type is, nearest first, as "
+                        + "coordinates. Use this instead of scanning world_view when the question "
+                        + "is 'where is the nearest X' -- world_view is ~34k tokens at radius 16 "
+                        + "and its blockCounts says a type is PRESENT without saying where, while "
+                        + "scan_surroundings discards positions entirely. 'types' is "
+                        + "comma-separated and namespace-optional ('iron_ore' or "
+                        + "'minecraft:iron_ore'), so a name read out of a world_view can be fed "
+                        + "straight back. Returns block/x/y/z/dist per hit; air is never matched.")
+                .annotations(ToolAnnotations.builder()
+                        .title("Find a block by type")
+                        .readOnlyHint(true)
+                        .destructiveHint(false)
+                        .idempotentHint(true)
+                        .openWorldHint(false)
+                        .build())
+                .inputSchema(objectSchema(Map.of(
+                        "types", Map.of("type", "string",
+                                "description", "comma-separated block names, namespace optional"),
+                        "radius", Map.of("type", "integer",
+                                "description", "search half-size in blocks, 1-32 (default 16)"),
+                        "limit", Map.of("type", "integer",
+                                "description", "max hits, 1-64 (default 8)")),
+                        List.of("types")))
+                .build();
+        return new SyncToolSpecification(tool, (exchange, request) -> {
+            Map<String, Object> args = request.arguments() == null ? Map.of() : request.arguments();
+            String types = str(args.get("types"));
+            if (types == null || types.isBlank()) {
+                return error("find_block needs 'types', e.g. \"iron_ore\" or \"oak_log,birch_log\"");
+            }
+            int radius = args.get("radius") instanceof Number n ? n.intValue() : 16;
+            int limit = args.get("limit") instanceof Number n ? n.intValue() : 8;
+            try {
+                List<net.marcloud.mcp.core.drivers.world.BlockFinder.Hit> hits =
+                        net.marcloud.mcp.core.GameBridge.onGameThread(() -> {
+                            var p = ctx.game().player();
+                            var w = ctx.game().world();
+                            if (p == null || w == null) {
+                                return List.<net.marcloud.mcp.core.drivers.world.BlockFinder.Hit>of();
+                            }
+                            var feet = new net.minecraft.util.BlockPos(p.posX, p.posY, p.posZ);
+                            return net.marcloud.mcp.core.drivers.world.BlockFinder.find(
+                                    w, feet, types, radius, limit);
+                        });
+                if (hits.isEmpty()) {
+                    // An explicit miss, not an empty list: "no iron_ore within 16" is a fact the
+                    // caller can act on (search wider, or dig), and a bare [] reads like an error.
+                    return ok("no match for \"" + types + "\" within " + radius + " blocks");
+                }
+                StringBuilder sb = new StringBuilder();
+                for (var h : hits) {
+                    sb.append(h.block()).append(' ').append(h.x()).append(',').append(h.y())
+                            .append(',').append(h.z()).append("  d=").append(h.dist()).append('\n');
+                }
+                return ok(sb.toString().stripTrailing());
+            } catch (Exception e) {
+                return error("find_block failed: " + e.getMessage());
             }
         });
     }
