@@ -94,6 +94,38 @@ public interface ActActuator {
     /** Attack the entity with {@code id}; returns whether the attack was dispatched. */
     boolean attackEntity(int id);
 
+    // ===== locomotion state =====
+    //
+    // What a closed-loop MOVE controller reads back, in the same spirit as blockPresent for
+    // digging: DigController learns the block broke by polling the world, and locomotion needs the
+    // same feedback to detect arrival, correct a heading and fail honestly on a jam. Without these
+    // the MOVE slot can only count ticks -- MoveApplier reports "moving (tick N/M)", which says the
+    // key was held, never that the player went anywhere.
+    //
+    // Each is one field on the live EntityPlayerSP, which LivePlayerActuator already holds at every
+    // method, so the cost is a read rather than any new plumbing.
+
+    /**
+     * Feet position as {@code {x, y, z}}, or null when not in a world.
+     *
+     * <p>Feet rather than eyes because paths, arrival tests and block coordinates are all in feet
+     * space; {@link #eyePos()} stays the aiming reference. Returning {@code double[]} matches
+     * {@code eyePos}'s shape on purpose -- two conventions for a point in one interface is a trap.
+     */
+    double[] position();
+
+    /** Whether the player is standing on something; false while falling or jumping. */
+    boolean onGround();
+
+    /**
+     * Whether the player is pressed against a wall this tick -- the honest jam signal.
+     *
+     * <p>Preferred over velocity, which does distinguish jammed from walking (measured live: Z
+     * component 0.09 against 0.0) but is only reachable through the observe path, and would make a
+     * controller choose a float threshold for a question that is already a boolean here.
+     */
+    boolean collidedHorizontally();
+
     /** Swing the held item (animation + packet). */
     void swing();
 

@@ -116,6 +116,32 @@ public final class LivePlayerActuator implements ActActuator {
         return new double[] {eye.xCoord, eye.yCoord, eye.zCoord};
     }
 
+    // ===== locomotion state =====
+
+    @Override
+    public double[] position() {
+        EntityPlayerSP p = game.player();
+        if (p == null) {
+            return null;
+        }
+        // getEntityBoundingBox().minY rather than posY: they agree for a standing player, but posY
+        // is the eye-height reference in some paths and the box floor is what a path node and a
+        // block coordinate both mean. Vanilla's own pathfinder starts from exactly this value.
+        return new double[] {p.posX, p.getEntityBoundingBox().minY, p.posZ};
+    }
+
+    @Override
+    public boolean onGround() {
+        EntityPlayerSP p = game.player();
+        return p != null && p.onGround;
+    }
+
+    @Override
+    public boolean collidedHorizontally() {
+        EntityPlayerSP p = game.player();
+        return p != null && p.isCollidedHorizontally;
+    }
+
     // ===== rotation =====
 
     @Override

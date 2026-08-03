@@ -24,6 +24,10 @@ class FakeActuator implements ActActuator {
     final Set<Long> presentBlocks = new HashSet<>();
     final java.util.Map<Integer, double[]> entityEyes = new java.util.HashMap<>();
     int heldSlot = 0;
+    /** Feet position, mutable so a test can script movement between controller ticks. */
+    final double[] pos = {0, 0, 0};
+    boolean onGround = true;
+    boolean collidedHorizontally = false;
 
     // ---- programmable results ----
     /** startDig returns false this many times, then true. */
@@ -185,6 +189,43 @@ class FakeActuator implements ActActuator {
         useInAirCalls++;
         calls.add("useItemInAir()");
         return useInAirResult;
+    }
+
+    // ---- locomotion state ----
+
+    @Override
+    public double[] position() {
+        calls.add("position()");
+        return new double[] {pos[0], pos[1], pos[2]};
+    }
+
+    @Override
+    public boolean onGround() {
+        return onGround;
+    }
+
+    @Override
+    public boolean collidedHorizontally() {
+        return collidedHorizontally;
+    }
+
+    /**
+     * Move the fake player, the way a test scripts a dig breaking.
+     *
+     * <p>Present so a nav test can advance the world between ticks without reaching into the
+     * field, which is what {@code putBlock}/{@code removeBlock} already do for digging.
+     */
+    void setPosition(double x, double y, double z) {
+        pos[0] = x;
+        pos[1] = y;
+        pos[2] = z;
+    }
+
+    /** Advance by a delta, for scripting a controller that is making progress. */
+    void nudge(double dx, double dy, double dz) {
+        pos[0] += dx;
+        pos[1] += dy;
+        pos[2] += dz;
     }
 
     @Override
