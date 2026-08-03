@@ -213,9 +213,81 @@ RESOLVING(校验目标+距离,startDig) -> DIGGING(每 tick pumpDig,轮询 block
 
 ---
 
+## 5.5 真机实测结果(2026-08-03,Fork B 已定)
+
+`scripts/nav-astar-probe.py`,5/5 通过,真客户端 + `smoke_world`,玩家在 `(60.5, 63, 82.9)`。
+
+> **为什么是 python 脚本而不是 JUnit LiveIT。** `GameAccess` 读的是
+> `Minecraft.getMinecraft()` —— **只存在于游戏那个 JVM** 的静态单例。surefire 的 JVM 里它是
+> null,`isInWorld()` 返回 false,于是 assume 门控的测试**永远 skip、什么都没探到**。
+> `DigLiveIT` 是同一个形状,而 `git log` 显示它只在 PHASE A 被一起加进来过,**没有证据表明它跑过**。
+> 本仓库的真机验证走 MCP socket + `eval_java`(`scripts/live-dwm-probe.py` 就是这么做的)。
+> 我先照 `DigLiveIT` 写了一个 `NavPathLiveIT`,那是错的选择,已删。
+
+### ① vanilla A* 对客户端玩家可用 —— Fork B 的"包 vanilla"分支活着
+
+```
+NODES 22  took=5357us   (首次,含 JIT)
+n=26      us≈2000       (稳态,同一查询三次完全一致)
+```
+
+12 格斜向查询给出 22-26 个节点,**稳态 ~2ms**。对 50ms 的 tick 预算来说足够便宜,
+可以按需调用而不必缓存整条路线。节点是逐格的(`60,63,82 → 60,63,83 → 61,63,83 → 61,64,84 …`),
+含台阶上升,所以 follower 拿到的是格级航点而不是粗折线。
+
+**读代码时担心的 `initProcessor` 问题不存在**:`createEntityPathTo` 自己调它
+(`PathFinder.java:44`),尺寸从 entity 取。
+
+### ② `reachedTarget=false` 是常态,必须写进 follower 的到达判定
+
+三次全部:`target=64,63,91` 而 `final=64,64,91`。
+
+目标 Y 取的是玩家脚下高度,而那个 XZ 上地形高一格,**vanilla 把目标吸附到了可行走表面**。
+这不是失败 —— 但任何 follower 若按"位置 == 请求的目标"判到达,**就永远不会到达**。
+
+**必须用 `getFinalPathPoint()` 当真正的终点**,而不是自己请求的那个坐标。
+
+### ③ `IBlockAccess` 绕过:不崩,但会静默改变路径
+
+故意传一个只覆盖玩家自己方块的 `ChunkCache`:**没有抛异常,给出 16 个节点**(完整 cache 是 22)。
+
+比崩溃更糟的形态:**它不失败,它给你一条不同的路**。所以 wrapper 必须自己把 cache 撑到覆盖
+整个查询盒 —— 这条现在是实测结论而不是推测。
+
+### ④ vanilla 的可行性裁决可从 core 调用 —— 感知修法可行
+
+`WalkNodeProcessor.func_176170_a(cache, p, x, y, z, 1, 2, 1, false, false, false)` 对真实地形返回:
+
+```
+dy-2=0  dy-1=0  dy0=1  dy1=1      (0 = 实体阻挡,1 = 通行)
+```
+
+脚下实体、脚与头部通行,与玩家站在平地上完全吻合。**§3 那个"一个字符的可行性等级"取自
+vanilla 自己裁决**的修法,现在有真机支持。
+
+### ⑤ 开环 MOVE 在平地走的是完美直线 —— 比我预期的好
+
+```
+位移 dx=-7.515 dz=-3.773  |d|=8.408 格
+yaw 预测 dx=-7.512 dz=-3.778
+偏离朝向 0.04 度
+8.41 格 / 40 tick = 4.2 格/秒(走路速度)
+```
+
+`durationTicks:40` 精确到点停下,血量 20 未变。**探针只断言了"有位移",所以它低报了这个结果。**
+
+这削弱了"MOVE 开环所以不可用"的说法:**平地直线段是可靠的**。真正缺的是
+到达判定、航向纠正、以及撞上东西之后的处理 —— 也就是 §2 说的反馈,而不是位移本身。
+
+---
+
 ## 6. 还不知道的(以及最便宜的验证)
 
-**没有人跑过游戏。** 本机 `scripts/run-mcp.sh` 与 `jvm-args-mcp-macos.txt` 可用;
+> **§6 写于全静态阶段。上面 §5.5 已经实测掉了原编号 1、4(部分)、5;
+> 其余仍然未验。** 下面保留原文,因为未验清单本身仍然有效。
+
+**本机 `scripts/run-mcp.sh` 与 `jvm-args-mcp-macos.txt` 可用**(已实测起得来,
+`3 patch(es) armed, 0 skipped`,socket 在 25599);
 **没有 macOS 的 P-SECURE 启动器**(只有 `.bat`),所以 P-SECURE 相关结论在本机大概复现不了。
 
 1. **vanilla A* 对 `EntityPlayerSP` 在客户端跑得起来吗(不 NPE)?** 这一条独自决定 Fork B。
