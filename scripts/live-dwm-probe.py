@@ -87,6 +87,12 @@ class Mcp:
             ):
                 sock.sendall((json.dumps(msg) + "\n").encode())
 
+            # Read until the id=2 line is COMPLETE, not merely present. Breaking the moment
+            # '"id":2' appears anywhere in the buffer truncates any reply larger than one recv.
+            # This probe's payloads have so far been small enough to hide it, which is why it
+            # survived here after nav-astar-probe.py fixed the same shape -- measured there,
+            # world_view at radius 16 is 180149 bytes over 4 chunks and returned
+            # "unparseable reply: Unterminated string".
             buf = b""
             deadline = time.time() + self.timeout
             while time.time() < deadline:
@@ -97,21 +103,38 @@ class Mcp:
                 if not chunk:
                     break
                 buf += chunk
-                if b'"id":2' in buf:
+                if self._complete_reply(buf) is not None:
                     break
         finally:
             sock.close()
 
+        line = self._complete_reply(buf)
+        if line is None:
+            return {"error": f"no complete reply in {len(buf)} bytes"}
+        try:
+            reply = json.loads(line)
+        except ValueError as e:
+            return {"error": f"unparseable reply: {e}"}
+        content = reply.get("result", {}).get("content", [])
+        text = content[0].get("text", "") if content else ""
+        return {"text": text, "isError": reply.get("result", {}).get("isError", False)}
+
+    @staticmethod
+    def _complete_reply(buf):
+        """The id=2 line, but only once it parses as whole JSON; None while it is still partial.
+
+        A large reply arrives across several recv calls, so this is what makes the read loop wait
+        for the rest instead of truncating mid-string.
+        """
         for line in buf.split(b"\n"):
-            if b'"id":2' in line:
-                try:
-                    reply = json.loads(line)
-                except ValueError as e:
-                    return {"error": f"unparseable reply: {e}"}
-                content = reply.get("result", {}).get("content", [])
-                text = content[0].get("text", "") if content else ""
-                return {"text": text, "isError": reply.get("result", {}).get("isError", False)}
-        return {"error": "no reply"}
+            if b'"id":2' not in line:
+                continue
+            try:
+                json.loads(line)
+            except ValueError:
+                return None
+            return line
+        return None
 
     def java(self, class_name, body):
         """Run a snippet on the GAME thread and return its text.
