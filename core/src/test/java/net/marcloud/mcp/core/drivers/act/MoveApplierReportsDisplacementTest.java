@@ -104,6 +104,40 @@ public class MoveApplierReportsDisplacementTest {
     }
 
     @Test
+    public void aShortBoundedMoveThatJammedSaysSoOnCompletion() {
+        // Found by adversarial review. The duration branch returned before the jam check ran, and
+        // the jam check needed three still ticks anyway -- so a bounded MOVE of 1-3 ticks that
+        // walked straight into a wall reported "movement complete after 2 ticks, moved 0.00 blocks"
+        // and never mentioned the wall. The zero is there, but a caller has to infer the cause, and
+        // collidedHorizontally -- the entire reason the actuator gained that accessor -- was
+        // unreachable on every short intent.
+        FakeActuator act = new FakeActuator();
+        act.setPosition(0, 64, 0);
+        act.collidedHorizontally = true;
+        MoveApplier applier = new MoveApplier(act);
+        SlotRecord rec = run(applier, activeMove(act, 2), 2, null);
+
+        assertTrue("a bounded move must complete on budget", rec.phase() == ActPhase.COMPLETE);
+        String m = rec.message().toLowerCase();
+        assertTrue("and it must say it ended against a wall rather than only that it went nowhere. "
+                + "Got: " + rec.message(),
+            m.contains("wall") || m.contains("stuck") || m.contains("blocked"));
+    }
+
+    @Test
+    public void aShortMoveThatSucceededDoesNotClaimAJam() {
+        // The other half, or the assertion above could be satisfied by always crying wall.
+        FakeActuator act = new FakeActuator();
+        act.setPosition(0, 64, 0);
+        MoveApplier applier = new MoveApplier(act);
+        SlotRecord rec = run(applier, activeMove(act, 2), 2, () -> act.nudge(0.2, 0, 0));
+
+        String m = rec.message().toLowerCase();
+        assertTrue("a move that travelled must not be reported as jammed. Got: " + rec.message(),
+            !m.contains("wall") && !m.contains("stuck"));
+    }
+
+    @Test
     public void theSlotStillCompletesOnItsDurationBudget() {
         // Guard the behaviour that already worked: measured live, durationTicks 40 stopped exactly
         // on budget. A displacement term must not disturb the lifecycle.

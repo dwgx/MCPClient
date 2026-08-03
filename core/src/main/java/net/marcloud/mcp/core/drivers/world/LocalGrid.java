@@ -125,7 +125,41 @@ public record LocalGrid(int radius, String mode, int originX, int originY, int o
      *         means "at least DROP_PROBE_MAX", i.e. certainly lethal.
      */
     private static Integer dropDepth(WorldClient w, BlockPos origin, int dx, int dz) {
-        return dropDepthOf(dy -> idName(w, origin.add(dx, dy, dz)));
+        // From dy=0, not dy=-1. The origin is FLOORED from posY (WorldViewCapture), so a player
+        // standing on a sub-cube floor -- bottom slab, lower stairs, snow layer, carpet -- is at
+        // posY=63.5 with an origin of 63, which IS the slab. Probing from -1 looked straight past
+        // it: measured live on a slab bridge over a 20-deep void, the player's own column reported
+        // drop=20 while surfaceDy correctly said 0. An agent would refuse to cross the bridge it
+        // was standing on.
+        return dropDepthOf(dy -> standable(w, origin.add(dx, dy, dz)) ? "floor" : null, 0);
+    }
+
+    /**
+     * Whether a block would stop a fall, asked of vanilla rather than of its name.
+     *
+     * <p>A name test cannot answer this. Vines, ladders, torches, tall grass, rails, signs, flowers,
+     * fire and tripwire all have names and no collision box, so each one truncated the probe and
+     * turned a lethal ravine into a survivable number -- a vine five blocks down a 20-block drop
+     * reported {@code drop=4}, under vanilla's {@code ceil(distance-3)} threshold, i.e. "harmless".
+     * That is the name-based taxonomy {@code walk} exists to avoid, reintroduced thirty lines away.
+     *
+     * <p>Liquids count as a floor because the fall genuinely ends there, and the caller needs to
+     * know the depth either way: water breaks a fall and lava ends the run. Which of the two it is
+     * comes from {@code surface}, not from here.
+     */
+    private static boolean standable(WorldClient w, BlockPos pos) {
+        try {
+            net.minecraft.block.state.IBlockState st = w.getBlockState(pos);
+            net.minecraft.block.Block b = st.getBlock();
+            if (b.getMaterial().isLiquid()) {
+                return true;
+            }
+            return b.getCollisionBoundingBox(w, pos, st) != null;
+        } catch (Throwable t) {
+            // An unreadable position must not be reported as solid ground: claiming a floor where
+            // none was observed is the dangerous direction of this error.
+            return false;
+        }
     }
 
     /**
@@ -144,13 +178,14 @@ public record LocalGrid(int radius, String mode, int originX, int originY, int o
      * @return 0 when a floor sits directly beneath the feet layer, the fall in blocks when it is
      *         deeper, or null when the probe found no floor within {@link #DROP_PROBE_MAX}
      */
-    static Integer dropDepthOf(java.util.function.IntFunction<String> at) {
-        for (int dy = -1; dy >= -DROP_PROBE_MAX; dy--) {
+    static Integer dropDepthOf(java.util.function.IntFunction<String> at, int startDy) {
+        for (int dy = startDy; dy >= -DROP_PROBE_MAX; dy--) {
             String n = at.apply(dy);
             if (n != null && !"air".equals(n)) {
-                // A floor at dy means landing on TOP of it, so the fall is |dy| - 1: a block at
-                // dy=-1 is the ground under your feet and costs nothing.
-                return -dy - 1;
+                // A floor at dy means landing on TOP of it, so the fall is max(0, |dy| - 1): a
+                // block at dy=-1 is the ground under your feet, and one at dy=0 is a sub-cube floor
+                // the player is already standing on. Both cost nothing.
+                return Math.max(0, -dy - 1);
             }
         }
         return null;

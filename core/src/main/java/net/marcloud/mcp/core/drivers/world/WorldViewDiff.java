@@ -48,6 +48,23 @@ public final class WorldViewDiff {
         Map<String, Object> env = envDiff(prev.env(), cur.env());
         if (!env.isEmpty()) out.put("env", env);
 
+        // The grid, whole, when it changed at all.
+        //
+        // It was absent from the diff entirely, which made the hazard terms structurally
+        // unreachable in this mode: a caller polling mode=diff could never learn that lava had
+        // flowed into the next column or that a floor had been mined out from under a path, because
+        // no grid shipped. And absence is load-bearing in the full encoding -- a missing "walk"
+        // means CLEAR -- so a diff that omitted the grid read as "nothing changed" rather than "not
+        // sampled", which is the same class of quiet wrongness the drop terms were added to fix.
+        //
+        // Emitted whole rather than per-column: a column is small, the geometry the caller
+        // navigates by has to be internally consistent, and a per-column patch set would need its
+        // own absence convention on top of the one the columns already use. When nothing changed it
+        // costs nothing, because the key is simply not present.
+        if (cur.grid() != null && !java.util.Objects.equals(prev.grid(), cur.grid())) {
+            out.put("grid", WorldViewJson.gridMap(cur.grid()));
+        }
+
         return out;
     }
 

@@ -82,13 +82,13 @@ public class ColumnRevealsDropDepthTest {
         // make every ordinary step down look like a 1-block drop, and the whole point is the
         // boundary at 3 where damage starts.
         assertEquals("floor directly beneath means no fall",
-            Integer.valueOf(0), LocalGrid.dropDepthOf(dy -> dy == -1 ? "stone" : "air"));
+            Integer.valueOf(0), LocalGrid.dropDepthOf(dy -> dy == -1 ? "stone" : "air", -1));
         assertEquals("floor two below means a 1-block drop",
-            Integer.valueOf(1), LocalGrid.dropDepthOf(dy -> dy == -2 ? "stone" : "air"));
+            Integer.valueOf(1), LocalGrid.dropDepthOf(dy -> dy == -2 ? "stone" : "air", -1));
         assertEquals("the harmless maximum: vanilla starts hurting above 3",
-            Integer.valueOf(3), LocalGrid.dropDepthOf(dy -> dy == -4 ? "stone" : "air"));
+            Integer.valueOf(3), LocalGrid.dropDepthOf(dy -> dy == -4 ? "stone" : "air", -1));
         assertEquals("and one deeper is the first damaging fall",
-            Integer.valueOf(4), LocalGrid.dropDepthOf(dy -> dy == -5 ? "stone" : "air"));
+            Integer.valueOf(4), LocalGrid.dropDepthOf(dy -> dy == -5 ? "stone" : "air", -1));
     }
 
     @Test
@@ -98,19 +98,35 @@ public class ColumnRevealsDropDepthTest {
         // non-air block going down -- so it finds ceilings as readily as floors. A player at a cliff
         // edge under an overhang, or merely under a tree, hit the leaves and was told the cliff was
         // flat ground. Here the only solid block is far below; anything above must not matter.
-        Integer d = LocalGrid.dropDepthOf(dy -> dy == -15 ? "stone" : (dy == 2 ? "leaves" : "air"));
+        Integer d = LocalGrid.dropDepthOf(dy -> dy == -15 ? "stone" : (dy == 2 ? "leaves" : "air"), -1);
         assertEquals("a 14-block fall must be reported as such regardless of what is overhead",
             Integer.valueOf(14), d);
     }
 
     @Test
+    public void aSubCubeFloorUnderfootIsNotAFallAtAll() {
+        // Found by adversarial review, and it was the dangerous direction. The origin is FLOORED
+        // from posY, so a player standing on a bottom slab at posY=63.5 has an origin of 63 -- which
+        // IS the slab. Probing from dy=-1 looked past it: measured live on a slab bridge over a
+        // 20-deep void, the player's own column reported drop=20 while surfaceDy correctly said 0,
+        // so an agent would refuse to cross the bridge it was standing on.
+        assertEquals("a floor at the feet layer itself means no fall",
+            Integer.valueOf(0), LocalGrid.dropDepthOf(dy -> dy == 0 ? "floor" : "air", 0));
+        assertEquals("and it must win over whatever is below it",
+            Integer.valueOf(0),
+            LocalGrid.dropDepthOf(dy -> (dy == 0 || dy == -20) ? "floor" : "air", 0));
+        assertEquals("while a genuine void under the feet layer still reports deep",
+            null, LocalGrid.dropDepthOf(dy -> "air", 0));
+    }
+
+    @Test
     public void aBottomlessColumnIsNullRatherThanTheProbeBound() {
         assertNotNull("sanity: a floor inside the bound is found",
-            LocalGrid.dropDepthOf(dy -> dy == -20 ? "stone" : "air"));
+            LocalGrid.dropDepthOf(dy -> dy == -20 ? "stone" : "air", -1));
         // Past the bound the honest answer is "no floor found", not the bound itself -- reporting
         // 24 would read as a survivable-with-mitigation number rather than "do not step here".
         assertEquals("nothing within the probe bound must be null, not a number",
-            null, LocalGrid.dropDepthOf(dy -> "air"));
+            null, LocalGrid.dropDepthOf(dy -> "air", -1));
     }
 
     @Test

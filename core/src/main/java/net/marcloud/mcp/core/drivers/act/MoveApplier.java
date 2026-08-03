@@ -90,8 +90,16 @@ public final class MoveApplier implements ActApplier {
         long tick = current.lastAppliedTick();
         int activeAfter = current.ticksActive() + 1;
         int duration = mi.durationTicks();
+        boolean against = actuator != null && actuator.collidedHorizontally();
+
         if (duration > 0 && activeAfter >= duration) {
-            String moved = travelled();
+            // The jam term belongs on the terminal message too. Without it a bounded move of one to
+            // three ticks that walked straight into a wall completed with "moved 0.00 blocks" and
+            // never mentioned the wall: the zero was there, but the caller had to infer the cause,
+            // and the stuck branch below could not reach a short intent at all because it needs
+            // STUCK_TICKS of stillness first. Reported on contact rather than on a tick count here,
+            // since an intent that ENDS flush against a wall is worth saying whatever its length.
+            String moved = travelled() + (against ? ", against a wall" : "");
             SlotRecord done = current.markActive(tick, "moved for " + activeAfter + " ticks" + moved)
                     .withPhase(ActPhase.COMPLETE,
                             "movement complete after " + activeAfter + " ticks" + moved);
@@ -102,8 +110,11 @@ public final class MoveApplier implements ActApplier {
         // A jam is the one locomotion failure invisible any other way, and collidedHorizontally is
         // already the boolean for it. Reported rather than failed: the caller decides whether to
         // turn, jump or give up, and an intent that fails itself would take that choice away.
-        boolean stuck = stillTicks >= STUCK_TICKS
-                && actuator != null && actuator.collidedHorizontally();
+        //
+        // Still-ticks AND contact, because either alone lies: a player can stand still for reasons
+        // that are not a wall (mid-air, sneaking into a corner it is not touching), and can be in
+        // contact while sliding along a surface perfectly productively.
+        boolean stuck = stillTicks >= STUCK_TICKS && against;
         String state = stuck
                 ? "stuck against a wall for " + stillTicks + " ticks"
                 : "moving (tick " + activeAfter + (duration > 0 ? "/" + duration : "") + ")";

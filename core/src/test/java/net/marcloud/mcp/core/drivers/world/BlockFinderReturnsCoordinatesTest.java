@@ -58,6 +58,75 @@ public class BlockFinderReturnsCoordinatesTest {
         return null;
     }
 
+    /** A world as a map from offset to block name, so the search itself can be driven. */
+    private static BlockFinder.Sampler world(java.util.Map<String, String> blocks) {
+        return (dx, dy, dz) -> blocks.get(dx + "," + dy + "," + dz);
+    }
+
+    @Test
+    public void theSearchItselfReturnsTheNearestHit() {
+        // Added after review found that NO test drove find(): every assertion went through
+        // matches() and nearestFirst(), which the search did not call. The shell walk, the early
+        // exit and the clamps had zero coverage, so deleting the namespace strip inside the real
+        // path would have made find_block answer "no match" for every qualified name with the
+        // suite still green.
+        var hits = BlockFinder.search(world(java.util.Map.of(
+                "8,0,0", "minecraft:iron_ore",
+                "2,0,0", "minecraft:iron_ore")),
+                100, 64, 200, "iron_ore", 16, 4);
+        assertEquals("both ores found", 2, hits.size());
+        assertEquals("nearest first", 2.0, hits.get(0).dist(), 0.001);
+        assertEquals("and coordinates are absolute, not offsets", 102, hits.get(0).x());
+        assertEquals(64, hits.get(0).y());
+        assertEquals(200, hits.get(0).z());
+        assertEquals("the name reaches the caller stripped, matching what the grid emits",
+            "iron_ore", hits.get(0).block());
+    }
+
+    @Test
+    public void theSearchStopsEarlyWithoutMissingANearerHit() {
+        // The subtle one: a hit on the FACE of an outer shell is nearer than one at the CORNER of
+        // an inner shell, so an exit that fired on "enough hits found" would return the wrong
+        // nearest. Corner of shell 2 is 2.83 away; face of shell 3 is 3.0 -- but corner of shell 2
+        // at (2,2,2) is 3.46, which is FARTHER than the face hit at (3,0,0).
+        var hits = BlockFinder.search(world(java.util.Map.of(
+                "2,2,2", "stone",     // corner of shell 2, dist 3.46
+                "3,0,0", "stone")),   // face of shell 3, dist 3.0 -- genuinely nearer
+                0, 0, 0, "stone", 16, 1);
+        assertEquals("exactly one hit when limited to one", 1, hits.size());
+        assertEquals("and it must be the face of the outer shell, which is nearer than the corner "
+                + "of the inner one -- stopping as soon as a shell yielded enough hits would "
+                + "return 3.46 here", 3.0, hits.get(0).dist(), 0.001);
+    }
+
+    @Test
+    public void theSearchAppliesItsOwnClamps() {
+        // radius and limit arrive from a tool call, so they are attacker-shaped input.
+        // Spread over three axes: a single line tops out at MAX_RADIUS hits, so the radius clamp
+        // would fire before the limit clamp and MAX_LIMIT would never be exercised. The first
+        // version of this test did exactly that and asserted 64 while getting 32.
+        var many = new java.util.HashMap<String, String>();
+        for (int i = 1; i <= 30; i++) {
+            many.put(i + ",0,0", "stone");
+            many.put("0," + i + ",0", "stone");
+            many.put("0,0," + i, "stone");
+        }
+        assertEquals("limit must be capped at MAX_LIMIT even when asked for more",
+            BlockFinder.MAX_LIMIT, BlockFinder.search(world(many), 0, 0, 0, "stone", 32, 999).size());
+        assertTrue("a negative limit must still return something rather than throwing",
+            BlockFinder.search(world(many), 0, 0, 0, "stone", 32, -5).size() == 1);
+        assertTrue("a huge radius must not reach past MAX_RADIUS",
+            BlockFinder.search(world(java.util.Map.of("40,0,0", "stone")),
+                    0, 0, 0, "stone", 9999, 4).isEmpty());
+    }
+
+    @Test
+    public void theSearchDropsAirEvenWhenAsked() {
+        var hits = BlockFinder.search(world(java.util.Map.of("1,0,0", "minecraft:air")),
+                0, 0, 0, "air", 8, 4);
+        assertTrue("air must not be findable through the real search path either", hits.isEmpty());
+    }
+
     @Test
     public void hitsComeBackNearestFirst() {
         // Nearest-first is the whole point: a caller asking for one ore wants THE one it can reach,

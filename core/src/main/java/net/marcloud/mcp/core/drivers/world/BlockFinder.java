@@ -59,8 +59,32 @@ public final class BlockFinder {
      */
     public static List<Hit> find(WorldClient w, BlockPos origin, String types, int radius,
                                  int limit) {
+        if (w == null || origin == null) {
+            return List.of();
+        }
+        return search((dx, dy, dz) -> nameAt(w, origin.add(dx, dy, dz)),
+                origin.getX(), origin.getY(), origin.getZ(), types, radius, limit);
+    }
+
+    /** Names the block at an offset from the origin, or null for nothing worth reporting. */
+    public interface Sampler {
+        String at(int dx, int dy, int dz);
+    }
+
+    /**
+     * The search itself, over an abstract sampler so the shell walk is testable without a world.
+     *
+     * <p>Extracted after review: the first version put the type filter inline in the shell loop and
+     * exposed a separate {@code matches()} that the search never called. Every test then asserted
+     * through that second predicate, so the loop, the early exit and the clamps had no coverage at
+     * all -- deleting the namespace strip inside the real path would have made {@code find_block}
+     * answer "no match" for every qualified name while the suite stayed green. One predicate now,
+     * reached from both.
+     */
+    static List<Hit> search(Sampler sampler, int ox, int oy, int oz, String types, int radius,
+                            int limit) {
         Set<String> wanted = parseTypes(types);
-        if (w == null || origin == null || wanted.isEmpty()) {
+        if (wanted.isEmpty()) {
             return List.of();
         }
         int r = Math.max(1, Math.min(radius, MAX_RADIUS));
@@ -71,11 +95,11 @@ public final class BlockFinder {
         // arbitrary, which is why the result is still sorted before truncation -- shell distance is
         // a lower bound on euclidean distance, not the distance itself.
         for (int shell = 0; shell <= r; shell++) {
-            collectShell(w, origin, wanted, shell, hits);
-            // Only stop once the shell boundary itself is farther than everything already found:
+            collectShell(sampler, wanted, ox, oy, oz, shell, hits);
+            // Only stop once the shell boundary itself is farther than everything already kept:
             // a hit at the corner of shell 3 is farther than one at the face of shell 4.
             if (hits.size() >= cap && shell > 0) {
-                double worstKept = nearestFirst(hits, cap).get(Math.min(cap, hits.size()) - 1).dist();
+                double worstKept = nearestFirst(hits, cap).get(cap - 1).dist();
                 if (shell >= worstKept) {
                     break;
                 }
@@ -100,11 +124,11 @@ public final class BlockFinder {
      * accepted as well rather than silently matching nothing.
      */
     public static boolean matches(String blockName, String types) {
-        return blockName != null && parseTypes(types).contains(strip(blockName));
+        return wantsName(blockName, parseTypes(types));
     }
 
-    private static void collectShell(WorldClient w, BlockPos origin, Set<String> wanted, int shell,
-                                     List<Hit> out) {
+    private static void collectShell(Sampler sampler, Set<String> wanted, int ox, int oy, int oz,
+                                     int shell, List<Hit> out) {
         for (int dx = -shell; dx <= shell; dx++) {
             for (int dy = -shell; dy <= shell; dy++) {
                 for (int dz = -shell; dz <= shell; dz++) {
@@ -113,16 +137,22 @@ public final class BlockFinder {
                             && Math.abs(dz) != shell) {
                         continue;
                     }
-                    BlockPos at = origin.add(dx, dy, dz);
-                    String name = nameAt(w, at);
-                    if (name == null || !wanted.contains(name)) {
+                    String name = sampler.at(dx, dy, dz);
+                    // One predicate, shared with matches(), so a test of the name rules constrains
+                    // the search rather than a parallel copy of it.
+                    if (!wantsName(name, wanted)) {
                         continue;
                     }
                     double d = Math.sqrt((double) dx * dx + (double) dy * dy + (double) dz * dz);
-                    out.add(new Hit(name, at.getX(), at.getY(), at.getZ(), round(d)));
+                    out.add(new Hit(strip(name), ox + dx, oy + dy, oz + dz, round(d)));
                 }
             }
         }
+    }
+
+    /** The single name test. {@link #matches} and the search both go through here. */
+    private static boolean wantsName(String blockName, Set<String> wanted) {
+        return blockName != null && wanted.contains(strip(blockName));
     }
 
     private static Set<String> parseTypes(String types) {
@@ -154,8 +184,11 @@ public final class BlockFinder {
             if (name == null) {
                 return null;
             }
-            String s = strip(name.toString());
-            return "air".equals(s) ? null : s;
+            // Returned RAW: stripping is the shared predicate's job, so there is exactly one
+            // place that knows the namespace rule. Air is dropped here because it is never a
+            // useful hit and would otherwise be counted by the shell walk.
+            String raw = name.toString();
+            return "air".equals(strip(raw)) ? null : raw;
         } catch (Throwable t) {
             // One unreadable position must not end the search: an unloaded chunk edge is routine.
             return null;
