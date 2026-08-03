@@ -252,6 +252,102 @@ public class ActToolsTest {
     }
 
     /**
+     * The same defect shape {@code GridSemanticsAreDocumentedTest} guards for world_view: a tool
+     * EMITS a field whose meaning reaches the model only through a Java comment. act_status
+     * shipped emitting {@code tickNow} and {@code hasIntent} with neither named in its
+     * description.
+     *
+     * <p>The vocabulary is DERIVED from what the handler actually emits rather than hand-listed,
+     * so adding a field without documenting it fails here. A hand-written list would be the
+     * empty-assertion shape this repo has caught in itself twice.
+     */
+    @Test
+    public void everyFieldActStatusEmitsIsNamedInItsDescription() {
+        runtime.submitInteract(net.marcloud.mcp.core.drivers.act.InteractIntent.hotbar(1));
+        Map<String, Object> out = parseJson(text(call(tools.actStatus(), Map.of())));
+        String desc = tools.actStatus().tool().description();
+
+        for (String key : out.keySet()) {
+            assertTrue("act_status emits '" + key + "' but its description never names it, so the "
+                    + "model has no idea what it means", desc.contains(key));
+        }
+        @SuppressWarnings("unchecked")
+        Map<String, Object> row = (Map<String, Object>) ((List<Object>) out.get("slots")).get(0);
+        for (String key : row.keySet()) {
+            assertTrue("act_status emits per-slot key '" + key + "' undocumented", desc.contains(key));
+        }
+    }
+
+    /**
+     * tickNow is not decoration: the act layer steps ONLY on the tick seam, so a tickNow that
+     * never moves means every intent sits IDLE forever however correct it was. clock_now already
+     * documents this convention for the same clock ("0 before the first tick / if the tick seam is
+     * not armed"); act_status has to say it too, because act_status is the tool a caller reads
+     * when an intent appears to do nothing, and a dead seam is indistinguishable from a wrong
+     * intent unless you know to look here.
+     */
+    @Test
+    public void theActStatusDescriptionExplainsThatTickNowZeroMeansADeadActLayer() {
+        String desc = tools.actStatus().tool().description();
+        assertTrue("must mirror clock_now's own wording for the same clock",
+                desc.contains("0 before the first tick") && desc.contains("tick seam is not armed"));
+        assertTrue("must say what a frozen tickNow COSTS -- that intents never leave IDLE",
+                desc.contains("IDLE forever"));
+    }
+
+    /** The behaviour the legend above describes: a fresh clock reports tickNow 0, not 1. */
+    @Test
+    public void aFreshClockReportsTickNowZeroSoTheLegendHoldsForRealPayloads() {
+        Map<String, Object> out = parseJson(text(call(tools.actStatus(), Map.of())));
+        assertEquals("with no tick ever advanced, tickNow must be the documented 0",
+                0L, ((Number) out.get("tickNow")).longValue());
+    }
+
+    /**
+     * hasIntent is {@code intent != null}, NOT {@link net.marcloud.mcp.core.drivers.act.SlotRecord#isLive}
+     * -- a terminal record keeps its intent ({@code withPhase} copies it through), so hasIntent
+     * stays true after COMPLETE. Read as "busy" it says the channel is occupied forever after
+     * one use, which would make a caller wait on a slot that finished long ago.
+     */
+    @Test
+    public void hasIntentStaysTrueAfterATerminalPhaseAndTheDescriptionSaysSo() {
+        runtime.submitInteract(net.marcloud.mcp.core.drivers.act.InteractIntent.hotbar(2));
+        runtime.store(ActSlot.INTERACT,
+                runtime.record(ActSlot.INTERACT).withPhase(ActPhase.COMPLETE, "done"));
+
+        Map<String, Object> out = parseJson(text(call(tools.actStatus(), Map.of())));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> interact = (Map<String, Object>)
+                ((List<Object>) out.get("slots")).get(ActSlot.INTERACT.ordinal());
+        assertEquals("the phase really is terminal", ActPhase.COMPLETE.name(), interact.get("phase"));
+        assertEquals("and hasIntent is STILL true -- this is the fact needing documenting",
+                Boolean.TRUE, interact.get("hasIntent"));
+
+        String desc = tools.actStatus().tool().description();
+        assertTrue("the description must say hasIntent survives a terminal phase",
+                desc.contains("stays true once COMPLETE"));
+        assertTrue("and must point at phase as the field that answers 'is it busy'",
+                desc.contains("non-terminal phase"));
+    }
+
+    /**
+     * Both writers depend on the {@code Minecraft.runTick} seam, which exists only under
+     * {@code -javaagent} (SeamTools' own {@code seam_tick_enable} carries that same tag). The
+     * tag vocabulary is derived from the descriptions the rest of the kernel already publishes,
+     * so this does not invent a term: it reuses one.
+     */
+    @Test
+    public void theActWritersDeclareTheirTickSeamRequirement() {
+        for (SyncToolSpecification spec : List.of(tools.actSet(), tools.actCancel())) {
+            String desc = spec.tool().description();
+            assertTrue(spec.tool().name() + " must declare its requirements like every other "
+                    + "seam-dependent tool", desc.startsWith("[requires: "));
+            assertTrue(spec.tool().name() + " depends on the runTick seam, which needs -javaagent",
+                    desc.contains("-javaagent"));
+        }
+    }
+
+    /**
      * {@code move:{to:[x,y,z]}} carries a y that {@code NavController} records and never steers
      * toward -- deliberately, since this walks rather than flies. That fact reached the model
      * only through {@link net.marcloud.mcp.core.drivers.act.NavIntent}'s javadoc, so a caller

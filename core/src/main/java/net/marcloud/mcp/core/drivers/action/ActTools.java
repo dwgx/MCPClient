@@ -164,7 +164,11 @@ public final class ActTools {
         Tool tool = Tool.builder()
                 .name("act_set")
                 .title("Set actuation intents")
-                .description("Drive the live player's three orthogonal channels. Supply any of "
+                .description("[requires: in-world, -javaagent] Drive the live player's three orthogonal "
+                        + "channels. NOTHING here happens off the tick seam: intents are stepped once "
+                        + "per Minecraft.runTick, so if that seam is not armed every intent below is "
+                        + "accepted and then sits at IDLE forever. Confirm act_status.tickNow is "
+                        + "advancing before concluding an intent was wrong. Supply any of "
                         + "'move', 'look', 'interact'; each present slot gets a fresh intent that "
                         + "REPLACES whatever that slot held, and becomes eligible at the next clean "
                         + "tick boundary (effectiveTick = current tick + 1). Missing slots are left "
@@ -370,7 +374,10 @@ public final class ActTools {
         Tool tool = Tool.builder()
                 .name("act_cancel")
                 .title("Cancel actuation intents")
-                .description("Cancel actuation channels. 'slots' is the string \"all\" (cancel every "
+                .description("[requires: in-world, -javaagent] Cancel actuation channels. The teardown "
+                        + "runs on the tick seam like everything else here, so without the seam armed "
+                        + "a cancel cannot complete either -- check act_status.tickNow. "
+                        + "'slots' is the string \"all\" (cancel every "
                         + "slot) or an array of slot names ('move'|'look'|'interact'). Omitting 'slots' "
                         + "cancels all. A live intent is flagged for a clean teardown on its next game "
                         + "tick before it ends CANCELLED; an idle/terminal slot is reset. Returns the "
@@ -448,10 +455,22 @@ public final class ActTools {
         Tool tool = Tool.builder()
                 .name("act_status")
                 .title("Actuation status")
-                .description("Read-only: a snapshot of all three actuation slots — the current tick "
-                        + "plus, per slot, {slot, phase (IDLE|ACTIVE|COMPLETE|FAILED|CANCELLED), "
+                .description("Read-only: a snapshot of all three actuation slots — 'tickNow' plus, per "
+                        + "slot, {slot, phase (IDLE|ACTIVE|COMPLETE|FAILED|CANCELLED), hasIntent, "
                         + "intentKind, ticksActive, message}. Reference-free. Use it to see 'what am I "
-                        + "doing right now and did the last thing finish' without a screenshot.")
+                        + "doing right now and did the last thing finish' without a screenshot. "
+                        + "'tickNow' is the one game clock's current tickId, the same value clock_now "
+                        + "reports: monotonic, and 0 before the first tick / if the tick seam is not "
+                        + "armed. Read it FIRST, because the act layer only steps on that seam: a "
+                        + "tickNow of 0, or one that does not grow between two calls, means nothing is "
+                        + "driving the appliers and every intent you submit will sit at IDLE forever "
+                        + "no matter how correct it was. That is a dead act layer, not a slow one, and "
+                        + "seam_tick_enable is what arms it. "
+                        + "'hasIntent' says only that the slot HOLDS an intent record, not that it is "
+                        + "doing anything: a slot keeps its intent after reaching a terminal phase, so "
+                        + "hasIntent stays true once COMPLETE, FAILED or CANCELLED and only a slot "
+                        + "never used since startup reports false. For 'is this channel busy' read "
+                        + "hasIntent AND a non-terminal phase; phase is the field that answers it.")
                 .inputSchema(objectSchema(Map.of(), List.of()))
                 .annotations(ToolAnnotations.builder()
                         .title("Actuation status")

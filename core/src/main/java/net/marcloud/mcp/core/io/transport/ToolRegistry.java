@@ -500,7 +500,20 @@ public final class ToolRegistry {
                         + "'blockCounts' is a histogram of each column's SURFACE block only, one "
                         + "count per column within the sampled vertical window — NOT a census of the "
                         + "volume, so anything buried or under a ceiling is absent from it. Never "
-                        + "conclude a block type is missing from its absence there; ask find_block.")
+                        + "conclude a block type is missing from its absence there; ask find_block. "
+                        + "DIFF MODE: 'entities.left' lists ids that were in your PREVIOUS view and "
+                        + "are not in this one. That is a statement about SAMPLING, not about the "
+                        + "world: it does NOT mean the entity is gone. The diff compares two id sets "
+                        + "and cannot tell death or despawn apart from merely NOT SAMPLED, and an "
+                        + "entity goes UNSAMPLED whenever 'sections' left entities out (then every id "
+                        + "you knew reports left at once), when it fell outside the entity cap your "
+                        + "profile imposes (sparse 5, explore 12, combat 24 nearest — so a newly "
+                        + "arrived closer entity EVICTS a farther one and that eviction reports as "
+                        + "left), when it moved beyond the scan range, or when you changed 'radius' "
+                        + "or 'profile' between the two calls, which moves the range and the cap "
+                        + "under you. A whole-set left, or a left arriving with an entered, is the "
+                        + "signature of resampling rather than of anything dying. Re-observe with the "
+                        + "same profile and radius before you believe a threat is gone.")
                 .annotations(ToolAnnotations.builder()
                         .title("World view (structured observation)")
                         .readOnlyHint(true)
@@ -982,9 +995,37 @@ public final class ToolRegistry {
                 .description("[requires: connected-to-server, container open] Send a C0E click-window: "
                         + "windowId (0 = own inventory), slotId, button (0=left,1=right), mode "
                         + "(0=pickup,1=shift,2=hotbar-swap,3=middle,4=drop,5=drag,6=double), actionNumber "
-                        + "(transaction id, must match the container's counter), and the clicked item "
-                        + "(item id/name+count/meta; omit for an empty slot). Container-protocol primitive; "
-                        + "a wrong actionNumber makes the server reject the transaction.")
+                        + "(an ECHO TAG, see below), and the clicked item (item id/name+count/meta). "
+                        + "Container-protocol primitive. "
+                        + "WHAT DECIDES ACCEPTANCE: only the ITEM CLAIM. The server replays your click "
+                        + "against its own container and compares ITS result to the item you sent; "
+                        + "equal = accepted, different = rejected. The item is therefore the "
+                        + "load-bearing argument, not an afterthought, and what it must hold is the "
+                        + "click's RESULT, which is NOT 'whatever is in the slot': mode 0 wants the "
+                        + "slot's contents BEFORE the click (omit for an empty slot, and also for a "
+                        + "throw-away click at slotId -999); mode 1 wants the contents before the "
+                        + "shift, but OMIT it if nothing would actually fit in the destination; and "
+                        + "for modes 2,3,4,5,6 the server's result is ALWAYS empty, so you must OMIT "
+                        + "item for those or you are guaranteed a rejection. actionNumber is NOT "
+                        + "validated on this packet -- the server compares it to no counter of its "
+                        + "own, it only echoes it back -- so a stale or repeated number is harmless "
+                        + "and the default 0 is fine. "
+                        + "WHAT REJECTION COSTS: it is not a veto. The server has ALREADY applied the "
+                        + "click to its container by the time it compares; it then resyncs every slot "
+                        + "back to you (that resync, not your item, is the truth) and LOCKS the "
+                        + "window, after which every later click on it is SILENTLY DROPPED -- no "
+                        + "error, no reply, your clicks simply stop happening. The lock clears when "
+                        + "the same actionNumber comes back on a C0F confirm-transaction, which the "
+                        + "vanilla client sends by itself for a window it still recognises, so it "
+                        + "normally heals within one round trip -- but anything you click inside that "
+                        + "gap is lost, and a lock on windowId 0 cannot be cleared by reopening, "
+                        + "since your own inventory container lives as long as the session. "
+                        + "A SECOND SILENT DROP: the server ignores the packet outright, doing "
+                        + "nothing at all, when windowId is not the window it currently has open -- "
+                        + "so windowId 0 while a chest is open is a no-op, not an inventory click. "
+                        + "This tool reports only that the packet was SENT; neither drop is visible "
+                        + "in its result. Confirm with read_inventory rather than assuming a click "
+                        + "landed, and if clicks stop having any effect, suspect the lock.")
                 .annotations(ToolAnnotations.builder().title("Click a container slot")
                         .readOnlyHint(false).destructiveHint(true)
                         .idempotentHint(false).openWorldHint(true).build())

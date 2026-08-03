@@ -116,6 +116,25 @@ public final class WorldViewDiff {
                 moved.add(mm);
             }
         }
+        // "left" means WAS SAMPLED, IS NOT SAMPLED NOW -- which is strictly weaker than "gone",
+        // and the difference matters because a caller reads left as "that skeleton is dead".
+        // Three ways an id lands here while the entity is alive and next to you:
+        //   - the caller passed sections without "entities", so WorldViewCapture hands us
+        //     List.of() (WorldViewCapture:50-51) and byId(null-or-empty) makes EVERY prior id
+        //     report left at once;
+        //   - it was truncated by the profile's maxEntities cap (WorldViewCapture:135-137), so a
+        //     nearer entity arriving EVICTS a farther one and the eviction reads as departure;
+        //   - the caller changed radius or profile between calls, moving both the range
+        //     (entityRangeMul) and the cap.
+        //
+        // Not distinguished here, deliberately. Doing it honestly needs the CAPTURE to say which
+        // sections it sampled and whether the cap bit -- an unrequested section and a genuinely
+        // empty one are both List.of() by the time the diff sees them, so no amount of comparing
+        // prev to cur can separate them. Inferring it (cur.size() == some profile's cap) would be
+        // a guess dressed as data, and the profile is not even in scope here. That is a
+        // wire-format decision for the owner, not something to invent inside a pure differ, so
+        // the tool description carries the caveat instead: cheaper than a wrong answer, and it
+        // reaches the one reader who acts on it.
         for (Integer id : a.keySet()) {
             if (!b.containsKey(id)) left.add(id);
         }
