@@ -168,11 +168,15 @@ def probe_in_world(mcp):
 def is_ticking(mcp):
     """Whether the world is actually advancing, and why not if it is not.
 
-    Vanilla single-player pauses on focus loss: Display.isActive() false makes runTick set
-    isGamePaused and reopen GuiIngameMenu, and the world stops advancing while the game thread
-    keeps servicing eval_java. So every tick-dependent check reads a frozen world and fails for a
-    reason that has nothing to do with the code under test -- which is exactly what happened before
-    this guard existed. Setting currentScreen to null does not help; vanilla reopens it.
+    Vanilla single-player stops advancing on focus loss, and the game thread keeps servicing
+    eval_java throughout -- so every tick-dependent check reads a frozen world and fails for a
+    reason that has nothing to do with the code under test. That is exactly what happened before
+    this guard existed.
+
+    The reopening screen comes from EntityRenderer.updateCameraAndRender:1071-1076 (500ms
+    unfocused -> displayInGameMenu), gated on gameSettings.pauseOnLostFocus. Minecraft.java:1184
+    only *reads* that screen to set isGamePaused. Clearing currentScreen alone does not help,
+    because the gate reopens it every frame -- clear the gate instead, via allow_unfocused().
     """
     out = mcp.java("Ticking", PREAMBLE + """
         return "paused=" + mc.isGamePaused() + " active=" + org.lwjgl.opengl.Display.isActive()
@@ -183,13 +187,35 @@ def is_ticking(mcp):
     return False, out.strip()
 
 
+def allow_unfocused(mcp):
+    """Stop the world freezing while the window is in the background, and report the state.
+
+    pauseOnLostFocus is a public GameSettings field that vanilla itself toggles with F3+P, so
+    this is a supported state rather than a hack. Preferred over the shareToLAN workaround an
+    earlier session used: that one also defeats the pause, but it moves the player onto a
+    different server path mid-run and was itself a source of bogus stalls.
+
+    Static reasoning only when written -- verify the returned state rather than assuming it took.
+    """
+    return mcp.java("AllowUnfocused", PREAMBLE + """
+        mc.gameSettings.pauseOnLostFocus = false;
+        if (mc.currentScreen != null && mc.currentScreen.doesGuiPauseGame()) {
+            mc.displayGuiScreen(null);
+        }
+        return "pauseOnLostFocus=" + mc.gameSettings.pauseOnLostFocus
+             + " screen=" + (mc.currentScreen == null ? "null" : mc.currentScreen.getClass().getName())
+             + " paused=" + mc.isGamePaused();
+    """).strip()
+
+
 def require_ticking(mcp, what):
     """Skip rather than fail when the world is frozen. A false FAIL is worse than a skip."""
     ok, detail = is_ticking(mcp)
     if not ok:
         record(what, False,
                "SKIPPED-NOT-MEASURED: the world is not ticking, so this proves nothing about the "
-               "code. Focus the game window and re-run. " + detail[:160])
+               "code. Focus the game window, or call allow_unfocused(mcp), and re-run. "
+               + detail[:160])
     return ok
 
 
@@ -404,6 +430,9 @@ def main():
                     help="horizontal target offset in blocks (default 12)")
     ap.add_argument("--skip-move", action="store_true",
                     help="skip the locomotion probe, which MOVES the player")
+    ap.add_argument("--allow-unfocused", action="store_true",
+                    help="clear pauseOnLostFocus so the world keeps ticking in the background, "
+                         "instead of needing the game window focused for the whole run")
     args = ap.parse_args()
 
     mcp = Mcp(args.port)
@@ -419,6 +448,9 @@ def main():
     if not probe_in_world(mcp):
         print("\nSETUP: not in a world. Load a world, stand somewhere open, re-run.")
         return 3
+
+    if args.allow_unfocused:
+        print(f"-- unfocused ticking: {allow_unfocused(mcp)}")
 
     print("\n-- Fork B: can we reuse vanilla's A*")
     probe_path(mcp, args.offset)
