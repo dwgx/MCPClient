@@ -97,7 +97,7 @@ public record LocalGrid(int radius, String mode, int originX, int originY, int o
                 if (prof.emitProfile) {
                     profile = runs(w, origin, dx, dz, vLo, vHi);
                 }
-                Integer dropDepth = dropDepth(w, origin, dx, dz, surfaceDy, vLo);
+                Integer dropDepth = dropDepth(w, origin, dx, dz);
                 int walk = walkVerdict(w, origin, dx, dz, of);
                 cols.add(new Column(dx, dz, surfaceDy, surface, feet, head, profile,
                         dropDepth, walk));
@@ -124,16 +124,32 @@ public record LocalGrid(int radius, String mode, int originX, int originY, int o
      *         blocks when a floor is found below it, or null when the probe bottomed out -- which
      *         means "at least DROP_PROBE_MAX", i.e. certainly lethal.
      */
-    private static Integer dropDepth(WorldClient w, BlockPos origin, int dx, int dz,
-                                     Integer surfaceDy, int vLo) {
-        // A surface at or above the feet layer means there is nothing to fall into here.
-        if (surfaceDy != null && surfaceDy >= 0) {
-            return 0;
-        }
+    private static Integer dropDepth(WorldClient w, BlockPos origin, int dx, int dz) {
+        return dropDepthOf(dy -> idName(w, origin.add(dx, dy, dz)));
+    }
+
+    /**
+     * The fall depth from a column sampler, so the arithmetic is testable without a world.
+     *
+     * <p><b>Deliberately has no early return on {@code surfaceDy}.</b> The first version skipped the
+     * probe when {@code surfaceDy >= 0}, reasoning that something at or above the feet layer means
+     * nothing to fall into. That was wrong: {@code surfaceDy} comes from a scan that starts at
+     * {@code vHi} and takes the first non-air block going DOWN, so it finds ceilings as readily as
+     * floors. A player at a cliff edge under an overhang -- or simply under a tree -- would hit the
+     * leaves, return 0, and be told the cliff was flat ground. The probe below answers the actual
+     * question and already returns 0 when there is a floor at {@code dy = -1}, so the shortcut was
+     * redundant as well as unsound.
+     *
+     * @param at names the block at a given dy, or null/"air" for nothing there
+     * @return 0 when a floor sits directly beneath the feet layer, the fall in blocks when it is
+     *         deeper, or null when the probe found no floor within {@link #DROP_PROBE_MAX}
+     */
+    static Integer dropDepthOf(java.util.function.IntFunction<String> at) {
         for (int dy = -1; dy >= -DROP_PROBE_MAX; dy--) {
-            String n = idName(w, origin.add(dx, dy, dz));
+            String n = at.apply(dy);
             if (n != null && !"air".equals(n)) {
-                // Standing on the block AT dy means falling |dy| - 1 blocks to land on top of it.
+                // A floor at dy means landing on TOP of it, so the fall is |dy| - 1: a block at
+                // dy=-1 is the ground under your feet and costs nothing.
                 return -dy - 1;
             }
         }
@@ -166,9 +182,17 @@ public record LocalGrid(int radius, String mode, int originX, int originY, int o
             return WALK_UNKNOWN;
         }
         try {
+            // Sizes derived the way vanilla derives them (NodeProcessor.initProcessor:21-23):
+            // floor(width + 1) and floor(height + 1). For a standing player that is 1,2,1 -- which
+            // is what the first version hardcoded, correctly but by coincidence. It stops being
+            // correct the moment the hitbox changes: riding and sleeping both setSize(0.2, 0.2)
+            // (EntityPlayer.java:716,1533), where the height term becomes 1 rather than 2, and a
+            // hardcoded 2 would then ask about a volume the player does not occupy.
+            int sizeX = net.minecraft.util.MathHelper.floor_float(of.width + 1.0F);
+            int sizeY = net.minecraft.util.MathHelper.floor_float(of.height + 1.0F);
             return net.minecraft.world.pathfinder.WalkNodeProcessor.func_176170_a(
                     w, of, origin.getX() + dx, origin.getY(), origin.getZ() + dz,
-                    1, 2, 1, false, false, false);
+                    sizeX, sizeY, sizeX, false, false, false);
         } catch (Throwable t) {
             return WALK_UNKNOWN;
         }

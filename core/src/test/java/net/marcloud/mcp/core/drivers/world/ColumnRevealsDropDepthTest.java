@@ -77,6 +77,43 @@ public class ColumnRevealsDropDepthTest {
     }
 
     @Test
+    public void theFallDepthIsCountedFromLandingOnTopOfTheFloor() {
+        // A block at dy=-1 is the ground under your feet: zero fall. Getting this off by one would
+        // make every ordinary step down look like a 1-block drop, and the whole point is the
+        // boundary at 3 where damage starts.
+        assertEquals("floor directly beneath means no fall",
+            Integer.valueOf(0), LocalGrid.dropDepthOf(dy -> dy == -1 ? "stone" : "air"));
+        assertEquals("floor two below means a 1-block drop",
+            Integer.valueOf(1), LocalGrid.dropDepthOf(dy -> dy == -2 ? "stone" : "air"));
+        assertEquals("the harmless maximum: vanilla starts hurting above 3",
+            Integer.valueOf(3), LocalGrid.dropDepthOf(dy -> dy == -4 ? "stone" : "air"));
+        assertEquals("and one deeper is the first damaging fall",
+            Integer.valueOf(4), LocalGrid.dropDepthOf(dy -> dy == -5 ? "stone" : "air"));
+    }
+
+    @Test
+    public void anOverheadBlockDoesNotMakeACliffLookFlat() {
+        // The defect this replaced: dropDepth used to short-circuit to 0 whenever surfaceDy >= 0,
+        // but surfaceDy comes from a scan that starts at the TOP of the window and takes the first
+        // non-air block going down -- so it finds ceilings as readily as floors. A player at a cliff
+        // edge under an overhang, or merely under a tree, hit the leaves and was told the cliff was
+        // flat ground. Here the only solid block is far below; anything above must not matter.
+        Integer d = LocalGrid.dropDepthOf(dy -> dy == -15 ? "stone" : (dy == 2 ? "leaves" : "air"));
+        assertEquals("a 14-block fall must be reported as such regardless of what is overhead",
+            Integer.valueOf(14), d);
+    }
+
+    @Test
+    public void aBottomlessColumnIsNullRatherThanTheProbeBound() {
+        assertNotNull("sanity: a floor inside the bound is found",
+            LocalGrid.dropDepthOf(dy -> dy == -20 ? "stone" : "air"));
+        // Past the bound the honest answer is "no floor found", not the bound itself -- reporting
+        // 24 would read as a survivable-with-mitigation number rather than "do not step here".
+        assertEquals("nothing within the probe bound must be null, not a number",
+            null, LocalGrid.dropDepthOf(dy -> "air"));
+    }
+
+    @Test
     public void aLethalDropAndAHarmlessStepDownAreNotTheSameObservation() throws Exception {
         // The property in the terms the caller reasons in. Built through the canonical constructor
         // reflectively for the same reason the accessors are looked up that way: a direct `new`
