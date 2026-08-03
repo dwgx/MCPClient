@@ -42,8 +42,11 @@ public final class WorldViewCapture {
         BlockPos feet = new BlockPos(p.posX, p.posY, p.posZ);
 
         SelfView self = want(all, sections, "self") ? self(p, mc) : null;
+        // The player goes in so each column can carry vanilla's own passability verdict: its
+        // func_176170_a sizes the probe from the entity and derefences it on the first line, so
+        // there is no null-entity shortcut.
         LocalGrid grid = want(all, sections, "grid")
-                ? LocalGrid.sampleColumnar(w, feet, radius, prof) : null;
+                ? LocalGrid.sampleColumnar(w, feet, radius, prof, p) : null;
         List<EntityView> entities = want(all, sections, "entities")
                 ? entities(p, w, prof, radius) : List.of();
         InventoryView inv = want(all, sections, "inventory") ? inventory(p) : null;

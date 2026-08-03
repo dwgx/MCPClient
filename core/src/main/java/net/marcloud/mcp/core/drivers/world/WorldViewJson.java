@@ -135,6 +135,23 @@ public final class WorldViewJson {
             if (c.surfaceDy() != null) cm.put("surfaceDy", c.surfaceDy());
             cm.put("feet", c.feet());
             cm.put("head", c.head());
+            // Only when there is something to say: 0 is the overwhelmingly common case (flat
+            // ground) and emitting it on every column would add bytes to say nothing. A drop of
+            // null means the probe found no floor within its bound, i.e. certainly lethal.
+            if (c.dropDepth() == null) {
+                cm.put("drop", "deep");
+            } else if (c.dropDepth() > 0) {
+                cm.put("drop", c.dropDepth());
+            }
+            // Absent means CLEAR (vanilla's 1), which is the overwhelming majority: measured, the
+            // field on every column cost 7.1% of the whole payload to say "walkable" 1089 times.
+            // Unknown is emitted as "?" rather than also being omitted, because "we could not ask"
+            // and "you can walk here" must not collapse into the same silence.
+            if (c.walk() == LocalGrid.WALK_UNKNOWN) {
+                cm.put("walk", "?");
+            } else if (c.walk() != LocalGrid.WALK_CLEAR) {
+                cm.put("walk", c.walk());
+            }
             if (c.profile() != null && !c.profile().isEmpty()) {
                 List<Object> runs = new ArrayList<>();
                 for (LocalGrid.Run r : c.profile()) {
