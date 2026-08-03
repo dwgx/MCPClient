@@ -48,21 +48,40 @@ public final class MoveApplier implements ActApplier {
     private int stillTicks;
     private ActIntent boundTo;
 
-    /** Lifecycle only; the status line degrades to tick counting. */
+    private NavController nav;
+
+    /** Lifecycle only; the status line degrades to tick counting and nav is unavailable. */
     public MoveApplier() {
-        this(null);
+        this(null, null);
     }
 
     public MoveApplier(ActActuator actuator) {
-        this.actuator = actuator;
+        this(actuator, null);
     }
+
+    /**
+     * @param runtime where computed axes are published; without it a {@link NavIntent} cannot drive
+     *                input, so nav fails honestly rather than walking nowhere in silence
+     */
+    public MoveApplier(ActActuator actuator, ActRuntime runtime) {
+        this.actuator = actuator;
+        this.runtime = runtime;
+    }
+
+    private final ActRuntime runtime;
 
     @Override
     public SlotRecord apply(SlotRecord current) {
+        if (current.intent() instanceof NavIntent ni) {
+            return applyNav(current, ni);
+        }
         if (!(current.intent() instanceof MoveIntent mi)) {
             reset();
+            publish(null);
             return current.withPhase(ActPhase.FAILED, "MOVE slot given a non-move intent");
         }
+        // Nothing published for raw axes: ActRuntime reads them from the intent, which is their
+        // single source of truth for the intent's whole lifetime.
         // A fresh submit restarts the measurement: displacement is per-intent, so a replaced intent
         // must not inherit the previous one's origin. Identity is the same test LookApplier uses.
         if (boundTo != current.intent()) {
@@ -121,6 +140,50 @@ public final class MoveApplier implements ActApplier {
         return current.markActive(tick, state + travelled());
     }
 
+    /**
+     * Drive a {@link NavIntent} through a {@link NavController}.
+     *
+     * <p>The controller is cached against intent identity, the same convention the rest of the
+     * package uses, so a resubmit starts a fresh walk while a held intent keeps its progress. Its
+     * axes are published every tick because they change every tick -- that is the whole difference
+     * between stating a destination and stating an input.
+     */
+    private SlotRecord applyNav(SlotRecord current, NavIntent ni) {
+        if (actuator == null || runtime == null) {
+            reset();
+            return current.withPhase(ActPhase.FAILED,
+                    "navigation needs an actuator and a runtime to publish through; this applier "
+                    + "was built without them, and walking nowhere in silence would be worse");
+        }
+        if (boundTo != current.intent()) {
+            boundTo = current.intent();
+            nav = new NavController(ni.targetX(), ni.targetY(), ni.targetZ(), ni.timeoutTicks());
+        }
+        if (current.cancelRequested()) {
+            nav.requestCancel();
+        }
+
+        ActOutcome out = nav.tick(actuator);
+        if (out.terminal()) {
+            publish(null);
+            NavController finished = nav;
+            reset();
+            return current.markActive(current.lastAppliedTick(), out.message())
+                    .withPhase(out.state(), out.message() + " (" + finished.ticks() + " ticks)");
+        }
+        // Sprint stays off: vanilla derives it from moveForward in onLivingUpdate and scales
+        // movement while an item is in use, so mixing it in here would make the controller's own
+        // step measurements depend on state it does not own.
+        publish(new ActRuntime.LocomotionAxes(nav.forward(), nav.strafe(), false, false, false));
+        return current.markActive(current.lastAppliedTick(), out.message());
+    }
+
+    private void publish(ActRuntime.LocomotionAxes next) {
+        if (runtime != null) {
+            runtime.publishAxes(next);
+        }
+    }
+
     private double[] read() {
         return actuator == null ? null : actuator.position();
     }
@@ -146,6 +209,7 @@ public final class MoveApplier implements ActApplier {
 
     private void reset() {
         boundTo = null;
+        nav = null;
         origin = null;
         last = null;
         stillTicks = 0;

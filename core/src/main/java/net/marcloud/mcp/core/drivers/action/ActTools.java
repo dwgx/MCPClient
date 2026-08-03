@@ -17,6 +17,7 @@ import net.marcloud.mcp.core.drivers.act.ActStatus;
 import net.marcloud.mcp.core.drivers.act.InteractIntent;
 import net.marcloud.mcp.core.drivers.act.LookIntent;
 import net.marcloud.mcp.core.drivers.act.MoveIntent;
+import net.marcloud.mcp.core.drivers.act.NavIntent;
 import net.marcloud.mcp.core.drivers.act.SlotRecord;
 import net.marcloud.mcp.core.io.IoManager;
 import net.marcloud.mcp.core.io.http.Json;
@@ -167,7 +168,12 @@ public final class ActTools {
                         + "'move', 'look', 'interact'; each present slot gets a fresh intent that "
                         + "REPLACES whatever that slot held, and becomes eligible at the next clean "
                         + "tick boundary (effectiveTick = current tick + 1). Missing slots are left "
-                        + "running. move:{forward,strafe (-1..1, vanilla sign +ahead/+left), "
+                        + "running. move: EITHER to:[x,y,z] (+ timeoutTicks) to WALK THERE over many "
+                        + "ticks in ONE call -- it corrects heading every tick and act_status "
+                        + "reports arrived / stuck against a wall / gave up; STRAIGHT LINE ONLY, "
+                        + "there is no pathfinding, so an obstacle is an honest failure and the "
+                        + "caller reroutes -- OR raw axes forward,strafe (-1..1, vanilla sign "
+                        + "+ahead/+left), "
                         + "jump,sneak,sprint (bool), durationTicks (<=0 = hold until cancelled)}. "
                         + "look:{mode 'set'|'look_at', yaw/pitch (SET degrees), block:[x,y,z] or "
                         + "entityId (LOOK_AT), slewDegPerTick (<=0 = instant snap)}. "
@@ -176,7 +182,9 @@ public final class ActTools {
                         + "and phase. Read act_status to see how each intent progresses.")
                 .inputSchema(objectSchema(Map.of(
                         "move", Map.of("type", "object",
-                                "description", "locomotion: forward,strafe,jump,sneak,sprint,durationTicks"),
+                                "description", "either to:[x,y,z] (+ optional timeoutTicks) to walk "
+                                        + "to a destination, or raw axes forward,strafe,jump,sneak,"
+                                        + "sprint,durationTicks"),
                         "look", Map.of("type", "object",
                                 "description", "camera aim: mode set|look_at, yaw,pitch,block,entityId,slewDegPerTick"),
                         "interact", Map.of("type", "object",
@@ -198,7 +206,14 @@ public final class ActTools {
 
             Map<String, Object> move = mapArg(args, "move");
             if (move != null) {
-                SlotRecord r = runtime.submitMove(parseMove(move));
+                // A destination means navigation; raw axes mean the old primitive. One slot either
+                // way, so a nav submit replaces a held key and vice versa, which is what a caller
+                // changing its mind expects.
+                double[] to = doublesArg(move, "to");
+                SlotRecord r = to != null
+                        ? runtime.submitNav(new NavIntent(to[0], to.length > 1 ? to[1] : 0,
+                                to.length > 2 ? to[2] : 0, intArg(move, "timeoutTicks", 0)))
+                        : runtime.submitMove(parseMove(move));
                 effectiveTick.put("move", r.effectiveTick());
                 perSlot.put("move", r.phase().name());
                 accepted++;
@@ -243,6 +258,22 @@ public final class ActTools {
             out.put("perSlot", perSlot);
             return ok(Json.write(out));
         });
+    }
+
+    /** A numeric array argument, or null when absent or not a list of numbers. */
+    private static double[] doublesArg(Map<String, Object> m, String key) {
+        Object v = m == null ? null : m.get(key);
+        if (!(v instanceof java.util.List<?> l) || l.isEmpty()) {
+            return null;
+        }
+        double[] out = new double[l.size()];
+        for (int i = 0; i < l.size(); i++) {
+            if (!(l.get(i) instanceof Number n)) {
+                return null;
+            }
+            out[i] = n.doubleValue();
+        }
+        return out;
     }
 
     private static MoveIntent parseMove(Map<String, Object> m) {

@@ -80,6 +80,11 @@ public final class ActRuntime implements MoveIntentView {
         return submit(intent);
     }
 
+    /** Submit a NAV intent. Shares the MOVE slot, so it replaces whatever that slot held. */
+    public SlotRecord submitNav(NavIntent intent) {
+        return submit(intent);
+    }
+
     /** Submit a LOOK intent, replacing whatever the slot held. */
     public SlotRecord submitLook(LookIntent intent) {
         return submit(intent);
@@ -184,40 +189,81 @@ public final class ActRuntime implements MoveIntentView {
     @Override
     public boolean moveActive() {
         SlotRecord r = records.get(ActSlot.MOVE.ordinal());
-        return r.phase() == ActPhase.ACTIVE && r.intent() instanceof MoveIntent;
+        // Any locomotion intent, not just a raw-axis one: a NavIntent drives the same input.
+        return r.phase() == ActPhase.ACTIVE
+                && (r.intent() instanceof MoveIntent || r.intent() instanceof NavIntent);
     }
 
     @Override
     public float moveForward() {
-        return moveIntent().forward();
+        return effective().forward();
     }
 
     @Override
     public float moveStrafe() {
-        return moveIntent().strafe();
+        return effective().strafe();
     }
 
     @Override
     public boolean jump() {
-        return moveIntent().jump();
+        return effective().jump();
     }
 
     @Override
     public boolean sneak() {
-        return moveIntent().sneak();
+        return effective().sneak();
     }
 
     @Override
     public boolean sprint() {
-        return moveIntent().sprint();
+        return effective().sprint();
     }
 
-    /** The live MOVE intent, or a neutral one when the slot is not driving. */
-    private MoveIntent moveIntent() {
+    /**
+     * The axes in force this tick.
+     *
+     * <p>Read from the intent when it carries them and from the applier's published value only when
+     * it cannot. A {@link MoveIntent} IS its axes -- they are fixed for its lifetime, so the intent
+     * is the single source of truth and nothing needs to republish it. A {@link NavIntent} has no
+     * axes to read: {@link NavController} derives them from the live position every tick, so there
+     * the published value is the only source. Because exactly one of the two applies at a time,
+     * they cannot disagree.
+     *
+     * <p>The alternative -- publishing for both -- was tried and rejected: it made an applier built
+     * without a runtime silently stop the player from moving at all, which an existing test caught.
+     * A constructor that quietly disables locomotion is worse than a little dispatch here.
+     */
+    private LocomotionAxes effective() {
         SlotRecord r = records.get(ActSlot.MOVE.ordinal());
         if (r.intent() instanceof MoveIntent mi) {
-            return mi;
+            return new LocomotionAxes(mi.forward(), mi.strafe(), mi.jump(), mi.sneak(), mi.sprint());
         }
-        return new MoveIntent(0f, 0f, false, false, false, 0);
+        return axes;
+    }
+
+    /**
+     * The axes the MOVE applier decided on this tick.
+     *
+     * <p>Published by the applier rather than read out of the intent, because a
+     * {@link NavIntent} has no axes to read -- {@link NavController} computes them each tick from
+     * the live position. Routing both intent kinds through one published value keeps a single path
+     * into {@link ActMovementInput} and, just as importantly, means nothing has to rewrite the
+     * slot's intent per tick: {@code LookApplier} detects a fresh submit by intent IDENTITY, and a
+     * per-tick swap would make every tick look like a new submission.
+     *
+     * <p>Volatile because the applier writes on the game thread and the input reads there too, but
+     * status calls arrive from worker threads.
+     */
+    public record LocomotionAxes(float forward, float strafe, boolean jump, boolean sneak,
+                                 boolean sprint) {
+
+        static final LocomotionAxes NEUTRAL = new LocomotionAxes(0f, 0f, false, false, false);
+    }
+
+    private volatile LocomotionAxes axes = LocomotionAxes.NEUTRAL;
+
+    /** Called by the MOVE applier each tick with what it wants applied. */
+    public void publishAxes(LocomotionAxes next) {
+        axes = next == null ? LocomotionAxes.NEUTRAL : next;
     }
 }
