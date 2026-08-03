@@ -8,14 +8,31 @@ import org.junit.Test;
 
 /**
  * LIVE scaffold (default SKIPPED). Physically requires the native JVMTI agent
- * ({@code core-jvmti.dll}) loaded via {@code -agentpath}, so it cannot run in CI
- * (the DLL is built only where a suitable clang toolchain is present). Gated
- * behind BOTH {@code -Dmcp.it.live=true} AND {@link KdBridge#isAvailable()};
- * without them every test assume-skips with a clear message and never fails.
+ * ({@code core-jvmti.dll} on Windows, {@code core-jvmti.dylib} on macOS) loaded via
+ * {@code -agentpath}, so it cannot run in CI (the library is built only where a
+ * suitable clang toolchain is present). Gated behind BOTH {@code -Dmcp.it.live=true}
+ * AND {@link KdBridge#isAvailable()}; without them every test assume-skips with a
+ * clear message and never fails.
  *
- * <p>Run live with:
- * {@code ./mvnw -pl core test -Dtest=NativeDebugOpLiveIT -Dmcp.it.live=true \
- *   -DargLine="-agentpath:/abs/path/core-jvmti.dll"}
+ * <p>Unlike its five siblings this one touches no game, so it is the only IT here
+ * that can actually pass under failsafe. Verified doing so: a real JVMTI
+ * suspend/resume against the arm64 {@code .dylib} on JDK 25 / macOS.
+ *
+ * <p>Run live with (note BOTH native flags):
+ * {@code ./mvnw -pl core verify -Dcore.it.skip=false -Dmcp.it.live=true \
+ *   -Dit.test=NativeDebugOpLiveIT \
+ *   -DargLine="-agentpath:/abs/path/core-jvmti.dylib \
+ *              -Dmcp.core.jvmtiLib=/abs/path/core-jvmti.dylib"}
+ *
+ * <p>{@code -agentpath} alone is NOT enough, and the earlier version of this javadoc
+ * documented only that. {@link KdBridge}'s static initializer loads the library a
+ * second time from the Java side, via {@code mcp.core.jvmtiLib} or else
+ * {@code java.library.path}; with neither set that {@code System.loadLibrary} throws
+ * {@link UnsatisfiedLinkError} and {@link KdBridge#isAvailable()} reports false even
+ * though {@code Agent_OnLoad} ran fine. Following the old command therefore produced
+ * "native debugger not loaded (UnsatisfiedLinkError)" — measured — which reads as a
+ * broken JNI bind and would have sent the next reader debugging the agent instead of
+ * the command line.
  *
  * <p>Covers the real native round-trip the headless {@code DebuggerBridgeFallbackTest}
  * cannot: a genuine JVMTI suspend/resume on a live thread.

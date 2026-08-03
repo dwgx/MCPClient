@@ -1,24 +1,31 @@
 import static org.junit.Assert.assertNotNull;
-
-import net.marcloud.mcp.core.ke.KeGameDispatcher;
 import static org.junit.Assert.assertTrue;
 
 import net.marcloud.mcp.core.GameAccess;
+import net.marcloud.mcp.core.LiveGameGate;
 import net.marcloud.mcp.core.drivers.gui.GuiActions;
 import net.marcloud.mcp.core.drivers.gui.GuiSnapshot;
 import net.marcloud.mcp.core.drivers.gui.GuiSnapshotService;
-import org.junit.Assume;
 import org.junit.Test;
 
 /**
- * LIVE scaffold (default SKIPPED). Physically requires a running Minecraft client
- * with a GUI screen open and a live game thread ({@code GameBridge} wired), so it
- * cannot run in CI. Gated behind {@code -Dmcp.it.live=true}; without that flag
- * every test {@link Assume#assumeTrue assume-skips} with a clear message and
- * NEVER fails.
+ * LIVE scaffold. Physically requires a running Minecraft client with a GUI screen
+ * open and a live game thread ({@code GameBridge} wired).
  *
- * <p>Run live with:
- * {@code ./mvnw -pl core test -Dtest=GuiClickLiveIT -Dmcp.it.live=true}
+ * <p>HONEST TOMBSTONE, not a working test. {@link GameAccess} reads
+ * {@code Minecraft.getMinecraft()}, a static singleton populated only by the game's
+ * own bootstrap, so it is null in a forked surefire/failsafe JVM by construction and
+ * FAIL is the only branch reachable here. It used to gate TWICE — one Assume on the
+ * flag, a second on the client — so {@code -Dmcp.it.live=true} produced skips and
+ * BUILD SUCCESS: a live request answered with silent success, indistinguishable from
+ * verification. {@link LiveGameGate} now turns that case red; see its javadoc.
+ *
+ * <p>Real live verification goes through the MCP socket and {@code eval_java}, the
+ * way {@code scripts/nav-astar-probe.py} does. Kept as a specification of what a
+ * live GUI click must satisfy, and as a signpost to that route.
+ *
+ * <p>Runs under failsafe, skipped by default:
+ * {@code ./mvnw -pl core verify -Dcore.it.skip=false -Dmcp.it.live=true}
  * inside a JVM that has Core started against a live client (so
  * {@code Minecraft.getMinecraft()} and the {@code KeGameDispatcher} exist).
  *
@@ -28,27 +35,14 @@ import org.junit.Test;
  */
 public class GuiClickLiveIT {
 
-    private static final boolean LIVE = Boolean.getBoolean("mcp.it.live");
-
-    private static void requireLive() {
-        Assume.assumeTrue(
-                "requires live game window; run with -Dmcp.it.live=true", LIVE);
-    }
-
-    /** Assume-skip if there is no live Minecraft client (touching it would throw). */
+    /** SKIP without the live flag; FAIL with it and no client. Never a silent pass. */
     private static void requireLiveClient(GameAccess game) {
-        boolean up;
-        try {
-            up = game.mc() != null;
-        } catch (Throwable noGame) {
-            up = false;
-        }
-        Assume.assumeTrue("requires a live Minecraft client; run inside the game", up);
+        LiveGameGate.require("live Minecraft client with a GUI screen open",
+                () -> game.mc() != null);
     }
 
     @Test
     public void snapshotThenClickFirstElementOnTheLiveScreen() throws Exception {
-        requireLive();
         GameAccess game = new GameAccess();
         requireLiveClient(game);
         GuiSnapshotService svc = new GuiSnapshotService();
@@ -69,7 +63,6 @@ public class GuiClickLiveIT {
 
     @Test
     public void staleFingerprintIsRefusedOnTheLiveScreen() throws Exception {
-        requireLive();
         GameAccess game = new GameAccess();
         requireLiveClient(game);
         GuiSnapshotService svc = new GuiSnapshotService();

@@ -2,19 +2,28 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import net.marcloud.mcp.core.GameAccess;
+import net.marcloud.mcp.core.LiveGameGate;
 import net.marcloud.mcp.core.ke.event.EventBus;
 import net.marcloud.mcp.core.flt.seam.SeamController;
-import org.junit.Assume;
 import org.junit.Test;
 
 /**
- * LIVE scaffold (default SKIPPED). Physically requires a running client that is
- * CONNECTED to a server, so the Netty tap has a real channel to attach to — cannot
- * run in CI. Gated behind {@code -Dmcp.it.live=true}; otherwise every test
- * assume-skips with a clear message and never fails.
+ * LIVE scaffold. Physically requires a running client that is CONNECTED to a server,
+ * so the Netty tap has a real channel to attach to.
  *
- * <p>Run live with:
- * {@code ./mvnw -pl core test -Dtest=SeamOnLiveConnectionLiveIT -Dmcp.it.live=true}
+ * <p>HONEST TOMBSTONE, not a working test. {@link GameAccess} reads
+ * {@code Minecraft.getMinecraft()}, a static singleton populated only by the game's
+ * own bootstrap, so it is null in a forked surefire/failsafe JVM by construction and
+ * FAIL is the only branch reachable here. It used to gate TWICE — one Assume on the
+ * flag, a second on the connection — so {@code -Dmcp.it.live=true} produced a skip
+ * and BUILD SUCCESS, which reads exactly like a passed live check. {@link LiveGameGate}
+ * now turns that case red; see its javadoc.
+ *
+ * <p>Real live verification goes through the MCP socket and {@code eval_java}, the
+ * way {@code scripts/nav-astar-probe.py} does.
+ *
+ * <p>Runs under failsafe, skipped by default:
+ * {@code ./mvnw -pl core verify -Dcore.it.skip=false -Dmcp.it.live=true}
  * while joined to a world/server.
  *
  * <p>Covers what {@code SeamControllerTest} (headless, refuses to install) and
@@ -23,26 +32,14 @@ import org.junit.Test;
  */
 public class SeamOnLiveConnectionLiveIT {
 
-    private static final boolean LIVE = Boolean.getBoolean("mcp.it.live");
-
-    private static void requireLive() {
-        Assume.assumeTrue(
-                "requires a live server connection; run with -Dmcp.it.live=true", LIVE);
-    }
-
     @Test
     public void installTapOnTheLiveGameChannel() {
-        requireLive();
         GameAccess game = new GameAccess();
-        // Touching the Minecraft singleton off a real client throws (no game): treat
-        // any such failure as "not live" and assume-skip rather than error.
-        boolean connected;
-        try {
-            connected = game.isConnected();
-        } catch (Throwable noGame) {
-            connected = false;
-        }
-        Assume.assumeTrue("must be connected to a server (join a world first)", connected);
+        // Touching the Minecraft singleton off a real client throws; the gate keeps the
+        // throw's reason in its message instead of collapsing every cause to "not live",
+        // which is what let a genuine seam breakage hide behind "no game running".
+        LiveGameGate.require("client connected to a server (join a world first)",
+                game::isConnected);
 
         EventBus bus = new EventBus();
         SeamController controller = new SeamController(bus, game);

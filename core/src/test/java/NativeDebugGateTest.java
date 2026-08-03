@@ -33,10 +33,19 @@ public class NativeDebugGateTest {
                 NativeDebugOpLiveIT.gate(true, false, false));
     }
 
+    /**
+     * The row an operator actually hits: {@code -Dmcp.it.live=true} plus a working
+     * {@code -agentpath}, WITHOUT opting into {@code -Dmcp.it.nativeRequired}. This
+     * used to pass {@code (true, true, true)}, byte-identical to
+     * {@link #requiredAndAvailableRuns()} below, so the {@code nativeRequired=false}
+     * arm of RUN was never pinned by anything. A regression that made RUN depend on
+     * the required flag would have kept the whole suite green while silently skipping
+     * the one IT in this module that can genuinely pass.
+     */
     @Test
-    public void liveAndAvailableRuns() {
+    public void liveAndAvailableRunsEvenWhenNotRequired() {
         assertEquals(NativeDebugOpLiveIT.Gate.RUN,
-                NativeDebugOpLiveIT.gate(true, true, true));
+                NativeDebugOpLiveIT.gate(true, false, true));
     }
 
     @Test

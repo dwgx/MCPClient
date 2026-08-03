@@ -1,45 +1,40 @@
 package net.marcloud.mcp.core.drivers.act;
 
 import net.marcloud.mcp.core.GameAccess;
-import org.junit.Assume;
+import net.marcloud.mcp.core.LiveGameGate;
 import org.junit.Test;
 
 import static org.junit.Assert.assertTrue;
 
 /**
- * LIVE scaffold (default SKIPPED). Requires a running Minecraft client with the
- * player in a world. Gated behind {@code -Dmcp.it.live=true}; without it every
- * test {@link Assume#assumeTrue assume-skips} and never fails.
+ * LIVE scaffold. Requires a running Minecraft client with the player in a world.
+ *
+ * <p>HONEST TOMBSTONE, not a working test. {@link GameAccess} reads
+ * {@code Minecraft.getMinecraft()}, a static singleton populated only by the game's
+ * own bootstrap, so it is null in a forked surefire/failsafe JVM by construction and
+ * FAIL is the only branch reachable here. It used to gate TWICE — one Assume on the
+ * flag, a second on {@code inWorld()} — so {@code -Dmcp.it.live=true} produced skips
+ * and BUILD SUCCESS. {@link LiveGameGate} now turns that case red; see its javadoc.
+ *
+ * <p>Real live verification goes through the MCP socket and {@code eval_java}, the
+ * way {@code scripts/nav-astar-probe.py} does.
  *
  * <p>Mirrors {@code GuiClickLiveIT}. Covers the real interaction paths (hotbar
  * select via the live inventory, use-in-air via {@code PlayerControllerMP}) that
  * the headless {@code InteractControllerTest}/{@code HotbarControllerTest} can only
  * exercise through a fake.
  *
- * <p>Run live with:
- * {@code ./mvnw -pl core test -Dtest=InteractLiveIT -Dmcp.it.live=true}
+ * <p>Runs under failsafe, skipped by default:
+ * {@code ./mvnw -pl core verify -Dcore.it.skip=false -Dmcp.it.live=true}
  */
 public class InteractLiveIT {
 
-    private static final boolean LIVE = Boolean.getBoolean("mcp.it.live");
-
-    private static void requireLive() {
-        Assume.assumeTrue("requires live game window; run with -Dmcp.it.live=true", LIVE);
-    }
-
     private static void requireInWorld(ActActuator act) {
-        boolean up;
-        try {
-            up = act.inWorld();
-        } catch (Throwable noGame) {
-            up = false;
-        }
-        Assume.assumeTrue("requires the player to be in a world", up);
+        LiveGameGate.require("player in a world", act::inWorld);
     }
 
     @Test
     public void selectHotbarSlotOnTheLivePlayer() {
-        requireLive();
         ActActuator act = new LivePlayerActuator(new GameAccess());
         requireInWorld(act);
 
@@ -52,7 +47,6 @@ public class InteractLiveIT {
 
     @Test
     public void useHeldItemInAirOnTheLivePlayer() {
-        requireLive();
         ActActuator act = new LivePlayerActuator(new GameAccess());
         requireInWorld(act);
 

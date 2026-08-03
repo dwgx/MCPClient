@@ -1,46 +1,41 @@
 package net.marcloud.mcp.core.drivers.act;
 
 import net.marcloud.mcp.core.GameAccess;
-import org.junit.Assume;
+import net.marcloud.mcp.core.LiveGameGate;
 import org.junit.Test;
 
 import static org.junit.Assert.assertTrue;
 
 /**
- * LIVE scaffold (default SKIPPED). Physically requires a running Minecraft client
- * with a live game thread and the player in a world, so it cannot run in CI. Gated
- * behind {@code -Dmcp.it.live=true}; without that flag every test
- * {@link Assume#assumeTrue assume-skips} with a clear message and NEVER fails.
+ * LIVE scaffold. Physically requires a running Minecraft client with a live game
+ * thread and the player in a world.
+ *
+ * <p>HONEST TOMBSTONE, not a working test. {@link GameAccess} reads
+ * {@code Minecraft.getMinecraft()}, a static singleton populated only by the game's
+ * own bootstrap, so it is null in a forked surefire/failsafe JVM by construction and
+ * FAIL is the only branch reachable here. It used to gate TWICE — one Assume on the
+ * flag, a second on {@code inWorld()} — so {@code -Dmcp.it.live=true} produced a skip
+ * and BUILD SUCCESS. {@link LiveGameGate} now turns that case red; see its javadoc.
+ *
+ * <p>Real live verification goes through the MCP socket and {@code eval_java}, the
+ * way {@code scripts/nav-astar-probe.py} does.
  *
  * <p>Mirrors {@code GuiClickLiveIT}. Covers the one path the headless
  * {@code LookControllerTest} cannot: driving {@link LookController} against the
  * REAL {@link LivePlayerActuator} (rotation fields on the live {@code EntityPlayerSP}).
  *
- * <p>Run live with:
- * {@code ./mvnw -pl core test -Dtest=LookLiveIT -Dmcp.it.live=true}
+ * <p>Runs under failsafe, skipped by default:
+ * {@code ./mvnw -pl core verify -Dcore.it.skip=false -Dmcp.it.live=true}
  * inside a JVM that has Core started against a live client.
  */
 public class LookLiveIT {
 
-    private static final boolean LIVE = Boolean.getBoolean("mcp.it.live");
-
-    private static void requireLive() {
-        Assume.assumeTrue("requires live game window; run with -Dmcp.it.live=true", LIVE);
-    }
-
     private static void requireInWorld(ActActuator act) {
-        boolean up;
-        try {
-            up = act.inWorld();
-        } catch (Throwable noGame) {
-            up = false;
-        }
-        Assume.assumeTrue("requires the player to be in a world; run inside the game", up);
+        LiveGameGate.require("player in a world", act::inWorld);
     }
 
     @Test
     public void slewToAbsoluteYawOnTheLivePlayer() {
-        requireLive();
         ActActuator act = new LivePlayerActuator(new GameAccess());
         requireInWorld(act);
 
