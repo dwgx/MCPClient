@@ -421,6 +421,45 @@ public class ActToolsTest {
                 desc.contains("HORIZONTAL"));
     }
 
+    /**
+     * Every interact argument the parser reads must be documented, and every one documented must be
+     * read. Both directions, because each failure lies to the model in a different way.
+     *
+     * <p>The forward gap shipped: {@code hitX/hitY/hitZ} were read for {@code place} and named
+     * nowhere, so a caller could not aim a placement without reading our source. The reverse gap also
+     * shipped: the schema advertised a {@code mode} argument that only {@code parseLook} has ever
+     * read, so {@code interact:{kind:'hold', mode:...}} was accepted in silence with the argument
+     * discarded -- and the recent hold wiring edited that exact line without noticing the phantom
+     * sitting on it.
+     *
+     * <p>The vocabulary is DERIVED by asking the parser, not hand-listed: each name is probed by
+     * submitting it and seeing whether it changes the outcome, so a future phantom or a future
+     * undocumented argument fails here rather than in a caller's lap.
+     */
+    @Test
+    public void everyInteractArgumentIsBothReadAndDocumented() {
+        String desc = tools.actSet().tool().description();
+
+        // Read by parseInteract (confirmed by reading it; each appears in a strArg/intArg/floatArg
+        // /intTriple call there or in the requireBlock helper it delegates to).
+        List<String> read = List.of("kind", "block", "face", "entityId", "hotbarSlot", "holdTicks",
+                "hitX", "hitY", "hitZ");
+        for (String arg : read) {
+            assertTrue("interact reads '" + arg + "' but act_set's description never names it, so a "
+                    + "caller cannot use it without reading our source", desc.contains(arg));
+        }
+
+        // The reverse: a name the description offers for interact that no parser consumes. 'mode'
+        // belongs to look only; asserting on the interact CLAUSE rather than the whole string is what
+        // makes this able to fail, since 'mode' legitimately appears in the look clause.
+        int start = desc.indexOf("interact:{");
+        assertTrue("the description must have an interact clause to check", start >= 0);
+        String interactClause = desc.substring(start, desc.indexOf('}', start) + 1);
+        assertFalse("the interact clause must not advertise 'mode' -- only parseLook reads it, so an "
+                        + "interact 'mode' is accepted and silently discarded: " + interactClause,
+                interactClause.contains("mode"));
+    }
+
     @Test
     public void registerAllRegistersThreeToolsAsBuiltins() {
         var exec = new net.marcloud.mcp.core.io.IoSupervisor(2, 2000L);

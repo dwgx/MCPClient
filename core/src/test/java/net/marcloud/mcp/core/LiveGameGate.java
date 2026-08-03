@@ -28,7 +28,7 @@ import org.junit.Assume;
  * <p>Why the game can never be present under surefire/failsafe:
  * {@link GameAccess} reads {@code Minecraft.getMinecraft()}, a static singleton
  * that is only populated by the game's own bootstrap, so it is null in a forked
- * test JVM by construction. That makes FAIL the only branch these five ITs can
+ * test JVM by construction. That makes FAIL the only branch these six ITs can
  * reach here — they are honest tombstones pointing at the real live route, not
  * working tests. Real live verification in this repo goes through the MCP socket
  * and {@code eval_java}; {@code scripts/nav-astar-probe.py} is the worked example.
@@ -38,7 +38,7 @@ import org.junit.Assume;
  * because a missing native DLL is a legitimate local condition, so it needs a
  * separate {@code -Dmcp.it.nativeRequired} flag to escalate SKIP to FAIL. Here
  * {@code -Dmcp.it.live} IS the request, so two inputs suffice; folding them into
- * one helper would force a meaningless third argument on five call sites.
+ * one helper would force a meaningless third argument on six call sites.
  */
 public final class LiveGameGate {
 

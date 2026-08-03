@@ -71,19 +71,51 @@ public class DiffLeftMeansUnsampledNotGoneTest {
         assertTrue(left.contains(7) && left.contains(8));
     }
 
+    /**
+     * The cap itself evicts a live entity, and the diff then cannot tell that from a departure.
+     *
+     * <p>Drives {@code WorldViewCapture.nearestWithinCap}, the real truncation, rather than
+     * hand-building two id sets. The first version did the latter: it made one view hold id 8 and the
+     * next hold id 9 and asserted 8 was reported left -- which holds for ANY id-set difference, and
+     * applied no cap at all despite a comment saying "cap of 1 for the illustration". Production
+     * could have stopped truncating entirely and it would have stayed green. Both entities are alive
+     * in both samples here; only the cap moves.
+     */
     @Test
     public void anEntityEvictedByTheEntityCapIsReportedAsLeft() {
-        // Cap of 1 for the illustration: prev held the farther zombie, a nearer one arrives and
-        // takes the only slot. Nothing died; the far one is simply off the end of the sort.
-        WorldView prev = view(1L, List.of(entity(8, 9.0)));
-        WorldView cur = view(2L, List.of(entity(9, 1.0)));
+        EntityView far = entity(8, 9.0);
+        EntityView near = entity(9, 1.0);
 
-        Map<String, Object> diff = WorldViewDiff.diff(prev, cur);
-        assertTrue("the evicted id reads exactly like a departure", left(diff).contains(8));
+        // Both alive both times. First sample sees only the far one; then the near one shows up and
+        // takes the single slot the cap allows.
+        List<EntityView> before = WorldViewCapture.nearestWithinCap(List.of(far), 1);
+        List<EntityView> after = WorldViewCapture.nearestWithinCap(List.of(far, near), 1);
+
+        assertEquals("precondition: the cap kept exactly one", 1, after.size());
+        assertEquals("and it kept the NEARER one, which is what evicts the far one", 9,
+                after.get(0).id());
+
+        Map<String, Object> diff = WorldViewDiff.diff(view(1L, before), view(2L, after));
+        assertTrue("the evicted id reads exactly like a departure, though it never moved",
+                left(diff).contains(8));
         @SuppressWarnings("unchecked")
         Map<String, Object> ent = (Map<String, Object>) diff.get("entities");
         assertTrue("and it arrives alongside an 'entered', which is the only hint available",
                 ent.containsKey("entered"));
+    }
+
+    /**
+     * The cap keeps the NEAREST, not the first seen. If it truncated in arrival order the eviction
+     * would be arbitrary, and "a newly arrived closer entity evicts a farther one" -- which the tool
+     * description states as fact -- would not be true.
+     */
+    @Test
+    public void theCapKeepsTheNearestRatherThanWhateverArrivedFirst() {
+        List<EntityView> kept = WorldViewCapture.nearestWithinCap(
+                List.of(entity(1, 30.0), entity(2, 2.0), entity(3, 11.0)), 2);
+        assertEquals(2, kept.size());
+        assertEquals("nearest first", 2, kept.get(0).id());
+        assertEquals("then the next nearest, not the one listed first", 3, kept.get(1).id());
     }
 
     @Test
@@ -96,25 +128,58 @@ public class DiffLeftMeansUnsampledNotGoneTest {
         assertTrue("naming the honest alternative to 'gone'", desc.contains("NOT SAMPLED"));
     }
 
+    /**
+     * Each profile's cap must be stated NEXT TO ITS OWN NAME, not merely present somewhere.
+     *
+     * <p>The first version asserted {@code desc.contains(String.valueOf(p.maxEntities))} and could
+     * not fail. The description is ~3KB, so a bare number matches incidentally: COMBAT's cap of 24
+     * was satisfied by "its 24-block bound" in the drop legend thirty words earlier. That was not
+     * hypothetical -- while this assertion was green the description ACTUALLY SAID combat's cap was
+     * ninety-nine, and the test that exists to catch exactly that said nothing, for eight commits.
+     * (It said so because a reviewer's mutation was swept into a commit by {@code git add -A}; the
+     * assertion's job was to make that impossible to miss, and it failed at it.)
+     *
+     * <p>So the pattern requires the profile's own lowercase name immediately before its number.
+     * Tying the two together is what makes a wrong cap unrepresentable rather than merely unlikely:
+     * the number can no longer be borrowed from unrelated prose, and renaming a profile or changing
+     * a cap both turn this red.
+     */
     @Test
-    public void theDescriptionNamesBothUnsampledPaths() {
+    public void everyProfileCapIsStatedBesideItsOwnName() {
         String desc = worldViewDescription();
-        assertTrue("the unrequested-section path, which produces a whole-set left",
-                desc.contains("sections"));
-        assertTrue("the truncation path -- and with the real per-profile numbers, since 'a cap "
-                + "exists' is not actionable", desc.contains("cap"));
         for (ObserveProfile p : ObserveProfile.values()) {
-            assertTrue("the description must state " + p + "'s actual entity cap ("
-                    + p.maxEntities + "), or the model cannot tell truncation from departure",
-                    desc.contains(String.valueOf(p.maxEntities)));
+            String expected = p.name().toLowerCase(java.util.Locale.ROOT) + " " + p.maxEntities;
+            assertTrue("the description must say \"" + expected + "\" so the number cannot be "
+                    + "satisfied by an unrelated one elsewhere in the text; a model that reads the "
+                    + "wrong cap mistakes an eviction for a departure. Description was: " + desc,
+                    desc.contains(expected));
         }
     }
 
     /**
-     * The caps are derived from {@link ObserveProfile} above rather than hand-copied, so changing
-     * one without updating the description fails. Guard against the derivation going hollow: if
-     * every profile shared a cap the loop would prove little, and if a cap were a value that
-     * appears incidentally in the prose it would pass for the wrong reason.
+     * The unrequested-section path, named specifically enough that pre-existing prose cannot satisfy
+     * it.
+     *
+     * <p>{@code contains("sections")} and {@code contains("cap")} both passed on the description as
+     * it stood BEFORE any of this work: "'sections' picks a subset" and "(sorted, capped)" were
+     * already there. Two of the three sub-assertions in the original method were therefore inert, so
+     * the caveat they claim to guard could have been deleted down to a sentence and stayed green.
+     * These phrases only exist in the diff-mode caveat itself.
+     */
+    @Test
+    public void theDescriptionNamesTheUnsampledMechanismNotJustTheWordSections() {
+        String desc = worldViewDescription();
+        assertTrue("it must say what an unrequested section DOES -- that every known id reports "
+                + "left at once -- rather than merely mentioning 'sections' somewhere",
+                desc.contains("every id you knew reports left"));
+        assertTrue("and it must tie truncation to the entity cap in the same breath, since "
+                + "'a cap exists' is not actionable", desc.contains("entity cap"));
+    }
+
+    /**
+     * The caps are derived from {@link ObserveProfile} rather than hand-copied, so changing one
+     * without updating the description fails. Guard against the derivation going hollow a different
+     * way: if every profile shared a cap the loop above would prove almost nothing.
      */
     @Test
     public void theProfileCapsAreDistinctSoThatDerivationIsNotHollow() {

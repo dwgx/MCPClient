@@ -507,7 +507,7 @@ public final class ToolRegistry {
                         + "and cannot tell death or despawn apart from merely NOT SAMPLED, and an "
                         + "entity goes UNSAMPLED whenever 'sections' left entities out (then every id "
                         + "you knew reports left at once), when it fell outside the entity cap your "
-                        + "profile imposes (sparse 5, explore 12, combat NINETY-NINE nearest — so a newly "
+                        + "profile imposes (sparse 5, explore 12, combat 24 nearest — so a newly "
                         + "arrived closer entity EVICTS a farther one and that eviction reports as "
                         + "left), when it moved beyond the scan range, or when you changed 'radius' "
                         + "or 'profile' between the two calls, which moves the range and the cap "

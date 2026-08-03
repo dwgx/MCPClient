@@ -10,7 +10,7 @@ import org.junit.Test;
 
 /**
  * Headless guard for {@link LiveGameGate}, the skip-vs-fail wiring shared by the
- * five game-dependent {@code *LiveIT} scaffolds. Same technique as
+ * six game-dependent {@code *LiveIT} scaffolds. Same technique as
  * {@code NativeDebugGateTest}: exercise the pure decision so the truth table is
  * pinned without a game.
  *
@@ -92,6 +92,55 @@ public class LiveGameGateTest {
                 msg.contains("-Dmcp.it.live=true"));
         assertTrue("and the failsafe knob, since the ITs only run under failsafe",
                 msg.contains("core.it.skip"));
+    }
+
+    /**
+     * The IT count stated in prose must match the number of ITs actually using the gate.
+     *
+     * <p>Written because that number already drifted: the class javadoc said "these five ITs" after
+     * {@code HoldLiveIT} was wired in as a sixth by a different change, and the count is exactly what
+     * the next reader checks the wiring against -- a wrong one invites believing a class silently
+     * dropped out of the gate. This repo has been bitten by a number-in-prose twice before (a commit
+     * count pinned in a doc that changed on the next commit; a token count copied wrong across three
+     * files), and the lesson both times was that a number no test owns will drift.
+     *
+     * <p>Derived from the filesystem rather than a hand-kept list, so adding a seventh IT turns this
+     * red instead of quietly making four comments wrong.
+     */
+    @Test
+    public void theStatedItCountMatchesTheItsActuallyUsingTheGate() throws Exception {
+        java.nio.file.Path testRoot = java.nio.file.Path.of("src/test/java");
+        assertTrue("this test must run from the core module directory", java.nio.file.Files
+                .isDirectory(testRoot));
+
+        java.util.List<String> users;
+        try (var walk = java.nio.file.Files.walk(testRoot)) {
+            users = walk.filter(f -> f.getFileName().toString().endsWith("LiveIT.java"))
+                    .filter(f -> {
+                        try {
+                            return java.nio.file.Files.readString(f).contains("LiveGameGate");
+                        } catch (java.io.IOException e) {
+                            throw new IllegalStateException("unreadable: " + f, e);
+                        }
+                    })
+                    .map(f -> f.getFileName().toString())
+                    .sorted()
+                    .toList();
+        }
+
+        String number = switch (users.size()) {
+            case 5 -> "five";
+            case 6 -> "six";
+            case 7 -> "seven";
+            case 8 -> "eight";
+            default -> String.valueOf(users.size());
+        };
+        String gateSource = java.nio.file.Files.readString(
+                java.nio.file.Path.of("src/test/java/net/marcloud/mcp/core/LiveGameGate.java"));
+        assertTrue(users.size() + " ITs use LiveGameGate (" + users + ") but its javadoc does not "
+                        + "say \"" + number + "\" -- update the prose, or the next reader will "
+                        + "believe one silently dropped out of the gate",
+                gateSource.contains(number + " ITs") || gateSource.contains(number + " call sites"));
     }
 
     /**

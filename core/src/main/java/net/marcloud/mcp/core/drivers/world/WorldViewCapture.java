@@ -131,9 +131,28 @@ public final class WorldViewCapture {
             out.add(new EntityView(e.getEntityId(), type, e.posX, e.posY, e.posZ, dist, hp,
                     prof.entityHp ? type : null));
         }
+        return nearestWithinCap(out, prof.maxEntities);
+    }
+
+    /**
+     * Sort by distance and keep only the nearest {@code cap}.
+     *
+     * <p>Extracted so the truncation is reachable without a world, the same reason
+     * {@link LocalGrid} keeps its fall arithmetic in a separate method. It is worth reaching:
+     * this is where an entity that is alive and adjacent silently stops being reported, and
+     * {@code world_view mode=diff} then lists it under {@code entities.left} exactly as it lists a
+     * departure. The test that claimed to cover that used to hand-build two views with different ids
+     * and never applied a cap at all, so it proved only that a differ notices a missing id -- this
+     * whole path could have stopped feeding the differ and it would have stayed green.
+     *
+     * <p>Nearest-wins rather than first-seen: {@code loadedEntityList} is in no useful order, so
+     * without the sort the cap would drop an arbitrary subset instead of the far ones.
+     */
+    static List<EntityView> nearestWithinCap(List<EntityView> found, int cap) {
+        List<EntityView> out = new ArrayList<>(found);
         out.sort((a, b) -> Double.compare(a.dist(), b.dist()));
-        if (out.size() > prof.maxEntities) {
-            out = new ArrayList<>(out.subList(0, prof.maxEntities));
+        if (out.size() > cap) {
+            out = new ArrayList<>(out.subList(0, cap));
         }
         return out;
     }

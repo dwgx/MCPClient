@@ -187,7 +187,8 @@ public final class ActTools {
                         + "look:{mode 'set'|'look_at', yaw/pitch (SET degrees), block:[x,y,z] or "
                         + "entityId (LOOK_AT), slewDegPerTick (<=0 = instant snap)}. "
                         + "interact:{kind 'dig'|'use'|'place'|'attack'|'hotbar'|'hold', block:[x,y,z], "
-                        + "face 0-5, entityId, hotbarSlot 0-8, holdTicks, mode}. 'use' is a SINGLE "
+                        + "face 0-5, entityId, hotbarSlot 0-8, holdTicks, hitX/hitY/hitZ (place "
+                        + "only: where on the face, 0..1 each)}. 'use' is a SINGLE "
                         + "right-click, which vanilla cancels a couple of ticks later -- so it CANNOT "
                         + "eat, draw a bow or block. 'hold' is the sustained one: it keeps vanilla's "
                         + "use key asserted every tick. Omit holdTicks to hold until the game itself "
@@ -213,8 +214,9 @@ public final class ActTools {
                                 "description", "camera aim: mode set|look_at, yaw,pitch,block,entityId,slewDegPerTick"),
                         "interact", Map.of("type", "object",
                                 "description", "world interaction: kind dig|use|place|attack|hotbar|hold, "
-                                        + "block,face,entityId,hotbarSlot,holdTicks (hold: omit "
-                                        + "holdTicks to eat until done, give it to draw-then-release)")),
+                                        + "block,face,entityId,hotbarSlot,holdTicks,hitX,hitY,hitZ "
+                                        + "(hold: omit holdTicks to eat until done, give it to "
+                                        + "draw-then-release)")),
                         List.of()))
                 .annotations(ToolAnnotations.builder()
                         .title("Set actuation intents")

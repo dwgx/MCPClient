@@ -14,7 +14,7 @@ import org.junit.Test;
  * AND {@link KdBridge#isAvailable()}; without them every test assume-skips with a
  * clear message and never fails.
  *
- * <p>Unlike its five siblings this one touches no game, so it is the only IT here
+ * <p>Unlike the six game-dependent siblings this one touches no game, so it is the only IT here
  * that can actually pass under failsafe. Verified doing so: a real JVMTI
  * suspend/resume against the arm64 {@code .dylib} on JDK 25 / macOS.
  *
