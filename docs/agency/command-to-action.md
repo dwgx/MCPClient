@@ -155,6 +155,19 @@ RESOLVING(校验目标+距离,startDig) -> DIGGING(每 tick pumpDig,轮询 block
   代价:你在写一个游戏 agent,而不是暴露一个游戏 —— 而且行为越往代码侧移,
   模型判断参与执行的比例越低,**这与这个项目有意思的地方相反**。
 
+> **2026-08-03 调研:这条岔路上,已知的实现全部选了"代码持环"。**
+>
+> [Voyager](https://voyager.minedojo.org/) 明确"use code as the action space instead of
+> low-level motor commands",理由就是长时程目标需要跨时间、可组合的行为(详见 Fork A 下的展开)。
+> [Baritone](https://github.com/cabaletta/baritone) 的寻路在**独立线程**上算,主线程只拿
+> "最新考察到的节点和目前最好的路径",执行可在最佳路径穿过玩家当前位置时暂停 —— 这是一个
+> 彻底的代码侧循环,外部只给目标(`setGoalAndPath(new GoalXZ(10000, 20000))`)。
+>
+> **但注意这不是对 Fork D 的回答,只是对"20Hz 那一侧技术上可行且被验证"的回答。**
+> 那两个项目都不背着一个 7 层权限内核,也都不以"模型判断参与执行"为设计目标。
+> "行为越往代码侧移、模型参与越少"这个代价对它们不是代价,对本项目可能是。
+> 所以这条仍然是取舍,不是有正确答案的问题。
+
 ### Fork A — 多 tick 行为住在哪
 
 - **编译进 `core/drivers/act` 的 Java controller**:贴合现有 `ActApplier`/`ActActuator`/`FakeActuator`,
@@ -168,20 +181,63 @@ RESOLVING(校验目标+距离,startDig) -> DIGGING(每 tick pumpDig,轮询 block
   模型仍然在写行为,但在一个你能门控、能测试的有限词汇里。代价:你从此拥有一个解释器和它的语义,
   三者中最大。
 
+#### 前人怎么做的:Voyager 选了"生成代码"(2026-08-03 调研)
+
+[Voyager](https://voyager.minedojo.org/)(NVIDIA/Caltech,GPT-4 驱动的 Minecraft agent)
+**明确地把代码而不是低层动作当作动作空间**,理由正是本文 §0 那条:程序能表达跨时间、可组合的行为,
+而长时程目标需要这个。一次 LLM 调用产出一段跨很多 tick 执行的程序,不是一个原子动作。
+
+它的三个部件对 Fork A 的"词汇"问题给了一个具体答案 —— **词汇不该是固定的,它应该增长**:
+
+- **技能库**:跑通的程序按描述的 embedding 索引存起来;新任务先检索 top-5 相关技能当上下文。
+  程序可组合,所以简单技能变成困难技能的积木。论文说这"迅速复利式增长能力并缓解灾难性遗忘"。
+- **迭代提示**:生成的代码要过三道反馈才进库 —— 环境反馈(缺两块木板)、执行错误
+  (把不存在的 "acacia axe" 改成木斧)、**自我验证**(GPT-4 拿着任务和状态当 critic 判成败并给评语)。
+- **自动课程**:从当前状态和探索进度提议下一个任务,即 in-context 的 novelty search。
+
+报告的结果:160 轮拿到 63 种独特物品(基线的 3.3 倍),木器时代快 15.3 倍,技能零样本迁移到新世界。
+
+**但有一条关键差异,它决定这条经验能不能直接搬过来。** Voyager 的生成代码跑在
+**Mineflayer 里 —— 进程外,没有安全内核**。本项目里 `create_tool` 是 R0 但生成工具只拿
+`CAP_WORLD_READ + CAP_MEMORY_READ`,`eval_java` 是 R-1 by design。
+**照搬 Voyager 等于把玩法放在任意代码执行的同一档上**,而那正是铁律③要防的事。
+
+所以 Voyager 是"生成代码可行且有效"的强证据,**不是**"本项目应该这么做"的证据 ——
+两者之间隔着这个内核。第三条路(有限词汇的解释器)存在的意义正是想同时拿到两边:
+模型仍在写行为,但写在一个你能门控的词汇里。
+
 ### Fork B — 导航引擎
 
-- **包 vanilla A***:`PathFinder.createEntityPathTo(IBlockAccess, Entity, BlockPos, float)` 是 public
+> **2026-08-03 更正:这一节原来把"包 vanilla"列为可选项之一,那是错的。**
+> vanilla 的邻居生成器只有四个正交方向,建模的是怪物而不是人 —— 详见 §5.5 顶部的更正横幅。
+> **它不能表达挖穿、搭桥、跨隙跳,而这三件正是"像人一样"的内容。**
+> 下面保留原文,因为"我实测了它跑不跑,却没问它能表达什么"这个错误形状值得留着。
+
+- ~~**包 vanilla A***~~ **已排除,但留一个真实用途:廉价的可达性预言机。**
+  `PathFinder.createEntityPathTo(IBlockAccess, Entity, BlockPos, float)` 是 public
   且接受裸 `Entity`(`client/src/main/java/net/minecraft/pathfinding/PathFinder.java:33`),
   `ChunkCache(World, BlockPos, BlockPos, int)` 是 public(`ChunkCache.java:24`),
-  `WalkNodeProcessor` 从 `entity.width/height` 取尺寸,而且被十年的怪物验证过。
-  代价:**`PathNavigate` 用不了**(它要 `EntityLiving` 和玩家没有的 `getMoveHelper()`),
-  所以 follower 还是得自己写;继承 3 格坠落盲区;把更多 `net.minecraft` 拉进 core
-  (`LivePlayerActuator` 已经这么做了,所以这是程度问题)。
-- **在 `LocalGrid` 上写局部贪心转向**:除已有耦合外不碰客户端,可以拿合成网格轻松测,
-  而且**可以教它挖穿或搭桥而不是绕开** —— 那才是人真正的做法。
-  代价:可行性分类学和每一个地形边界情况从此永久归你。
+  ~~而且被十年的怪物验证过~~ —— **"被怪物验证过"恰恰是问题所在,不是卖点。**
+  找到路 ⇒ 不改地形就能走到(有用的事实);找不到 ⇒ 什么都没说明,因为人可能挖三格就过去了。
+  代价:`PathNavigate` 用不了(要 `EntityLiving` 和玩家没有的 `getMoveHelper()`)。
+- **在 `LocalGrid` 上写局部转向 + 自有邻居生成器** ← **现在是主路**。
+  除已有耦合外不碰客户端,可以拿合成网格轻松测,而且**可以教它挖穿或搭桥而不是绕开** ——
+  那才是人真正的做法,也是 Baritone 和 mineflayer-pathfinder 各自重写寻路器的原因。
+  代价:可行性分类学和每一个地形边界情况从此永久归你(§3 的 `walk` 已经借了 vanilla 的裁决,
+  所以这笔债比看起来小)。
 - **不做规划器,只发布可行性让模型路由**:零新引擎,而模型对 17×17 网格确实在行。
   代价:每次重路由一次 LLM 往返,又回到 Fork D 的节奏问题。
+
+#### 前人怎么做的(2026-08-03 调研)
+
+两个成熟实现**都自己写了寻路器,而且他们本来可以不写**:
+
+| | 建模了什么 | 是否用 vanilla |
+|---|---|---|
+| [Baritone](https://github.com/cabaletta/baritone) | "A*, with some modifications":分段计算、增量代价回退、最小改进重传播。**1/2/3 格跨隙跑跳、pillaring、sneak-back-place、梯子藤蔓、半砖楼梯**,权衡挖穿 vs 绕路(考虑手上工具),放置代价默认 1 秒,避开火/岩浆/临水方块。区块压成 2-bit(AIR/SOLID/WATER/AVOID)驻内存,可落盘,所以能超视距寻路 | **不用**。而它跑在客户端同一个 JVM 里,完全能直接调 |
+| [mineflayer-pathfinder](https://github.com/PrismarineJS/mineflayer-pathfinder) | `digCost` / `placeCost` / `scafoldingBlocks` / `allow1by1towers` / `maxDropDown=4` / 跨隙 parkour / 游泳 / 实体规避 | **不用**(它在游戏进程外,本来也调不到) |
+
+Baritone 那一栏是关键:**唯一一个技术上能复用 vanilla 的实现,选择了不复用。**
 
 ### Fork C — nav 意图的形状
 
@@ -224,7 +280,41 @@ RESOLVING(校验目标+距离,startDig) -> DIGGING(每 tick pumpDig,轮询 block
 > 本仓库的真机验证走 MCP socket + `eval_java`(`scripts/live-dwm-probe.py` 就是这么做的)。
 > 我先照 `DigLiveIT` 写了一个 `NavPathLiveIT`,那是错的选择,已删。
 
-### ① vanilla A* 对客户端玩家可用 —— Fork B 的"包 vanilla"分支活着
+> **重要更正(2026-08-03,联网调研 + 复核 vanilla 源码之后)。**
+>
+> 下面 ① 说"Fork B 的包 vanilla 分支活着",**那个推荐是错的**,而错在我问错了问题:
+> 我实测了 vanilla A* **跑不跑**(跑,~2ms),却从没查**它能表达什么**。
+>
+> `WalkNodeProcessor.findPathOptions` 只生成**四个正交邻居**(`:83-91`,逐行读过):
+> `z+1` / `x-1` / `x+1` / `z-1`。**没有对角、没有跳跃、没有跨隙、不挖不搭。**
+> `canBreakDoors` 只管门。`getMaxFallHeight()==3` 是怪物约束。
+>
+> **它建模的是一只会走路、会游泳、会开门的怪物,不是一个人。**
+>
+> 而这条证据一直躺在我自己的实测数字里:12 格斜向查询返回 **22 个节点**,
+> 11+11=22 —— 正是纯正交走法的步数。我当时把它读成"格级航点",没意识到
+> 节点数本身就在告诉我这件事。
+>
+> **前人全都自己写了寻路器,而且他们本来可以不写。**
+> [Baritone](https://github.com/cabaletta/baritone) 跑在客户端同一个 JVM 里、
+> 完全能直接调 vanilla,但它"uses A*, with some modifications" —— 分段计算、
+> 增量代价回退、最小改进重传播 —— 并支持 **1/2/3 格跨隙跑跳、pillaring、
+> sneak-back-place、梯子藤蔓、半砖楼梯**,还会**权衡挖穿 vs 绕路**(考虑手上的工具)。
+> [mineflayer-pathfinder](https://github.com/PrismarineJS/mineflayer-pathfinder) 同样自己写,
+> 建模 `digCost`/`placeCost`/`allow1by1towers`/`maxDropDown=4`。
+>
+> **所以"像人一样"这个目标本身就排除了包 vanilla。** 人会挖穿、会搭桥、会跳三格;
+> vanilla 的邻居生成器里没有任何一条能表达这些决定,再快也没用。
+> 3 格坠落上限不是"继承的一个限制",它是"这是给别的生物设计的"的症状。
+>
+> **vanilla A* 仍有一个真实用途,只是不是导航引擎:廉价的可达性预言机。**
+> 它找到路 ⇒ 不改地形就能走到,这是有用的事实。它找不到 ⇒ 什么都没说明,
+> 因为一个人可能挖三格就过去了。
+>
+> Fork B 的天平因此翻向**在 `LocalGrid` 上写局部转向 + 自有邻居生成器**,
+> 而"可以教它挖穿或搭桥,那才是人的做法"这句原本写在代价栏里的话,现在是主要理由。
+
+### ① vanilla A* 对客户端玩家可用(**但不适合当导航引擎,见上方更正**)
 
 ```
 NODES 22  took=5357us   (首次,含 JIT)
