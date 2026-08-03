@@ -44,10 +44,33 @@ class ReplyFramingTest(unittest.TestCase):
     """Run the same contract against both probes, so neither drifts back."""
 
     def setUp(self):
+        # live-hold-probe.py reuses nav-astar-probe.py's Mcp rather than copying it, which is the
+        # point: the framing bug this file pins existed in two copies and only one was fixed.
         self.probes = {
             "nav-astar-probe.py": load("nav-astar-probe.py").Mcp,
             "live-dwm-probe.py": load("live-dwm-probe.py").Mcp,
         }
+
+    def test_the_hold_probe_reuses_the_socket_client_rather_than_copying_it(self):
+        """A third copy of the read loop would be a third chance to reintroduce the truncation.
+
+        Asserting on identity, not on behaviour: a copy that happens to be correct today still
+        drifts, and this file's whole reason for existing is that exactly that happened once.
+        """
+        hold = load("live-hold-probe.py")
+        # Not an identity check: load() execs a fresh module each call, so the hold probe's own
+        # import of the nav probe yields a different class object with the same name -- an
+        # assertIs here fails with "X is not X", which says nothing about the property. The
+        # checkable property is WHERE the class was defined.
+        self.assertEqual("nav_astar_probe", hold.Mcp.__module__,
+                         "live-hold-probe must reuse nav-astar-probe's Mcp rather than defining "
+                         "its own; a third copy of the read loop is a third chance to "
+                         "reintroduce the truncation this file exists to pin")
+        for helper in ("require_ticking", "allow_unfocused", "record"):
+            self.assertTrue(hasattr(hold, helper),
+                            f"the hold probe must reuse {helper} rather than reimplementing the "
+                            "guard -- writing a bare call past the guard is the mistake that "
+                            "produced a false bug report in this repo before")
 
     def test_should_reject_a_reply_that_is_still_arriving(self):
         big = reply("X" * 200_000)
