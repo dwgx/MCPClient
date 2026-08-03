@@ -194,6 +194,22 @@ public interface ActActuator {
      */
     int itemInUseCount();
 
+    /**
+     * The held item's own maximum use duration, or 0 when nothing usable is held.
+     *
+     * <p>Exists because {@link #itemInUseCount()} counts DOWN, so it answers "how much is left", and
+     * every question vanilla actually decides is about how much has ELAPSED. A bow's charge is
+     * {@code getMaxItemUseDuration(stack) - timeLeft} ({@code ItemBow.java:32}), so elapsed ticks are
+     * only recoverable with this value in hand.
+     *
+     * <p>The first version of the hold controller substituted the count observed when the controller
+     * ADOPTED the use, which agrees with this only when the controller also started it. Adopting a
+     * draw a human had already begun made it report a shorter draw than vanilla saw -- and since a
+     * draw below three ticks fires no arrow at all, that under-report was a confidently worded claim
+     * that nothing was shot when an almost fully charged arrow had been.
+     */
+    int maxItemUseDuration();
+
     // ===== hotbar =====
 
     /** Select hotbar {@code slot} (0-8). */

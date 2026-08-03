@@ -298,6 +298,20 @@ public final class LivePlayerActuator implements ActActuator {
         return p == null ? 0 : p.getItemInUseCount();
     }
 
+    @Override
+    public int maxItemUseDuration() {
+        EntityPlayerSP p = game.player();
+        if (p == null) {
+            return 0;
+        }
+        // The stack currently BEING used when there is one, falling back to what is in hand.
+        // getItemInUse() is what vanilla itself passes to onPlayerStoppedUsing, so during a draw it
+        // is the authority; between uses it is null and the held stack is the only thing to ask.
+        net.minecraft.item.ItemStack inUse = p.getItemInUse();
+        net.minecraft.item.ItemStack stack = inUse != null ? inUse : p.getHeldItem();
+        return stack == null ? 0 : stack.getMaxItemUseDuration();
+    }
+
     /**
      * Write vanilla's use-key state and CONFIRM by reading it back.
      *

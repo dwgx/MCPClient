@@ -56,6 +56,16 @@ class FakeActuator implements ActActuator {
     int useCount = 0;
     /** Count a successful {@code useItemInAir} starts a use with (32 = food, 72000 = bow/sword). */
     int useStartCount = 32;
+    /**
+     * The held item's own max use duration, i.e. vanilla's {@code getMaxItemUseDuration}.
+     *
+     * <p>Separate from {@link #useStartCount} on purpose, and that separation is the whole point of
+     * this field: they are equal only when the use STARTED here. Setting useStartCount below this
+     * models a use already in progress when the controller adopts it -- a human holding right-click
+     * before the hold arrives -- which is the case where a controller measuring elapsed ticks from
+     * its own first observation disagrees with vanilla, which measures from this.
+     */
+    int maxUseDuration = 32;
     /** If false, a successful {@code useItemInAir} changes the stack but starts no sustained use. */
     boolean useStartsSustained = true;
     /**
@@ -263,6 +273,11 @@ class FakeActuator implements ActActuator {
         return usingItem ? useCount : 0;
     }
 
+    @Override
+    public int maxItemUseDuration() {
+        return maxUseDuration;
+    }
+
     /**
      * The rest of the game tick, AFTER the controller ran. Call this between controller ticks or every
      * hold assertion in a test is vacuous.
@@ -320,6 +335,20 @@ class FakeActuator implements ActActuator {
 
     /** Take the item away mid-use, the way a hotbar switch clears vanilla's itemInUse. */
     void interruptUse() {
+        usingItem = false;
+        useCount = 0;
+    }
+
+    /**
+     * Interrupt by SWITCHING HOTBAR SLOT, which is what vanilla's own clearing path is about.
+     *
+     * <p>Distinct from {@link #interruptUse} because the slot is the observable that separates an
+     * interruption from a completion in the ticks where the clock cannot: near the end of a meal both
+     * leave a small count, and a controller reading only the count calls the interruption a success.
+     * A fake that clears the use without moving the slot can never expose that.
+     */
+    void interruptBySwitchingSlot(int toSlot) {
+        heldSlot = toSlot;
         usingItem = false;
         useCount = 0;
     }

@@ -36,6 +36,24 @@ public class HoldControllerTest {
     private static FakeActuator holdingBow() {
         FakeActuator act = new FakeActuator();
         act.useStartCount = HELD_INDEFINITELY_TICKS;
+        act.maxUseDuration = HELD_INDEFINITELY_TICKS;
+        return act;
+    }
+
+    /**
+     * A bow a human has ALREADY been drawing for {@code alreadyDrawn} ticks when the hold arrives.
+     *
+     * <p>The distinction this sets up is the one that hid a real defect: {@code maxUseDuration} stays
+     * the item's own 72000 while the live count is already down, so a controller measuring elapsed
+     * ticks from its own first observation disagrees with vanilla, which measures from the item's
+     * duration ({@code ItemBow.java:32}). Every earlier bow test started the draw itself, where the
+     * two baselines coincide, so none of them could see it.
+     */
+    private static FakeActuator bowAlreadyDrawnFor(int alreadyDrawn) {
+        FakeActuator act = holdingBow();
+        act.usingItem = true;
+        act.useKeyDown = true;
+        act.useCount = HELD_INDEFINITELY_TICKS - alreadyDrawn;
         return act;
     }
 
@@ -177,6 +195,72 @@ public class HoldControllerTest {
         assertFalse("and the use must be over", act.isUsingItem());
         assertEquals("exactly one release", 1, act.releaseUseKeyCalls);
         assertEquals("and vanilla must not have re-drawn after the shot", 0, act.autoStarts);
+    }
+
+    /**
+     * A hotbar switch in the LAST few ticks of a meal is still an interruption.
+     *
+     * <p>The window the count band could not see. Completion was judged by "the clock is nearly
+     * out", on the reasoning that an interruption leaves tens of ticks -- true mid-meal, false here:
+     * a 32-tick eat passes through 3, 2, 1, 0, and a switch inside that stretch was reported as
+     * "use completed". Roughly four ticks in every meal, and the caller then believes hunger was
+     * restored when the stack was pulled out of its hand.
+     *
+     * <p>The sibling test above interrupts at tick 5, deep inside the band where the clock alone is
+     * decisive, which is why it passed throughout.
+     */
+    @Test
+    public void aHotbarSwitchInTheFinalTicksIsStillInterruptedNotCompleted() {
+        FakeActuator act = holdingFood();
+        HoldController c = new HoldController(InteractIntent.holdUntilDone());
+
+        ActOutcome out = null;
+        for (int i = 0; i < 60; i++) {
+            out = c.tick(act);
+            act.advanceGameTick();
+            if (out.terminal()) {
+                break;
+            }
+            // Inside COMPLETION_COUNT_SLACK: the clock now looks exactly like a finishing meal.
+            if (act.itemInUseCount() <= 2 && act.isUsingItem()) {
+                act.interruptBySwitchingSlot(7);
+            }
+        }
+
+        assertTrue("must terminate", out != null && out.terminal());
+        assertFalse("a meal cut short in its last ticks must NOT be reported as eaten -- the caller "
+                        + "acts on that: " + out.message(), out.ok());
+        assertTrue("and the message must name the slot change rather than the clock: " + out.message(),
+                out.message().contains("held slot changed"));
+    }
+
+    /**
+     * Adopting a draw already in progress must report the draw VANILLA sees, not the part we watched.
+     *
+     * <p>The defect this pins: the draw count was computed against the count observed when this
+     * controller adopted the use, while {@code ItemBow.java:32} charges on
+     * {@code getMaxItemUseDuration(stack) - timeLeft}. A human draws 15 ticks, the hold adopts and
+     * releases 2 ticks later: ours said 2 and described it as below the minimum -- "fires nothing" --
+     * while vanilla saw 17 and loosed a nearly full arrow. The report was not merely imprecise, it
+     * asserted the opposite outcome, and a caller deciding whether to shoot again acts on it.
+     *
+     * <p>Adoption is a supported entry rather than a corner: the hold is documented as able to take
+     * over a use the player already started.
+     */
+    @Test
+    public void adoptingADrawInProgressReportsTheDrawFromVanillasBaseline() {
+        FakeActuator act = bowAlreadyDrawnFor(15);
+        HoldController c = new HoldController(InteractIntent.holdThenRelease(2));
+
+        ActOutcome out = run(c, act, 30);
+        assertTrue("must terminate", out != null && out.terminal());
+        assertTrue("a released bow is a success: " + out.message(), out.ok());
+        assertTrue("the draw must count from the item's own duration, so 15 already drawn plus the "
+                        + "2 we held reads as 17 -- not the 2 we happened to watch: " + out.message(),
+                out.message().contains("17 draw ticks"));
+        assertFalse("and 17 ticks is well past the minimum, so it must NOT claim nothing was fired: "
+                        + out.message(),
+                out.message().contains("fire anything") || out.message().contains("no arrow"));
     }
 
     @Test

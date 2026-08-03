@@ -101,6 +101,17 @@ public final class HoldController {
     private int initialCount;
     /** The most recent count seen while the use was live, kept for the interrupted/completed test. */
     private int lastCount;
+    /**
+     * Hotbar slot the use started in, so a switch is DETECTED rather than inferred from the clock.
+     *
+     * <p>The count band alone cannot carry that judgement. Its reasoning was that an interruption
+     * leaves tens of ticks on the clock, far outside the band -- true for a switch in the middle of a
+     * meal, false for one in its last few ticks, where a 32-tick eat sits at 3, 2, 1, 0 and an
+     * interruption is indistinguishable from finishing. That is a false SUCCESS in roughly a
+     * four-tick window per meal, and the caller then believes hunger was restored when the stack was
+     * pulled away: the dangerous direction of this error.
+     */
+    private int initialSlot = -1;
     /** Draw ticks vanilla had counted at the moment of release, for the RELEASING message. */
     private int drawnAtRelease;
 
@@ -224,6 +235,7 @@ public final class HoldController {
                     + "THEN_RELEASE with a tick count instead (a bow fires on release)"));
         }
 
+        initialSlot = act.heldSlot();
         state = State.HOLDING;
         return ActOutcome.running("holding the use key, use count " + initialCount
                 + "; note vanilla scales movement to 0.2x while an item is in use "
@@ -239,15 +251,29 @@ public final class HoldController {
         }
 
         if (!act.isUsingItem()) {
-            // Vanilla ended the use. Which ending it was is readable from the count last seen: at or
-            // just past zero it ran out (the server finished it and said so), still high and
-            // something took the item away mid-use.
-            boolean ranOut = lastCount <= COMPLETION_COUNT_SLACK;
+            // Vanilla ended the use, and which ending it was decides whether the caller believes the
+            // food was eaten. Two signals, in order of how much they actually prove:
+            //
+            // A hotbar switch is OBSERVED, not inferred. It is the mechanism the failure message
+            // names, and checking it directly is what closes the window the count band leaves open:
+            // in the last few ticks of a meal an interruption and a completion both leave a small
+            // count, and picking "completed" there is a false success in the direction that matters.
+            int slotNow = act.heldSlot();
+            boolean switched = initialSlot >= 0 && slotNow != initialSlot;
+            // Only then the clock, for interruptions with no slot change (the stack ran out, was
+            // dropped, the player died).
+            boolean ranOut = !switched && lastCount <= COMPLETION_COUNT_SLACK;
             act.releaseUseKey();
+            if (switched) {
+                return finish(act, ActOutcome.failed("the use ended after " + heldTicks
+                        + " ticks because the held slot changed from " + initialSlot + " to " + slotNow
+                        + ", which clears vanilla's use -- interrupted, not finished, whatever the "
+                        + "remaining count (" + lastCount + ") suggests"));
+            }
             if (!ranOut) {
                 return finish(act, ActOutcome.failed("the use ended after " + heldTicks + " ticks with "
                         + lastCount + " ticks still on its clock, so it was interrupted rather than "
-                        + "finished -- the held stack changed (a hotbar switch clears the use)"));
+                        + "finished -- something took the item away mid-use"));
             }
             if (mode == InteractIntent.HoldMode.THEN_RELEASE) {
                 // Asked to hold N ticks and vanilla finished early: honest success, but the caller's
@@ -294,10 +320,22 @@ public final class HoldController {
      * and the RELEASE_USE_ITEM packet with it.
      */
     private ActOutcome beginRelease(ActActuator act) {
+        // Vanilla's own baseline, not ours. ItemBow.java:32 charges on
+        // getMaxItemUseDuration(stack) - timeLeft, i.e. ticks since the DRAW began -- while the first
+        // version subtracted from initialCount, the count observed when this controller ADOPTED the
+        // use. Those agree only when the controller also started it. Adopt a draw a human already
+        // began and ours reads short, so a 17-tick draw could be reported as 2 and described as
+        // firing nothing while vanilla loosed a near-full arrow. A wrong number stated confidently
+        // is worse than no number, because the caller acts on it.
+        //
+        // Falls back to our own baseline only if the item cannot be asked, so an unavailable duration
+        // degrades to the old approximation rather than to zero, which would read as "no draw".
+        int maxDuration = act.maxItemUseDuration();
+        int baseline = maxDuration > 0 ? maxDuration : initialCount;
         // Sampled fresh, not from lastCount. lastCount is one tick stale by the time the release tick
         // runs, and the draw count is exactly what decides whether an arrow exists: reporting one
         // tick short would put a 3-tick draw (an arrow) below BOW_MIN_CHARGE_TICKS (no arrow).
-        drawnAtRelease = initialCount - act.itemInUseCount();
+        drawnAtRelease = baseline - act.itemInUseCount();
         if (!act.releaseUseKey()) {
             return finish(act, ActOutcome.failed("held " + heldTicks + " ticks but the use key could not "
                     + "be released, so vanilla will not end the use"));
