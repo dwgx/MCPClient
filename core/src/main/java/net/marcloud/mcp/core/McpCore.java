@@ -252,8 +252,10 @@ public final class McpCore {
                 net.marcloud.mcp.core.drivers.act.ActRuntime.INSTANCE;
         net.marcloud.mcp.core.drivers.act.ActActuator actuator =
                 new net.marcloud.mcp.core.drivers.act.LivePlayerActuator(game);
+        // MOVE takes the actuator too, so act_status can report distance travelled and call out a
+        // jam instead of saying "moving" for a player pressed against a wall.
         actRuntime.registerApplier(net.marcloud.mcp.core.drivers.act.ActSlot.MOVE,
-                new net.marcloud.mcp.core.drivers.act.MoveApplier());
+                new net.marcloud.mcp.core.drivers.act.MoveApplier(actuator));
         actRuntime.registerApplier(net.marcloud.mcp.core.drivers.act.ActSlot.LOOK,
                 new net.marcloud.mcp.core.drivers.act.LookApplier(actuator));
         actRuntime.registerApplier(net.marcloud.mcp.core.drivers.act.ActSlot.INTERACT,
