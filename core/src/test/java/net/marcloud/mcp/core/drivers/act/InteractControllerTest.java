@@ -92,7 +92,7 @@ public class InteractControllerTest {
         FakeActuator act = new FakeActuator();
         // Build a malformed PLACE with no block target on purpose.
         InteractIntent bad = new InteractIntent(InteractIntent.Kind.PLACE,
-                0, 0, 0, false, -1, 0, 0, 0, -1, -1);
+                0, 0, 0, false, -1, 0, 0, 0, -1, -1, null, 0);
         InteractController c = new InteractController(bad);
         ActOutcome out = c.tick(act);
         assertTrue(out.terminal());

@@ -3,14 +3,22 @@ package net.marcloud.mcp.core.drivers.act;
 /**
  * The {@link ActSlot#INTERACT} applier: routes an {@link InteractIntent} to the
  * right pure controller ({@link DigController} for multi-tick digging,
- * {@link InteractController} for use/place/attack, {@link HotbarController} for
- * slot select) and steps it over an {@link ActActuator}.
+ * {@link HoldController} for a sustained use, {@link InteractController} for
+ * use/place/attack, {@link HotbarController} for slot select) and steps it over an
+ * {@link ActActuator}.
  *
  * <p>Stateful, game-thread-only (driven by {@link ActTickLoop}), so no
  * synchronization. Caches the controller for the intent it is driving and
  * rebuilds when the slot's intent changes, so a new {@code submitInteract} always
- * starts fresh. A pending cancel is forwarded to a live {@link DigController} so
- * an in-progress dig is aborted cleanly on the game thread.
+ * starts fresh. Freshness is detected by intent IDENTITY, which is why nothing here
+ * rewrites the slot's intent per tick: a hold lasts many ticks, and a per-tick swap
+ * would make every one of them look like a new submission and restart the hold
+ * forever.
+ *
+ * <p>A pending cancel is forwarded to whichever controller can be MID-something and
+ * needs a real teardown on the game thread: a {@link DigController} to abort a break,
+ * and a {@link HoldController} to release vanilla's use key -- a hold left asserted
+ * would keep the player eating or blocking with nothing driving it.
  */
 public final class InteractApplier implements ActApplier {
 
@@ -18,6 +26,7 @@ public final class InteractApplier implements ActApplier {
 
     private ActIntent boundTo;
     private DigController dig;
+    private HoldController hold;
     private InteractController interact;
     private HotbarController hotbar;
 
@@ -35,12 +44,12 @@ public final class InteractApplier implements ActApplier {
             bind(ii, current.intent());
         }
 
-        // Cancellation: DIG can be mid-break and needs a real teardown; the others
-        // are single-shot, so a cancel just ends them.
+        // Cancellation: DIG can be mid-break and HOLD is mid-use, so both need a real teardown on
+        // the game thread -- resetBlockRemoving for one, releasing vanilla's use key for the other.
+        // The others are single-shot, so a cancel just ends them.
         if (current.cancelRequested()) {
-            if (dig != null) {
-                dig.requestCancel();
-                ActOutcome out = dig.tick(actuator);
+            ActOutcome out = cancelLiveController();
+            if (out != null) {
                 reset();
                 return current.markActive(current.lastAppliedTick(), out.message())
                         .withPhase(ActPhase.CANCELLED, out.message());
@@ -59,9 +68,29 @@ public final class InteractApplier implements ActApplier {
         return current.markActive(tick, outcome.message());
     }
 
+    /**
+     * Tear down whichever controller is holding live game state, or return null if none is.
+     *
+     * <p>Null rather than an outcome means "nothing to undo", which is the honest answer for a
+     * single-shot controller, and keeps the caller's distinction between a teardown that ran and one
+     * that was not needed.
+     */
+    private ActOutcome cancelLiveController() {
+        if (dig != null) {
+            dig.requestCancel();
+            return dig.tick(actuator);
+        }
+        if (hold != null) {
+            hold.requestCancel();
+            return hold.tick(actuator);
+        }
+        return null;
+    }
+
     private ActOutcome step(InteractIntent ii) {
         return switch (ii.kind()) {
             case DIG -> dig.tick(actuator);
+            case HOLD -> hold.tick(actuator);
             case HOTBAR -> hotbar.tick(actuator);
             default -> interact.tick(actuator);
         };
@@ -72,6 +101,7 @@ public final class InteractApplier implements ActApplier {
         boundTo = identity;
         switch (ii.kind()) {
             case DIG -> dig = new DigController(ii);
+            case HOLD -> hold = new HoldController(ii);
             case HOTBAR -> hotbar = new HotbarController(ii);
             default -> interact = new InteractController(ii);
         }
@@ -80,6 +110,7 @@ public final class InteractApplier implements ActApplier {
     private void reset() {
         boundTo = null;
         dig = null;
+        hold = null;
         interact = null;
         hotbar = null;
     }

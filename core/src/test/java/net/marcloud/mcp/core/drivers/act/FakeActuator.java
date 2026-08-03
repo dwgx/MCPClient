@@ -11,6 +11,10 @@ import java.util.Set;
  * reach, present blocks, entity positions, and the boolean results the dig/use/
  * place/attack methods return. No {@code net.minecraft} type is touched, so the
  * controller state machines can be exercised entirely in the JVM.
+ *
+ * <p>The sustained-use fields are not just recorders: {@link #advanceGameTick()} SIMULATES
+ * vanilla's own use lifecycle, because a hold that is never contradicted is not a hold. See its
+ * javadoc for which lines of {@code Minecraft}/{@code EntityPlayer} each rule comes from.
  */
 class FakeActuator implements ActActuator {
 
@@ -41,6 +45,27 @@ class FakeActuator implements ActActuator {
     boolean attackResult = true;
     boolean instantBreakResult = true;
 
+    // ---- sustained use (see advanceGameTick) ----
+    /** Whether the use-key writes are allowed to take at all (false models a missing binding). */
+    boolean useKeyWritable = true;
+    /** Vanilla's use key state, as a controller would read it back. */
+    boolean useKeyDown = false;
+    /** Whether a use is in progress, i.e. vanilla's isUsingItem. */
+    boolean usingItem = false;
+    /** Vanilla's remaining use count while {@link #usingItem}. */
+    int useCount = 0;
+    /** Count a successful {@code useItemInAir} starts a use with (32 = food, 72000 = bow/sword). */
+    int useStartCount = 32;
+    /** If false, a successful {@code useItemInAir} changes the stack but starts no sustained use. */
+    boolean useStartsSustained = true;
+    /**
+     * Ticks after the client count reaches 0 before the use clears, modelling the server's status
+     * id 9 round trip. 0 exercises the tightest boundary the controller has to survive.
+     */
+    int serverFinishDelayTicks = 2;
+    /** Times {@link #advanceGameTick} restarted a use because the key was still down. */
+    int autoStarts;
+
     // ---- recorded calls ----
     final List<String> calls = new ArrayList<>();
     int startDigCalls;
@@ -50,6 +75,8 @@ class FakeActuator implements ActActuator {
     int attackCalls;
     int rightClickCalls;
     int useInAirCalls;
+    int holdUseKeyCalls;
+    int releaseUseKeyCalls;
     Float lastSetYaw;
     Float lastSetPitch;
     Float lastPrevYaw;
@@ -188,7 +215,113 @@ class FakeActuator implements ActActuator {
     public boolean useItemInAir() {
         useInAirCalls++;
         calls.add("useItemInAir()");
+        if (useInAirResult && useStartsSustained) {
+            // Synchronous on the live client too: sendUseItem -> onItemRightClick -> setItemInUse all
+            // run on the game thread inside the call, so isUsingItem is true before it returns.
+            usingItem = true;
+            useCount = useStartCount;
+        }
         return useInAirResult;
+    }
+
+    // ---- sustained use ----
+
+    @Override
+    public boolean holdUseKey() {
+        holdUseKeyCalls++;
+        calls.add("holdUseKey()");
+        if (!useKeyWritable) {
+            return false;
+        }
+        useKeyDown = true;
+        return true;
+    }
+
+    @Override
+    public boolean releaseUseKey() {
+        releaseUseKeyCalls++;
+        calls.add("releaseUseKey()");
+        if (!useKeyWritable) {
+            return false;
+        }
+        useKeyDown = false;
+        return true;
+    }
+
+    @Override
+    public boolean useKeyHeld() {
+        return useKeyDown;
+    }
+
+    @Override
+    public boolean isUsingItem() {
+        return usingItem;
+    }
+
+    @Override
+    public int itemInUseCount() {
+        return usingItem ? useCount : 0;
+    }
+
+    /**
+     * The rest of the game tick, AFTER the controller ran. Call this between controller ticks or every
+     * hold assertion in a test is vacuous.
+     *
+     * <p>This models the four vanilla behaviours a hold lives or dies by, and THE ORDER IS THE POINT
+     * -- it is the order they occur in within one {@code Minecraft.runTick}:
+     *
+     * <ol>
+     *   <li><b>Auto-release</b> ({@code Minecraft.java:2118-2122}). On any tick the use key is not
+     *       down while an item is in use, {@code onStoppedUsingItem} ends it. This is the whole
+     *       reason the hold channel exists, so without it here a "still using after 30 ticks"
+     *       assertion would pass for a controller that asserts nothing.
+     *   <li><b>Auto-restart</b> ({@code Minecraft.java:2158}). A fresh use starts when the key is
+     *       down and nothing is in use -- this is why holding right-click eats a whole stack. A
+     *       controller that forgets to release when a use completes consumes a second item, and
+     *       {@link #autoStarts} is how a test sees that.
+     *   <li><b>The count runs down</b> ({@code EntityPlayer.onUpdate:275-295}, reached from
+     *       {@code Minecraft.java:2202}). Once per tick, and on a client it keeps going past zero:
+     *       {@code onItemUseFinish} there is server-only.
+     *   <li><b>The server's finish arrives</b> ({@code Minecraft.java:2261}
+     *       {@code processReceivedPackets} → {@code handleStatusUpdate} id 9), after
+     *       {@link #serverFinishDelayTicks}, which is what actually clears the use on a client.
+     * </ol>
+     *
+     * <p>Steps 2 and 4 in that order are what makes an UNTIL_DONE hold observable at all: the finish
+     * lands at the END of a tick, after the restart check has already passed, so a controller running
+     * at the TOP of the next tick sees the cleared use and can release before vanilla would restart
+     * it. Model the restart after the clear instead and no controller could ever see a completion --
+     * which is how this fake was written first, and the ordering bug looked exactly like a controller
+     * bug.
+     *
+     * <p>Simplified deliberately in one respect: vanilla gates the restart behind
+     * {@code rightClickDelayTimer == 0}, which this ignores, so restart is modelled at its earliest
+     * possible tick. That is the worst case, and the worst case is what a hold has to survive.
+     */
+    void advanceGameTick() {
+        if (usingItem && !useKeyDown) {
+            usingItem = false;
+            useCount = 0;
+            return;
+        }
+        if (!usingItem && useKeyDown && useStartsSustained) {
+            autoStarts++;
+            usingItem = true;
+            useCount = useStartCount;
+        }
+        if (usingItem) {
+            useCount--;
+            if (useCount <= -serverFinishDelayTicks) {
+                usingItem = false;
+                useCount = 0;
+            }
+        }
+    }
+
+    /** Take the item away mid-use, the way a hotbar switch clears vanilla's itemInUse. */
+    void interruptUse() {
+        usingItem = false;
+        useCount = 0;
     }
 
     // ---- locomotion state ----

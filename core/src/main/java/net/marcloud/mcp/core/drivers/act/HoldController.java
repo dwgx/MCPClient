@@ -1,0 +1,308 @@
+package net.marcloud.mcp.core.drivers.act;
+
+/**
+ * Pure state machine that SUSTAINS a use across ticks: eating, drawing a bow, blocking with a
+ * sword. Ticked by the INTERACT applier through an {@link ActActuator}; it never marshals threads.
+ *
+ * <p>Shaped after {@link DigController}, this package's proven durable behaviour -- per-tick pump,
+ * poll for completion, fail honestly on no progress, respect vanilla's own limits rather than
+ * hammering. {@link InteractController} could not host this: every one of its branches goes through
+ * {@code finish()} and it never returns {@code running()}, so it is single-shot by construction.
+ *
+ * <p><b>The gap this closes.</b> {@code Minecraft.java:2118-2122} calls
+ * {@code playerController.onStoppedUsingItem} on ANY tick where
+ * {@code gameSettings.keyBindUseItem.isKeyDown()} is false. A one-shot {@code sendUseItem} therefore
+ * starts a use that vanilla cancels within a couple of ticks -- measured after commit 52647ad, the
+ * use count fell from 32 to 0 in about eight ticks and food never rose. So the pump here is not
+ * progress like {@code pumpDig}: it is {@link ActActuator#holdUseKey()}, re-asserted every tick,
+ * keeping vanilla's own key convinced. Everything else follows from that.
+ *
+ * <p>States: STARTING (assert the key, start the use, confirm something is actually in use) →
+ * HOLDING (re-assert every tick, poll for the ending rule) → RELEASING (key released, confirm
+ * vanilla let go) → COMPLETE / FAILED / CANCELLED.
+ *
+ * <p><b>Two hazards, handled here.</b>
+ *
+ * <ul>
+ *   <li><b>A GUI wipes the key.</b> {@code KeyBinding.unPressAllKeys} clears every binding whenever
+ *       a screen opens ({@code Minecraft.java:1469} via {@code displayGuiScreen}). So the hold
+ *       re-asserts each tick, and reads {@link ActActuator#useKeyHeld()} BEFORE re-asserting: a key
+ *       we asserted last tick that now reads up was cleared by something else, and that ends the
+ *       hold FAILED with the screen named as the likely cause. Silently re-asserting would hide a
+ *       use vanilla has already stopped.
+ *   <li><b>Movement is decalibrated while using.</b> {@code EntityPlayerSP:788-792} scales
+ *       {@code moveStrafe}/{@code moveForward} to 0.2x whenever {@code isUsingItem()}, which throws
+ *       off {@code NavController}'s steering and {@code MoveApplier}'s stuck test. Not fixed here,
+ *       and not silently absorbed either: the STARTING message says so, so a caller reading
+ *       {@code act_status} while their walk crawls has the reason in front of them.
+ * </ul>
+ */
+public final class HoldController {
+
+    /**
+     * Ticks a bow must be drawn before RELEASE fires anything.
+     *
+     * <p>{@code ItemBow.onPlayerStoppedUsing} computes {@code f = (t^2 + 2t)/3} where {@code t} is
+     * draw ticks / 20, and returns without creating an arrow when {@code f < 0.1}. Solving gives
+     * 2.83 ticks, so 2 ticks yields 0.070 (nothing) and 3 ticks yields 0.108 (an arrow). The same
+     * formula reaches {@code f == 1.0} at exactly 20 ticks, which is full charge.
+     */
+    public static final int BOW_MIN_CHARGE_TICKS = 3;
+
+    /** Draw ticks at which a bow reaches full charge, by the same formula. */
+    public static final int BOW_FULL_CHARGE_TICKS = 20;
+
+    /**
+     * Largest initial use count still treated as self-terminating.
+     *
+     * <p>Vanilla's durations are not a spectrum, they are two clusters: every consumable is short
+     * (food 32 ticks, potions and the rest in the same range) and the held-indefinitely items use one
+     * sentinel, 72000. 200 sits in the empty middle, so an {@link InteractIntent.HoldMode#UNTIL_DONE}
+     * on a bow or a sword is rejected on its first tick with a real number in the message instead of
+     * holding for an hour.
+     */
+    public static final int SELF_TERMINATING_MAX_COUNT = 200;
+
+    /**
+     * Ticks past the item's own duration to wait for the server's finish before failing.
+     *
+     * <p>Not a blanket timeout -- the deadline is the ITEM's duration plus this, because the client
+     * cannot end a use by itself: {@code EntityPlayer.onUpdate:286} only calls
+     * {@code onItemUseFinish} when {@code !worldObj.isRemote}, so the client's count runs past zero
+     * into negatives and the use ends when status id 9 arrives. Two seconds of slack covers a round
+     * trip; if the client is still using well past that, the server never agreed the use finished and
+     * saying so is more useful than holding.
+     */
+    public static final int SERVER_FINISH_SLACK_TICKS = 40;
+
+    /**
+     * How far below zero the count may already be for a cleared use to still count as completed.
+     *
+     * <p>On the completing tick the sample is one step stale -- this controller reads at the top of
+     * the tick, {@code EntityPlayer.onUpdate} decrements after it, and the server's status arrives
+     * later still -- so a genuine completion can be observed with a small positive count. An
+     * interruption (a hotbar switch clearing the use via {@code onUpdate:293}) leaves tens of ticks
+     * on the clock, far outside this band.
+     */
+    private static final int COMPLETION_COUNT_SLACK = 3;
+
+    private enum State { STARTING, HOLDING, RELEASING }
+
+    private final InteractIntent.HoldMode mode;
+    private final int holdTicks;
+
+    private State state = State.STARTING;
+    private boolean done;
+    private boolean cancelRequested;
+
+    /** Ticks the use key has been asserted, i.e. how long the hold has lasted. */
+    private int heldTicks;
+    /** Vanilla's count on the first HOLDING tick -- the item's own declared duration. */
+    private int initialCount;
+    /** The most recent count seen while the use was live, kept for the interrupted/completed test. */
+    private int lastCount;
+    /** Draw ticks vanilla had counted at the moment of release, for the RELEASING message. */
+    private int drawnAtRelease;
+
+    public HoldController(InteractIntent intent) {
+        this.mode = intent.holdMode() == null ? InteractIntent.HoldMode.UNTIL_DONE : intent.holdMode();
+        this.holdTicks = intent.holdTicks();
+    }
+
+    /** Request cancellation; the next {@link #tick} releases the key and ends CANCELLED. */
+    public void requestCancel() {
+        this.cancelRequested = true;
+    }
+
+    /** Ticks the use key has been asserted so far (for status/tests). */
+    public int heldTicks() {
+        return heldTicks;
+    }
+
+    /** True once a terminal outcome has been produced. */
+    public boolean isDone() {
+        return done;
+    }
+
+    /** Advance one tick against {@code act}. */
+    public ActOutcome tick(ActActuator act) {
+        if (done) {
+            return ActOutcome.done("already finished");
+        }
+        if (cancelRequested) {
+            // Release rather than just walking away: a hold left asserted would keep the player
+            // eating or blocking with nothing driving it, and for a bow the release IS the shot, so
+            // the cancel must go through vanilla's stop path to end the draw.
+            act.releaseUseKey();
+            return finish(ActOutcome.cancelled("hold cancelled after " + heldTicks + " ticks"));
+        }
+        if (!act.inWorld()) {
+            return finish(ActOutcome.failed("not in world"));
+        }
+        return switch (state) {
+            case STARTING -> start(act);
+            case HOLDING -> hold(act);
+            case RELEASING -> confirmRelease(act);
+        };
+    }
+
+    private ActOutcome start(ActActuator act) {
+        if (mode == InteractIntent.HoldMode.THEN_RELEASE && holdTicks <= 0) {
+            return finish(ActOutcome.failed("hold mode THEN_RELEASE needs holdTicks >= 1, got "
+                    + holdTicks + "; a bow needs at least " + BOW_MIN_CHARGE_TICKS
+                    + " draw ticks to fire anything"));
+        }
+        if (!act.holdUseKey()) {
+            // The write itself could not be made -- no client, or the use binding is missing from
+            // KeyBinding's static keyCode hash. Retrying does not fix either, so fail on tick one
+            // rather than pumping a key that is not there.
+            return finish(ActOutcome.failed("could not assert vanilla's use key, so a hold is not "
+                    + "possible; nothing was started"));
+        }
+        heldTicks = 1;
+
+        // A use may already be running when the hold arrives (the human is holding the button, or a
+        // previous USE intent just started one). Adopting it is right: the caller asked for the use
+        // to be SUSTAINED, and starting a second one would double-consume.
+        if (!act.isUsingItem()) {
+            if (!act.useItemInAir()) {
+                act.releaseUseKey();
+                return finish(ActOutcome.failed("use rejected in air, so there is nothing to hold "
+                        + "(empty hand, no arrows for a bow, or already-full hunger)"));
+            }
+            if (!act.isUsingItem()) {
+                // The stack changed but no use is in progress: an instant item -- a snowball, an
+                // ender pearl. The side effect HAPPENED, which is why this says so rather than
+                // pretending nothing did, but there is no state to hold and the caller asked for a
+                // hold, so this is not the success they requested.
+                act.releaseUseKey();
+                return finish(ActOutcome.failed("the item used instantly and has no use duration to "
+                        + "hold; the use did happen, but HOLD is for food, a bow or blocking"));
+            }
+        }
+
+        initialCount = act.itemInUseCount();
+        lastCount = initialCount;
+
+        if (mode == InteractIntent.HoldMode.UNTIL_DONE && initialCount > SELF_TERMINATING_MAX_COUNT) {
+            // A bow or a blocking sword: 72000 ticks, so "until done" would hold for an hour. Fail
+            // now with the real duration in the message, and release so the draw does not persist
+            // unattended. At one tick of draw a bow is far below BOW_MIN_CHARGE_TICKS, so the
+            // release fires nothing.
+            act.releaseUseKey();
+            return finish(ActOutcome.failed("this item does not self-terminate: vanilla gave the use "
+                    + initialCount + " ticks, so UNTIL_DONE would hold indefinitely -- use "
+                    + "THEN_RELEASE with a tick count instead (a bow fires on release)"));
+        }
+
+        state = State.HOLDING;
+        return ActOutcome.running("holding the use key, use count " + initialCount
+                + "; note vanilla scales movement to 0.2x while an item is in use "
+                + "(EntityPlayerSP:788-792), so a walk running alongside this will be slow");
+    }
+
+    private ActOutcome hold(ActActuator act) {
+        // Read before re-asserting. After re-assertion the read is our own write and says nothing.
+        if (!act.useKeyHeld()) {
+            return finish(ActOutcome.failed("the use key was cleared after " + heldTicks
+                    + " ticks, so vanilla has already stopped the use -- most likely a screen opened "
+                    + "(KeyBinding.unPressAllKeys) or the window lost focus"));
+        }
+
+        if (!act.isUsingItem()) {
+            // Vanilla ended the use. Which ending it was is readable from the count last seen: at or
+            // just past zero it ran out (the server finished it and said so), still high and
+            // something took the item away mid-use.
+            boolean ranOut = lastCount <= COMPLETION_COUNT_SLACK;
+            act.releaseUseKey();
+            if (!ranOut) {
+                return finish(ActOutcome.failed("the use ended after " + heldTicks + " ticks with "
+                        + lastCount + " ticks still on its clock, so it was interrupted rather than "
+                        + "finished -- the held stack changed (a hotbar switch clears the use)"));
+            }
+            if (mode == InteractIntent.HoldMode.THEN_RELEASE) {
+                // Asked to hold N ticks and vanilla finished early: honest success, but the caller's
+                // release never happened, and for a bow that is the difference between a shot and a
+                // meal, so the message must not read like a release.
+                return finish(ActOutcome.done("the use completed on its own after " + heldTicks
+                        + " ticks, before the requested " + holdTicks
+                        + "; no release was needed"));
+            }
+            return finish(ActOutcome.done("use completed after " + heldTicks + " ticks of holding"));
+        }
+
+        if (mode == InteractIntent.HoldMode.THEN_RELEASE && heldTicks >= holdTicks) {
+            return beginRelease(act);
+        }
+
+        int deadline = initialCount + SERVER_FINISH_SLACK_TICKS;
+        if (mode == InteractIntent.HoldMode.UNTIL_DONE && heldTicks > deadline) {
+            act.releaseUseKey();
+            return finish(ActOutcome.failed("still using after " + heldTicks + " ticks, but vanilla "
+                    + "gave this use only " + initialCount + " ticks -- the server never sent the "
+                    + "finish (status id 9), so the use is not going to complete"));
+        }
+
+        if (!act.holdUseKey()) {
+            return finish(ActOutcome.failed("lost the ability to assert the use key after "
+                    + heldTicks + " ticks; the hold cannot continue"));
+        }
+        heldTicks++;
+        lastCount = act.itemInUseCount();
+        return ActOutcome.running("holding the use key, " + heldTicks + " ticks, use count "
+                + lastCount + (mode == InteractIntent.HoldMode.THEN_RELEASE
+                        ? " (releasing at " + holdTicks + ")" : ""));
+    }
+
+    /**
+     * Stop asserting the key, which is what fires a bow.
+     *
+     * <p>Nothing else is called. The arrow is created in {@code ItemBow.onPlayerStoppedUsing},
+     * reached from {@code PlayerControllerMP.onStoppedUsingItem}, which vanilla itself invokes at
+     * {@code Minecraft.java:2118-2122} on the next tick where the key reads up -- the very branch
+     * that made a one-shot use uncancellable-by-design and is now the mechanism. Calling
+     * {@code onStoppedUsingItem} directly as well would fire the release twice through two paths,
+     * and the RELEASE_USE_ITEM packet with it.
+     */
+    private ActOutcome beginRelease(ActActuator act) {
+        // Sampled fresh, not from lastCount. lastCount is one tick stale by the time the release tick
+        // runs, and the draw count is exactly what decides whether an arrow exists: reporting one
+        // tick short would put a 3-tick draw (an arrow) below BOW_MIN_CHARGE_TICKS (no arrow).
+        drawnAtRelease = initialCount - act.itemInUseCount();
+        if (!act.releaseUseKey()) {
+            return finish(ActOutcome.failed("held " + heldTicks + " ticks but the use key could not "
+                    + "be released, so vanilla will not end the use"));
+        }
+        state = State.RELEASING;
+        return ActOutcome.running("released the use key after " + heldTicks
+                + " ticks (" + drawnAtRelease + " draw ticks), waiting for vanilla to end the use");
+    }
+
+    /**
+     * Confirm vanilla actually let go, one tick after the release.
+     *
+     * <p>The extra tick buys an observation rather than an assumption: the release is only real if
+     * {@code isUsingItem()} has gone false, and vanilla's stop branch runs later in the tick than
+     * this controller does.
+     */
+    private ActOutcome confirmRelease(ActActuator act) {
+        int drawn = drawnAtRelease;
+        if (act.isUsingItem()) {
+            return finish(ActOutcome.failed("released the use key after " + heldTicks
+                    + " ticks but the player is still using the item, so vanilla did not end the use "
+                    + "-- a bow would not have fired"));
+        }
+        String charge = drawn < BOW_MIN_CHARGE_TICKS
+                ? "; below the " + BOW_MIN_CHARGE_TICKS + " draw ticks a bow needs to fire anything"
+                : drawn >= BOW_FULL_CHARGE_TICKS
+                        ? "; a bow would be at full charge (" + BOW_FULL_CHARGE_TICKS + "+ ticks)"
+                        : "";
+        return finish(ActOutcome.done("held " + heldTicks + " ticks then released, " + drawn
+                + " draw ticks counted by vanilla" + charge));
+    }
+
+    private ActOutcome finish(ActOutcome out) {
+        done = out.terminal();
+        return out;
+    }
+}

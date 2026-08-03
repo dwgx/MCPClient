@@ -3,7 +3,7 @@ package net.marcloud.mcp.core.drivers.act;
 /**
  * The client-free seam between the pure controller state machines
  * ({@link LookController}, {@link DigController}, {@link InteractController},
- * {@link HotbarController}) and the live game. Every game touch a controller
+ * {@link HoldController}, {@link HotbarController}) and the live game. Every game touch a controller
  * needs is a method here; the sole {@code net.minecraft} implementation is
  * {@link LivePlayerActuator}, and tests drive the controllers through a
  * scriptable {@code FakeActuator}. This is the wedge that makes the whole
@@ -128,6 +128,71 @@ public interface ActActuator {
 
     /** Swing the held item (animation + packet). */
     void swing();
+
+    // ===== sustained use (the INTERACT hold channel) =====
+    //
+    // What a HOLD controller reads and writes, in the same spirit as the locomotion block above:
+    // eating, drawing a bow and blocking are not events, they are STATES vanilla keeps only while
+    // its use key is down. Minecraft.java:2118-2122 calls onStoppedUsingItem on ANY tick where
+    // gameSettings.keyBindUseItem.isKeyDown() is false, so a one-shot start is cancelled within a
+    // couple of ticks -- measured after commit 52647ad: useCount fell 32 -> 0 in about eight ticks
+    // and food never rose. The only way to make the use PERSIST is to keep vanilla's own key
+    // believing it is held, which is what holdUseKey does, and the only way to end a bow is to stop
+    // believing that, which is what releaseUseKey does.
+
+    /**
+     * Assert vanilla's use key as held for this tick; returns whether the assertion TOOK.
+     *
+     * <p>False means the write could not be made at all (no client, or the binding is not in
+     * {@code KeyBinding}'s static keyCode hash) -- a condition no number of retries improves, so a
+     * controller should fail honestly rather than pump. It does NOT mean "the use stopped": that is
+     * {@link #useKeyHeld()}'s question, read at the top of the next tick.
+     *
+     * <p>Must be re-asserted EVERY tick. {@code KeyBinding.unPressAllKeys} clears every binding
+     * whenever a GUI opens ({@code Minecraft.java:1469} via {@code displayGuiScreen}), so a hold
+     * that asserts once and trusts it would be silently dropped by a chat window.
+     */
+    boolean holdUseKey();
+
+    /**
+     * Release vanilla's use key; returns whether the write took (same contract as
+     * {@link #holdUseKey()}).
+     *
+     * <p>This is an ACTION, not just cleanup. A bow fires from
+     * {@code ItemBow.onPlayerStoppedUsing}, reached only when vanilla observes the key up, so
+     * release is the tick the arrow leaves. It is also what stops vanilla immediately starting a
+     * FRESH use on the tick a previous one finished, since {@code Minecraft.java:2158} re-fires
+     * {@code rightClickMouse} while the key is down and nothing is in use.
+     */
+    boolean releaseUseKey();
+
+    /**
+     * Whether vanilla's use key currently reads as held.
+     *
+     * <p>Read BEFORE re-asserting, and the only honest way to notice that something else cleared
+     * the hold: a GUI opening, focus loss, or the human letting go of a physically-held button.
+     * Read-back rather than remembering what we wrote, because what we wrote is not evidence.
+     */
+    boolean useKeyHeld();
+
+    /** Whether the player is in a sustained item use right now (vanilla's {@code isUsingItem}). */
+    boolean isUsingItem();
+
+    /**
+     * Vanilla's remaining use count, or 0 when nothing is in use.
+     *
+     * <p>Carries the item's own duration, which is how a controller can tell a self-terminating use
+     * from one that never ends without knowing what the item IS: food starts at 32, a bow and a
+     * blocking sword at 72000. It also distinguishes a use that RAN OUT from one that was
+     * interrupted -- on the tick vanilla clears the use, a count already at/below zero means it
+     * completed, while a count still high means something took the item away.
+     *
+     * <p>Client-side it counts DOWN one per tick and keeps going negative:
+     * {@code EntityPlayer.onUpdate:286} only calls {@code onItemUseFinish} when
+     * {@code !worldObj.isRemote}, so on a client the use ends when the server says so
+     * ({@code handleStatusUpdate} id 9), not when the count hits zero.
+     */
+    int itemInUseCount();
 
     // ===== hotbar =====
 

@@ -5,6 +5,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.entity.EntityPlayerSP;
 import net.minecraft.client.multiplayer.PlayerControllerMP;
 import net.minecraft.client.multiplayer.WorldClient;
+import net.minecraft.client.settings.KeyBinding;
 import net.minecraft.entity.Entity;
 import net.minecraft.item.ItemStack;
 import net.minecraft.util.BlockPos;
@@ -254,6 +255,77 @@ public final class LivePlayerActuator implements ActActuator {
         if (p != null) {
             p.swingItem();
         }
+    }
+
+    // ===== sustained use =====
+    //
+    // The one place in the kernel that reaches into net.minecraft.client.settings, and deliberately
+    // so: core imported nothing from that package before the hold channel, and scattering key writes
+    // would put live-client contact in several files at once. This class already owns that contact.
+    //
+    // No reflection and no compat patch: KeyBinding.setKeyBindState is public static
+    // (KeyBinding.java:37) and looks the binding up by keyCode in a static hash, writing its private
+    // 'pressed' field. Note what it does NOT touch: pressTime. So an assertion here never makes
+    // isPressed() true, and vanilla's edge-triggered loops (Minecraft.java:2130/2147) stay quiet --
+    // only the level-triggered reads (2120's isKeyDown, 2158's isKeyDown) see our hold, which is
+    // exactly the pair the hold channel needs.
+
+    @Override
+    public boolean holdUseKey() {
+        return setUseKey(true);
+    }
+
+    @Override
+    public boolean releaseUseKey() {
+        return setUseKey(false);
+    }
+
+    @Override
+    public boolean useKeyHeld() {
+        KeyBinding kb = useKeyBinding();
+        return kb != null && kb.isKeyDown();
+    }
+
+    @Override
+    public boolean isUsingItem() {
+        EntityPlayerSP p = game.player();
+        return p != null && p.isUsingItem();
+    }
+
+    @Override
+    public int itemInUseCount() {
+        EntityPlayerSP p = game.player();
+        return p == null ? 0 : p.getItemInUseCount();
+    }
+
+    /**
+     * Write vanilla's use-key state and CONFIRM by reading it back.
+     *
+     * <p>The read-back is the point. {@code setKeyBindState} is a void that silently does nothing
+     * when the keyCode is absent from its static hash, and that is a state the game can genuinely be
+     * in: {@code KeyBinding.setKeyCode} updates the binding's field while the hash still holds the
+     * old code until {@code resetKeyBindingArrayAndHash} runs, so a rebind mid-session can leave the
+     * lookup pointing elsewhere. Without the read-back a hold would report success and hold nothing.
+     *
+     * <p>{@code getKeyCode()} is read live rather than hardcoding the {@code -99} default
+     * ({@code GameSettings.java:135}) for the same reason: a user who rebound "use" would otherwise
+     * have us pressing a key that is no longer theirs.
+     */
+    private boolean setUseKey(boolean pressed) {
+        KeyBinding kb = useKeyBinding();
+        if (kb == null) {
+            return false;
+        }
+        KeyBinding.setKeyBindState(kb.getKeyCode(), pressed);
+        return kb.isKeyDown() == pressed;
+    }
+
+    private KeyBinding useKeyBinding() {
+        Minecraft mc = game.mc();
+        if (mc == null || mc.gameSettings == null) {
+            return null;
+        }
+        return mc.gameSettings.keyBindUseItem;
     }
 
     // ===== hotbar =====
