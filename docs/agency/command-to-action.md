@@ -36,7 +36,27 @@
 | **一次快照一个 tick、无引用** | `WorldViewCapture.java:41,53-54` | 各 section 之间没有撕裂读 |
 | **感知与行动共享地址空间** | `WorldViewCapture.java:128,152-157`、`LocalGrid.java:101-114` | 实体 id 直接喂给 `act_set look{entityId}`;registry 名两侧同样剥离,所以网格里的 `iron_ore` 和背包里的 `iron_pickaxe` 对得上 |
 | **ring / L4 / L5 三张侧表 + 漂移测试** | `se/Ring.java:116-118`、`se/SeToolRequirement.java:135-136`、`se/CapabilityCatalog.java:65-66`、`PolicySideTableDriftTest.java:74-77` | 那个测试**已经抓到过** `act_*` 以 HIGH writer 身份发布却没有 L4 权限。新增 nav/craft 工具必须进三张表,忘了测试会说 |
-| **`LiveIT` skip-gate 模式** | `core/src/test/.../act/DigLiveIT.java:23-27` | `-Dmcp.it.live=true`,否则 assume-skip。§6 每个实验都照这个写 |
+| ~~**`LiveIT` skip-gate 模式**~~ **已废除,别照它写** | 现在是 `core/src/test/.../LiveGameGate.java` | 见下方横幅。原文推荐的双 `Assume` 让"显式要求真机"也报成功,而**照这一行写出来的 `HoldLiveIT` 就带着那个缺陷**(2026-08-04) |
+
+> **订正(2026-08-04):上一行原来推荐的写法已被废除,而这份文档本身害过一次。**
+>
+> 原文是:`LiveIT` skip-gate 模式,`DigLiveIT.java:23-27`,"`-Dmcp.it.live=true`,否则
+> assume-skip。§6 每个实验都照这个写"。
+>
+> 那个形状门控**两次** —— `Assume(mcp.it.live)` 之后再 `Assume(game reachable)` ——
+> 所以一个显式带 `-Dmcp.it.live=true` 跑的操作者拿到的是 skip + BUILD SUCCESS,
+> 与"验过了"从外面看一模一样。仓库里的 surefire 报告记着那一幕。`68f7e01` 用
+> `LiveGameGate` 换掉了它:**没要求 → SKIP;要求了但这个 JVM 不可能 → FAIL**,
+> 信息带真实 NPE 原因并指向 `scripts/nav-astar-probe.py`。
+>
+> **而这一行在被废除之后仍然留在文档里,于是同一批里另一个作者照它写了 `HoldLiveIT`,
+> 一字不差地重造了那个缺陷。** 教训不是"改代码时记得改文档",是更硬的一条:
+> **废除一个写法的改动没有同时删掉教那个写法的文字,那个写法就还活着。**
+>
+> 另外要知道:`GameAccess` 读 `Minecraft.getMinecraft()`,那是只存在于游戏 JVM 的静态
+> 单例,所以这六个 IT 在 surefire/failsafe 里**只可能走 FAIL** —— 它们是诚实的墓碑,
+> 不是能用的测试。**真机验证走 MCP socket + `eval_java`**(`scripts/nav-astar-probe.py`
+> 是范例),不要再写新的游戏依赖 LiveIT。
 
 ### 1.1 `DigController` 是已经跑通的正确形状
 
@@ -462,10 +482,15 @@ yaw 预测 dx=-7.512 dz=-3.778
    注意 `func_176170_a` 的铁轨检查直接读 `entityIn.worldObj.getBlockState(...)`
    (`WalkNodeProcessor.java:235-237`),**绕过了你传进去的 `IBlockAccess`** ——
    所以缓存窗口之外的行为未验。
-   **最便宜:** 约 30 行的 `NavPathLiveIT`,照 `DigLiveIT.java:23-27` 的 skip-gate 写 ——
-   `new ChunkCache(mc.theWorld, from, to, 0)` + `new PathFinder(new WalkNodeProcessor())`,
-   断言 `createEntityPathTo(cache, mc.thePlayer, target, 32f)` 非 null,记节点数与墙钟时间。
-   **一个下午定掉 Fork B。**
+   ~~**最便宜:** 约 30 行的 `NavPathLiveIT`,照 `DigLiveIT.java:23-27` 的 skip-gate 写~~
+   **别这么做(2026-08-04)。** 那个 skip-gate 已废除(见 §1 的订正横幅),而更根本的是
+   `GameAccess` 读的静态单例在 surefire 的 JVM 里恒为 null,所以这样的 IT **只可能 skip
+   或 FAIL,永远探不到东西**。上一轮真按这个建议写了一个 `NavPathLiveIT`,它的 surefire
+   报告里记着 `mcp.it.live=true` 与两个 skip 并存 —— 那份报告就是这条建议的成本,已删。
+   **改走 MCP socket + `eval_java`**:`new ChunkCache(mc.theWorld, from, to, 0)` +
+   `new PathFinder(new WalkNodeProcessor())`,断言
+   `createEntityPathTo(cache, mc.thePlayer, target, 32f)` 非 null,记节点数与墙钟时间。
+   `scripts/nav-astar-probe.py` 已经这么做并**定掉了 Fork B**(见 §5.5)。
 2. **`world_view` 真实体积与延迟。** 本审计所有字符数都来自合成列喂过真序列化器。
    最便宜:真机各跑一次 r=8 与 r=16,记 payload 字符数与往返毫秒。
 3. **`world_view` r=16 或 `capture_screen` 自己会不会把游戏线程卡住 ≥5s?**
@@ -477,11 +502,32 @@ yaw 预测 dx=-7.512 dz=-3.778
 5. **开环 MOVE 意图能走直线吗?** 这是"笨拙但非不可能"的承重假设。
    最便宜:`read_player_state` → `act_set move{forward:1,durationTicks:100}` → `read_player_state`,
    比实际方位与 yaw。
-6. **真实 1.8.9 服务端会拒绝过期的 `actionNumber` 吗(`do_click_slot`)?**
-   决定裸封包背包操作(以及任何建在它上面的 craft 工具)是否健全。
-   工具自己在 `ToolRegistry.java:893` 的警告两个方向都未证实。
+6. ~~**真实 1.8.9 服务端会拒绝过期的 `actionNumber` 吗(`do_click_slot`)?**~~
+   **问错了问题(2026-08-04,读 vanilla 源码逐行确认)。** 服务端在点击路径上**从不校验
+   `actionNumber`** —— 它只在 `NetHandlerPlayServer:1031/:1040` 回传它、在 `:1039` 把它存成键。
+   接受与否完全取决于 `:1029` 的 `areItemStacksEqual(packet.clickedItem, 服务端自己 slotClick
+   的返回)`。所以**过期的号本身无害,而 item 声明不符会锁窗**:`:1041` 置 `setCanCraft(false)`,
+   而 `:1012` 把整个点击体门在 `windowId 匹配 && getCanCraft` 上,于是之后每次点击在 `:1012`
+   就被挡掉、**连 S32 都不发**,直到客户端用 C0F 把同一个号回echo(`:1144` 是唯一校验 uid 的地方)。
+   描述已按此重写(`673ec9b`)。**仍未在真服上观测过**,非 vanilla 服务端(Spigot/Paper/代理)未查。
+   原文保留,因为"问错问题"这个形状比答案更值得记 —— 与 Fork B 那次同类(§5.5 顶部)。
 7. **吃/拉弓的自动释放陷阱真的会触发吗?** `Minecraft.java:2118-2123` 只做了括号核对,没观测。
    最便宜:手持食物 → `act_set interact{kind:use}` → 40 tick 内轮询饱食度。不涨则第 6 步确认必要。
+
+   > **部分答了,而括号核对本身漏了一层(2026-08-04)。** 陷阱是真的 —— 上一轮实测手动
+   > `sendUseItem` 后不维持按键,约 8 tick 内 `useCount` 归零、食物不变(§5.5 ④d),
+   > 所以第 6 步(保持通道)确认必要,已实现为 `HoldController` + `act_set interact{kind:"hold"}`
+   > (`b94a7d6`/`612b661`)。
+   >
+   > **但那次括号核对得出的"任何一 tick 键未按下就调 onStoppedUsingItem"是不完整的。**
+   > `2118` 整块在 `Minecraft.java:1829` 的 `currentScreen == null || currentScreen.allowUserInput`
+   > 里(花括号深度实测,块在 `:2164` 结束),而 `allowUserInput` 是默认 false 的裸字段,
+   > 全仓只有 `GuiInventory` 与 `GuiContainerCreative` 设 true。**所以开着聊天框/暂停菜单/
+   > 箱子/熔炉时 vanilla 根本不结束使用** —— 清掉按键的那个屏幕同时把结束使用的代码门掉了,
+   > 饭继续吃、弓继续拉,屏幕一关就射出去。见 `handoff-2026-08-04.md` §3①。
+   >
+   > **教训**:核对括号能证明一行在哪个块里,不能证明那个块什么时候进得去。**要连外层
+   > guard 一起读到方法入口。**
 8. **`create_tool` + 显式 `CAP_WORLD_WRITE` 授权,真的能给模型一条可用的行动路径吗?**
    这决定 Fork A 的中间选项是真的还是纸上的。无人测过。
 
