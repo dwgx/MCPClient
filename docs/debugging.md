@@ -211,7 +211,8 @@ MC 的 `GL_ALPHA_TEST`(§9)。
 
 - **断点在渲染线程上不可用**(会冻死客户端),所以渲染路径的控制流只能靠插桩推断
 - **`gui_*` 工具对 dwm 无效**(§5)
-- **`.ai-notes/` 与 `codegraph` 不在这台机器上**,所以读码只能 Read/Grep
+- **`.ai-notes/` 不在这台机器上**;`codegraph` 有本地替代(`tools/codegraph/`,见 `codegraph.md`),
+  但它只见**字节码里的静态调用边**,反射/动态注册的边它看不见
 - **长时间运行未验**:探针跑完就关,帧率影响、显存增长、几十分钟后的稳定性都未知
 - **Windows 侧完全未验**:这条线的 GL 修复只在 Apple GL 2.1 上跑过,
   见 `docs/branch-topology.md`

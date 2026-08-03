@@ -68,7 +68,7 @@ origin/main  c2cf357                origin/mcp-core  1dbf475
 ## 1. 为什么不合并回 mcp-core
 
 **这条线只在 macOS / Apple GL 2.1 上验证过。** 而项目的主环境是 Windows 工作站
-(`.ai-notes/` 与 `codegraph` 都在那台机器上,本机没有——见 §4)。
+(`.ai-notes/` 与 dwgx 那套 `codegraph` 都在那台机器上,本机没有——见 §4)。
 
 本线包含一批**图形状态修复**,它们的正确性依赖驱动行为:
 
@@ -131,7 +131,7 @@ python3 scripts/live-dwm-probe.py                      # 33 项真机验证
 | 东西 | 主线(Windows 工作站) | 本机(macOS arm64) |
 |---|---|---|
 | `.ai-notes/`(STATUS/机关地图/模板) | 有 | **没有** —— 所以本线文档写在 `docs/` |
-| `codegraph`(CLAUDE.md 铁律⑥的读码路径) | 有 | **没有** —— 读码只能 Read/Grep |
+| `codegraph`(CLAUDE.md 铁律⑥的读码路径) | 有(dwgx 那套) | **有,但是另一套** —— `tools/codegraph/`,见 `codegraph.md` |
 | `ARCHITECTURE-LOCK.md` | 有 | **没有** —— 动骨架要不要走 ADR 本机无法自证 |
 | 两把 Ed25519 私钥 | ? | **在 `~/.mcp-keys/`,权限 600,仓库外** |
 
