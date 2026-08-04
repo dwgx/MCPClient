@@ -28,7 +28,7 @@ public class DiffCarriesTheGridTest {
     }
 
     private static WorldView viewWith(long tick, LocalGrid grid) {
-        return new WorldView(true, tick, "explore", null, grid, List.of(), null, null, null);
+        return new WorldView(true, tick, "explore", null, grid, List.of(), false, null, null, null);
     }
 
     private static LocalGrid grid(LocalGrid.Column... cols) {

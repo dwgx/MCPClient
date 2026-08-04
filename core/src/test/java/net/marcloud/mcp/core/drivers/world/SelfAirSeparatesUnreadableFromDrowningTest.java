@@ -144,7 +144,7 @@ public final class SelfAirSeparatesUnreadableFromDrowningTest {
     }
 
     private static WorldView wrap(SelfView self) {
-        return new WorldView(true, 1L, "explore", self, null, List.of(), null,
+        return new WorldView(true, 1L, "explore", self, null, List.of(), false, null,
                 TargetView.miss(), null);
     }
 

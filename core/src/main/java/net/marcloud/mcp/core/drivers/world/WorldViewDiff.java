@@ -65,7 +65,8 @@ public final class WorldViewDiff {
         Map<String, Object> self = selfDiff(prev.self(), cur.self());
         if (!self.isEmpty()) out.put("self", self);
 
-        Map<String, Object> ent = entitiesDiff(prev.entities(), cur.entities());
+        Map<String, Object> ent = entitiesDiff(prev.entities(), cur.entities(),
+                prev.entitiesCapped() || cur.entitiesCapped());
         if (!ent.isEmpty()) out.put("entities", ent);
 
         Map<String, Object> inv = inventoryDiff(prev.inventory(), cur.inventory());
@@ -277,7 +278,54 @@ public final class WorldViewDiff {
         return m;
     }
 
-    private static Map<String, Object> entitiesDiff(List<EntityView> pa, List<EntityView> pb) {
+    /**
+     * Entities: entered / left / moved, with {@code left} now qualified by how it was sampled.
+     *
+     * <p>{@code left} means WAS SAMPLED, IS NOT SAMPLED NOW -- strictly weaker than "gone", and the
+     * gap matters because a caller reads it as "that creeper is dead". Two of the three ways an id
+     * lands there while the entity is alive are now answered structurally rather than in prose:
+     *
+     * <ul>
+     *   <li><b>The section was not sampled</b> ({@code pb == null}): {@code unsampled:true} and
+     *       NOTHING is reported left. Previously an unrequested section arrived as {@code List.of()}
+     *       and made every previously known id report left in one go -- the whole-set case, and the
+     *       most destructive of the three.
+     *   <li><b>The cap truncated</b> ({@code capped}): the {@code left} list still ships, because
+     *       those ids really did stop being sampled, but it is flagged so the caller knows an
+     *       eviction is among the possibilities. The capture now reports this from the same scan
+     *       that built the list, so it is measured rather than inferred from {@code size() == cap} --
+     *       which would be wrong whenever a scan legitimately found exactly {@code cap} entities.
+     *   <li><b>The caller changed radius or profile</b> between calls: still not detectable here,
+     *       and still in the description. The caller knows it changed them; nothing in the payload
+     *       does.
+     * </ul>
+     *
+     * <p>Silence is not available for the unsampled case: in diff mode a missing key already means
+     * "unchanged", so saying nothing would assert the last known entity set still holds. Same
+     * reasoning as air's explicit null and effects' {@code unread}.
+     */
+    private static Map<String, Object> entitiesDiff(List<EntityView> pa, List<EntityView> pb,
+                                                    boolean capped) {
+        if (pb == null) {
+            // Both unsampled is still worth saying: two polls in a row learned nothing, and omitting
+            // it would claim the set was unchanged across them.
+            return Map.of("unsampled", true);
+        }
+        if (pa == null) {
+            // No baseline: everything present would otherwise report as `entered`, which reads as
+            // "these just arrived" when they may have been standing there the whole time. `now` is
+            // the convention selfDiff and inventoryDiff already use for exactly this.
+            List<Object> now = new ArrayList<>();
+            for (EntityView e : pb) {
+                now.add(idType(e));
+            }
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("now", now);
+            if (capped) {
+                m.put("capped", true);
+            }
+            return m;
+        }
         Map<Integer, EntityView> a = byId(pa);
         Map<Integer, EntityView> b = byId(pb);
         List<Object> entered = new ArrayList<>();
@@ -299,25 +347,15 @@ public final class WorldViewDiff {
                 moved.add(mm);
             }
         }
-        // "left" means WAS SAMPLED, IS NOT SAMPLED NOW -- which is strictly weaker than "gone",
-        // and the difference matters because a caller reads left as "that skeleton is dead".
-        // Three ways an id lands here while the entity is alive and next to you:
-        //   - the caller passed sections without "entities", so WorldViewCapture hands us
-        //     List.of() (WorldViewCapture:50-51) and byId(null-or-empty) makes EVERY prior id
-        //     report left at once;
-        //   - it was truncated by the profile's maxEntities cap (WorldViewCapture:135-137), so a
-        //     nearer entity arriving EVICTS a farther one and the eviction reads as departure;
-        //   - the caller changed radius or profile between calls, moving both the range
-        //     (entityRangeMul) and the cap.
+        // Both remaining ids really did stop being sampled. The unsampled-section case never gets
+        // here (handled above), so what is left is a genuine departure, a move out of range, or a
+        // cap eviction -- and `capped` below says whether the third is even possible.
         //
-        // Not distinguished here, deliberately. Doing it honestly needs the CAPTURE to say which
-        // sections it sampled and whether the cap bit -- an unrequested section and a genuinely
-        // empty one are both List.of() by the time the diff sees them, so no amount of comparing
-        // prev to cur can separate them. Inferring it (cur.size() == some profile's cap) would be
-        // a guess dressed as data, and the profile is not even in scope here. That is a
-        // wire-format decision for the owner, not something to invent inside a pure differ, so
-        // the tool description carries the caveat instead: cheaper than a wrong answer, and it
-        // reaches the one reader who acts on it.
+        // The old note here said doing this honestly needed the CAPTURE to report which sections it
+        // sampled and whether the cap bit, and called that a wire-format decision for the owner. It
+        // turned out not to need a new contract: the section case reuses null-versus-empty, the
+        // convention air and effects already use, and the cap flag is one boolean measured in the
+        // same scan that builds the list.
         for (Integer id : a.keySet()) {
             if (!b.containsKey(id)) left.add(id);
         }
@@ -325,6 +363,12 @@ public final class WorldViewDiff {
         if (!entered.isEmpty()) m.put("entered", entered);
         if (!left.isEmpty()) m.put("left", left);
         if (!moved.isEmpty()) m.put("moved", moved);
+        // Only alongside a `left`: the flag exists to qualify that list, and on a poll with no
+        // departures there is nothing for it to qualify. A caller does not need to be told the cap
+        // is active when the cap has not cost it anything it can see.
+        if (capped && !left.isEmpty()) {
+            m.put("capped", true);
+        }
         return m;
     }
 

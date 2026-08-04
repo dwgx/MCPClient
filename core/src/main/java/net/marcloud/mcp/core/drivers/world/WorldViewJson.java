@@ -27,7 +27,20 @@ public final class WorldViewJson {
         if (v.self() != null) m.put("self", selfMap(v.self()));
         if (v.env() != null) m.put("env", envMap(v.env()));
         if (v.target() != null) m.put("target", targetMap(v.target()));
-        if (v.entities() != null && !v.entities().isEmpty()) m.put("entities", entitiesList(v.entities()));
+        // Three states, same split as self.effects: ABSENT means nothing nearby (the common case, so
+        // it costs nothing), an explicit NULL means the section was not sampled. Collapsing unsampled
+        // into empty is what let a diff report every known id as `left`.
+        if (v.entities() == null) {
+            m.put("entities", null);
+        } else if (!v.entities().isEmpty()) {
+            m.put("entities", entitiesList(v.entities()));
+        }
+        // Only when it actually bit, so the common payload is unchanged. It belongs in full mode as
+        // well as diff mode: a caller reading a capped list is looking at a TRUNCATED view of what is
+        // around it, and nothing else in the payload says so.
+        if (v.entitiesCapped()) {
+            m.put("entitiesCapped", true);
+        }
         if (v.inventory() != null) m.put("inventory", invMap(v.inventory()));
         if (v.grid() != null) m.put("grid", gridMap(v.grid()));
         return m;

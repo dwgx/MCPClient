@@ -47,14 +47,24 @@ public final class WorldViewCapture {
         // there is no null-entity shortcut.
         LocalGrid grid = want(all, sections, "grid")
                 ? LocalGrid.sampleColumnar(w, feet, radius, prof, p) : null;
-        List<EntityView> entities = want(all, sections, "entities")
-                ? entities(p, w, prof, radius) : List.of();
+        // Null, NOT List.of(), when the section was not requested. An empty list is a claim about
+        // the world ("nothing nearby"); null is a statement about the sampling ("nobody looked").
+        // The differ compares id sets, so handing it an empty list for an unsampled section made
+        // every previously known id report as `left` -- and a caller reads `left` as "that creeper
+        // is dead". Same fix as SelfView#effects, one section over.
+        //
+        // Scanned ONCE and the cap flag taken from that same scan, so the flag cannot disagree with
+        // the list it describes.
+        List<EntityView> found = want(all, sections, "entities")
+                ? entitiesInRange(p, w, prof, radius) : null;
+        List<EntityView> entities = entitiesSection(found, prof.maxEntities);
+        boolean entitiesCapped = capTruncated(found, prof.maxEntities);
         InventoryView inv = want(all, sections, "inventory") ? inventory(p) : null;
         TargetView target = want(all, sections, "target") ? target(mc, w, p) : null;
         EnvView env = want(all, sections, "env") ? env(w, feet) : null;
 
         return new WorldView(true, tickId, prof.name().toLowerCase(java.util.Locale.ROOT),
-                self, grid, entities, inv, target, env);
+                self, grid, entities, entitiesCapped, inv, target, env);
     }
 
     private static boolean want(boolean all, List<String> sections, String s) {
@@ -134,8 +144,17 @@ public final class WorldViewCapture {
         }
     }
 
-    private static List<EntityView> entities(EntityPlayerSP p, WorldClient w,
-                                             ObserveProfile prof, int radius) {
+    /**
+     * Every entity within the profile's range, UNCAPPED.
+     *
+     * <p>Split from the capping step so the caller can see both counts from one scan and report
+     * whether the cap actually dropped anything. The old shape returned the already-truncated list,
+     * which meant the fact "something alive was dropped" existed only inside this method and could
+     * not reach the wire -- and that fact is the difference between {@code left} meaning "it died"
+     * and {@code left} meaning "a nearer mob pushed it out of the list".
+     */
+    private static List<EntityView> entitiesInRange(EntityPlayerSP p, WorldClient w,
+                                                    ObserveProfile prof, int radius) {
         double range = Math.max(1, radius) * prof.entityRangeMul;
         List<EntityView> out = new ArrayList<>();
         for (Object o : new ArrayList<>(w.loadedEntityList)) {   // copy first: avoid CME
@@ -162,7 +181,40 @@ public final class WorldViewCapture {
             out.add(new EntityView(e.getEntityId(), type, e.posX, e.posY, e.posZ, dist, hp,
                     prof.entityHp ? type : null));
         }
-        return nearestWithinCap(out, prof.maxEntities);
+        // Uncapped on purpose -- the caller applies nearestWithinCap and compares the two sizes.
+        return out;
+    }
+
+    /**
+     * The entities section exactly as it reaches the view: {@code null} when nothing was scanned,
+     * the nearest {@code cap} otherwise.
+     *
+     * <p>Package-private for the same reason {@link #nearestWithinCap} and {@link #boxedInt} are: the
+     * property worth pinning lives on a path that otherwise needs a live client, and a mutation
+     * survives forever if no test can reach it. Specifically -- {@code null} must PROPAGATE rather
+     * than become an empty list, because an empty list is a claim about the world ("nothing nearby")
+     * while null is a statement about the sampling ("nobody looked"), and the differ turns the first
+     * into a report that every previously known entity has left.
+     *
+     * <p>Written as a separate method rather than inline in {@code capture} after a mutation run
+     * showed the inline version was unreachable: replacing {@code : null} with {@code : List.of()}
+     * -- i.e. restoring the original defect -- left every test green.
+     */
+    static List<EntityView> entitiesSection(List<EntityView> found, int cap) {
+        return found == null ? null : nearestWithinCap(found, cap);
+    }
+
+    /**
+     * Whether the cap actually dropped something the scan had found.
+     *
+     * <p>Measured by comparing the two sizes from ONE scan, not inferred from {@code size() == cap}:
+     * a scan that legitimately found exactly {@code cap} entities dropped none, so the inference
+     * would report an eviction that never happened. That distinction is the whole reason the flag
+     * exists -- it tells a caller whether an id in {@code entities.left} might be a live mob pushed
+     * out of the list rather than one that died.
+     */
+    static boolean capTruncated(List<EntityView> found, int cap) {
+        return found != null && found.size() > entitiesSection(found, cap).size();
     }
 
     /**

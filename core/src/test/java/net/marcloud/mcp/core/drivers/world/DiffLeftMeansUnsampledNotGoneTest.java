@@ -1,6 +1,8 @@
 package net.marcloud.mcp.core.drivers.world;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import java.lang.reflect.RecordComponent;
@@ -53,24 +55,162 @@ public class DiffLeftMeansUnsampledNotGoneTest {
     }
 
     private static WorldView view(long tick, List<EntityView> entities) {
-        return new WorldView(true, tick, "EXPLORE", null, null, entities, null, null, null);
+        return new WorldView(true, tick, "EXPLORE", null, null, entities, false, null, null, null);
     }
 
     @SuppressWarnings("unchecked")
     private static List<Object> left(Map<String, Object> diff) {
         Map<String, Object> ent = (Map<String, Object>) diff.get("entities");
-        return ent == null ? List.of() : (List<Object>) ent.get("left");
+        if (ent == null) {
+            return List.of();
+        }
+        // Empty rather than null when the key is absent: "no departures" and "no entities section"
+        // are both "nothing left", and a caller of this helper is asking which ids departed. Returning
+        // null made an assertion about an empty left list NPE instead of passing.
+        List<Object> l = (List<Object>) ent.get("left");
+        return l == null ? List.of() : l;
     }
 
+    /**
+     * An unrequested entities section must report NOTHING as left.
+     *
+     * <p>This test used to assert the opposite, and the inversion is the point. It said "both ids
+     * report left although nothing was even looked at" and passed -- documenting a defect rather
+     * than guarding against one, because {@code WorldViewCapture} handed the differ {@code List.of()}
+     * for a section nobody asked for, and {@code byId} of an empty list makes EVERY previously known
+     * id report left in one go. A caller reads that as every mob around it having died at once.
+     *
+     * <p>The capture now returns {@code null} for an unsampled section, which is the same
+     * null-versus-empty convention {@code SelfView#air} and {@code SelfView#effects} already use, so
+     * the differ can tell "nobody looked" from "nothing there" without a new wire contract.
+     */
     @Test
-    public void anUnrequestedEntitiesSectionReportsEveryKnownIdAsLeft() {
+    public void anUnrequestedEntitiesSectionReportsNothingAsLeft() {
         WorldView prev = view(1L, List.of(entity(7, 3.0), entity(8, 5.0)));
-        // What capture produces when 'sections' omits "entities": not null, an EMPTY list.
-        WorldView cur = view(2L, List.of());
+        // What capture produces when 'sections' omits "entities": null, NOT an empty list.
+        WorldView cur = view(2L, null);
+
+        Map<String, Object> diff = WorldViewDiff.diff(prev, cur);
+        assertTrue("nothing may be reported left when nothing was sampled: " + diff,
+                left(diff).isEmpty());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> ent = (Map<String, Object>) diff.get("entities");
+        assertEquals("it must say it did not look, because silence in diff mode means 'unchanged' "
+                + "and would re-assert the last known set", Boolean.TRUE, ent.get("unsampled"));
+    }
+
+    /**
+     * A genuinely EMPTY sampled section must still report the departures.
+     *
+     * <p>The other half, and without it the fix could have suppressed {@code left} outright -- which
+     * would hide every real departure and be strictly worse than the ambiguity being fixed. Same
+     * shape as the effects round: the null case and the empty case must stay distinguishable in BOTH
+     * directions.
+     */
+    @Test
+    public void asampledButEmptySectionStillReportsTheDepartures() {
+        WorldView prev = view(1L, List.of(entity(7, 3.0), entity(8, 5.0)));
+        WorldView cur = view(2L, List.of());   // looked, and found nothing: they really are gone
 
         List<Object> left = left(WorldViewDiff.diff(prev, cur));
-        assertEquals("both ids report left although nothing was even looked at", 2, left.size());
+        assertEquals("an empty sample is a statement about the world, so these did leave",
+                2, left.size());
         assertTrue(left.contains(7) && left.contains(8));
+    }
+
+    /**
+     * A cap that actually truncated must FLAG the left list rather than leaving it bare.
+     *
+     * <p>The second of the three ways an id lands in {@code left} while alive. The capture now
+     * reports truncation from the same scan that builds the list, so this is measured rather than
+     * inferred from {@code size() == cap} -- which would be wrong whenever a scan legitimately found
+     * exactly {@code cap} entities and dropped none.
+     */
+    @Test
+    public void aCapThatTruncatedFlagsTheLeftListSoAnEvictionIsNotReadAsADeath() {
+        WorldView prev = new WorldView(true, 1L, "EXPLORE", null, null,
+                List.of(entity(8, 9.0)), false, null, null, null);
+        // The near one arrived and took the only slot the cap allows: id 8 stopped being sampled.
+        WorldView cur = new WorldView(true, 2L, "EXPLORE", null, null,
+                List.of(entity(9, 1.0)), true, null, null, null);
+
+        Map<String, Object> diff = WorldViewDiff.diff(prev, cur);
+        assertTrue("the id really did stop being sampled, so it still ships", left(diff).contains(8));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> ent = (Map<String, Object>) diff.get("entities");
+        assertEquals("and the caller must be told an eviction is among the possibilities",
+                Boolean.TRUE, ent.get("capped"));
+    }
+
+    /** No truncation, no flag: a caller must not be warned about a cap that cost it nothing. */
+    @Test
+    public void anUntruncatedPollDoesNotClaimTheCapBit() {
+        WorldView prev = view(1L, List.of(entity(7, 3.0)));
+        WorldView cur = view(2L, List.of());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> ent = (Map<String, Object>) WorldViewDiff.diff(prev, cur).get("entities");
+        assertTrue("a genuine departure with no cap involved must not be flagged as an eviction",
+                ent != null && !ent.containsKey("capped"));
+    }
+
+    /**
+     * The cap flag is only emitted alongside a {@code left}, because that is the list it qualifies.
+     *
+     * <p>Found by a surviving mutation: dropping the {@code !left.isEmpty()} condition changed
+     * nothing that any test could see, so the flag could have started appearing on every capped poll
+     * -- noise on a payload whose whole design is to omit what has not changed, and a warning about a
+     * cost the caller cannot observe.
+     */
+    @Test
+    public void theCapFlagIsNotEmittedOnAPollWithNoDepartures() {
+        EntityView same = entity(7, 3.0);
+        WorldView prev = new WorldView(true, 1L, "EXPLORE", null, null, List.of(same), true,
+                null, null, null);
+        WorldView cur = new WorldView(true, 2L, "EXPLORE", null, null, List.of(same), true,
+                null, null, null);
+
+        Map<String, Object> diff = WorldViewDiff.diff(prev, cur);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> ent = (Map<String, Object>) diff.get("entities");
+        assertTrue("nothing departed, so there is no left list for the flag to qualify: " + diff,
+                ent == null || !ent.containsKey("capped"));
+    }
+
+    // ---- the CAPTURE side of the same two facts.
+    // ---- Driven directly, because a mutation run proved the differ tests cannot reach it: restoring
+    // ---- the original defect in capture (an unsampled section becoming List.of()) left every test
+    // ---- green, and so did nailing the cap flag to false.
+
+    /**
+     * An unsampled section must reach the view as {@code null}, not as an empty list.
+     *
+     * <p>The production defect, at its source. An empty list is a claim about the world; null is a
+     * statement about the sampling. The differ turns the first into "every entity you knew has left".
+     */
+    @Test
+    public void captureKeepsAnUnsampledSectionNullRatherThanEmpty() {
+        assertNull("null must PROPAGATE -- becoming an empty list here is the original defect",
+                WorldViewCapture.entitiesSection(null, 12));
+        assertEquals("a sampled but empty scan stays an empty LIST, which is a different claim",
+                List.of(), WorldViewCapture.entitiesSection(List.of(), 12));
+    }
+
+    /** The cap flag must be true exactly when the cap dropped something the scan had found. */
+    @Test
+    public void captureReportsTheCapBitOnlyWhenItActuallyTruncated() {
+        List<EntityView> three = List.of(entity(1, 1.0), entity(2, 2.0), entity(3, 3.0));
+
+        assertTrue("three found, two kept: something alive was dropped",
+                WorldViewCapture.capTruncated(three, 2));
+        assertFalse("three found, three kept: nothing was dropped, so claiming an eviction would be "
+                        + "a warning about a cost that does not exist",
+                WorldViewCapture.capTruncated(three, 3));
+        assertFalse("EXACTLY at the cap is NOT truncation -- this is the case that makes "
+                        + "size() == cap an unsound inference and the reason the flag is measured",
+                WorldViewCapture.capTruncated(three, 3));
+        assertFalse("a headroom cap drops nothing", WorldViewCapture.capTruncated(three, 99));
+        assertFalse("an unsampled section cannot have been truncated",
+                WorldViewCapture.capTruncated(null, 1));
     }
 
     /**
@@ -127,7 +267,7 @@ public class DiffLeftMeansUnsampledNotGoneTest {
                 desc.contains("entities.left"));
         assertTrue("and must deny the reading a caller will otherwise take",
                 desc.contains("does NOT mean the entity is gone"));
-        assertTrue("naming the honest alternative to 'gone'", desc.contains("NOT SAMPLED"));
+        assertTrue("naming the honest alternative to 'gone'", desc.contains("SAMPLING"));
     }
 
     /**
@@ -171,11 +311,24 @@ public class DiffLeftMeansUnsampledNotGoneTest {
     @Test
     public void theDescriptionNamesTheUnsampledMechanismNotJustTheWordSections() {
         String desc = worldViewDescription();
-        assertTrue("it must say what an unrequested section DOES -- that every known id reports "
-                + "left at once -- rather than merely mentioning 'sections' somewhere",
-                desc.contains("every id you knew reports left"));
+        // Asserts the CURRENT behaviour, not the old one. This used to require the sentence
+        // "every id you knew reports left", which described the defect -- and when the defect was
+        // fixed the assertion went red, which is precisely what a description guard is for. The
+        // replacement pins what the payload now DOES: the marker a caller branches on, and the
+        // promise that nothing is reported left when nothing was looked at.
+        assertTrue("the unsampled marker must be named, or a caller cannot branch on it: " + desc,
+                desc.contains("'unsampled':true"));
+        assertTrue("and the description must promise what that means -- that NOTHING is reported "
+                + "left -- since the old behaviour was the opposite: " + desc,
+                desc.contains("NOTHING is reported left"));
+        assertTrue("the cap flag must be named too, since a bare left list cannot be told from an "
+                + "eviction without it", desc.contains("'capped':true"));
         assertTrue("and it must tie truncation to the entity cap in the same breath, since "
                 + "'a cap exists' is not actionable", desc.contains("entity cap"));
+        assertFalse("the OLD claim must be gone, not merely contradicted further down -- a "
+                + "description that still says every known id reports left teaches the fixed "
+                + "defect: " + desc,
+                desc.contains("every id you knew reports left at once"));
     }
 
     /**
@@ -199,7 +352,7 @@ public class DiffLeftMeansUnsampledNotGoneTest {
             3, 0.5f, 0, 300, "SURVIVAL", false, false, true, List.of());
 
     private static WorldView selfOnly(long tick, SelfView self) {
-        return new WorldView(true, tick, "explore", self, null, List.of(), null, null, null);
+        return new WorldView(true, tick, "explore", self, null, List.of(), false, null, null, null);
     }
 
     /** A value of the right type, far enough from the original to clear every dead-band. */

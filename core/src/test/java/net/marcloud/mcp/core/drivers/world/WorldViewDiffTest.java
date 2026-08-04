@@ -18,7 +18,7 @@ public final class WorldViewDiffTest {
     private static WorldView view(double x, float health, List<EntityView> ents) {
         SelfView self = new SelfView(x, 64, 0, 0, 0, 0, 0f, 0f, health, 20, 5f,
                 3, 0.5f, 0, 300, "SURVIVAL", false, false, true, List.of());
-        return new WorldView(true, 1L, "explore", self, null, ents, null,
+        return new WorldView(true, 1L, "explore", self, null, ents, false, null,
                 TargetView.miss(), null);
     }
 
@@ -30,7 +30,7 @@ public final class WorldViewDiffTest {
 
     /** Only the self section is populated, so nothing else can put a key in the diff. */
     private static WorldView selfOnly(long tick, SelfView self) {
-        return new WorldView(true, tick, "explore", self, null, List.of(), null, null, null);
+        return new WorldView(true, tick, "explore", self, null, List.of(), false, null, null, null);
     }
 
     private static SelfView withVel(SelfView s, double vx, double vy, double vz) {
