@@ -243,7 +243,18 @@ def flatten(mcp, anchor, radius, rows_per_batch=3):
             for (int bz = {az - radius}; bz <= {az + radius}; bz++) {{
                 cols++;
                 net.minecraft.util.BlockPos below = new net.minecraft.util.BlockPos(bx, {ay - 1}, bz);
-                if (!sw.getBlockState(below).getBlock().isFullCube()
+                // isBlockNormalCube, NOT isFullCube. Block.isFullCube() returns true
+                // unconditionally (Block.java:366) and BlockAir does not override it -- it overrides
+                // only isOpaqueCube -- so air.isFullCube() is TRUE. Measured live: air, stone and
+                // grass all report isFullCube=true, while air/water/tallgrass/lava report
+                // isBlockNormalCube=false and stone/grass report true.
+                //
+                // With isFullCube this condition was `!true` for a hole, so THE FLATTEN NEVER FILLED
+                // ONE. That is not hypothetical: a leftover pit at the far end of the +X ray dropped
+                // the player a block mid-leg, NavController honestly reported "stuck against a wall"
+                // against the pit side, and the run read as a controller defect for three rounds of
+                // investigation.
+                if (!sw.getBlockState(below).getBlock().isBlockNormalCube()
                         && sw.setBlockState(below, floor, 2)) {{
                     filled++;
                 }}
@@ -299,8 +310,12 @@ def verify_arena(mcp, anchor, dist):
                 checked++;
                 boolean serverClear = sw.isAirBlock(bp) && sw.isAirBlock(bp.up());
                 boolean clientClear = w.isAirBlock(bp) && w.isAirBlock(bp.up());
-                boolean serverFloor = sw.getBlockState(bp.down()).getBlock().isFullCube();
-                boolean clientFloor = w.getBlockState(bp.down()).getBlock().isFullCube();
+                // isBlockNormalCube, not isFullCube: air.isFullCube() is TRUE (see flatten's note),
+                // so this floor check COULD NOT FAIL. It reported bad=0 over a real pit, which is
+                // the hollow-assertion shape this repo keeps finding in itself -- a check that
+                // structurally cannot see the thing it exists to see.
+                boolean serverFloor = sw.getBlockState(bp.down()).getBlock().isBlockNormalCube();
+                boolean clientFloor = w.getBlockState(bp.down()).getBlock().isBlockNormalCube();
                 if (!serverClear || !clientClear || !serverFloor || !clientFloor) {{
                     bad++;
                     if (first.length() < 300) {{
@@ -630,7 +645,10 @@ def build_step(mcp, anchor, at, half_width, fill):
             net.minecraft.util.BlockPos bp = new net.minecraft.util.BlockPos({ax + at}, {ay}, bz);
             sw.setBlockState(bp, st, 2);
             width++;
-            if (sw.getBlockState(bp).getBlock().isFullCube()) serverSolid++;
+            // isBlockNormalCube: with isFullCube this counted AIR as solid, so the removal call
+            // reported "serverSolid=11" for a row it had just cleared -- the built and the removed
+            // states printed the identical number and nobody could tell them apart.
+            if (sw.getBlockState(bp).getBlock().isBlockNormalCube()) serverSolid++;
         }}
         return "width=" + width + " serverSolid=" + serverSolid
              + " atX=" + {ax + at} + " y=" + {ay};
@@ -646,8 +664,8 @@ def step_state(mcp, anchor, at, half_width):
         for (int bz = {az} - {half_width}; bz <= {az} + {half_width}; bz++) {{
             net.minecraft.util.BlockPos bp = new net.minecraft.util.BlockPos({ax + at}, {ay}, bz);
             width++;
-            if (sw.getBlockState(bp).getBlock().isFullCube()) serverSolid++;
-            if (w.getBlockState(bp).getBlock().isFullCube()) clientSolid++;
+            if (sw.getBlockState(bp).getBlock().isBlockNormalCube()) serverSolid++;
+            if (w.getBlockState(bp).getBlock().isBlockNormalCube()) clientSolid++;
         }}
         return "width=" + width + " serverSolid=" + serverSolid + " clientSolid=" + clientSolid;
     """).strip()
@@ -685,6 +703,22 @@ def probe_step_up_fails_honestly(mcp, anchor, dist):
     r = leg["result"]
     down = build_step(mcp, anchor, at=3, half_width=half, fill=False)
     print(f"     (step removed: {down[:140]})")
+
+    # ASSERTED, not merely printed, and that distinction is the whole reason this block exists.
+    # The removal was printed and never checked, so when isFullCube counted air as solid the built
+    # row and the cleared row reported the IDENTICAL "serverSolid=11" and the teardown looked like it
+    # had done nothing wrong. A step left standing poisons the NEXT run's +X cardinal leg, which then
+    # fails as a controller defect a run later -- a delayed, cross-run failure with no visible cause,
+    # and the worst shape a probe can leave behind.
+    time.sleep(0.8)
+    after = step_state(mcp, anchor, at=3, half_width=half)
+    left_standing = num(after, "serverSolid") or 0
+    if left_standing:
+        record("the step is torn down, so the next run's +X leg is not poisoned", False,
+               f"{left_standing} of {num(after, 'width')} columns are still solid after the "
+               f"teardown; the next run would walk into them: {after[:160]}")
+    else:
+        record("the step is torn down, so the next run's +X leg is not poisoned", True, after[:160])
 
     # The verdict rests on the controller's own message, and the sampled flag is REPORTED beside it
     # rather than gated on. The jam message can only be produced when the controller read
