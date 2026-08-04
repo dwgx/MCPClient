@@ -55,7 +55,7 @@ class SharedClientTest(unittest.TestCase):
     """Every probe must take its socket client from mcp_probe, not carry its own."""
 
     PROBES = ("nav-astar-probe.py", "live-dwm-probe.py", "live-hold-probe.py",
-              "live-nav-probe.py")
+              "live-nav-probe.py", "live-look-probe.py")
 
     def test_no_probe_defines_its_own_socket_client(self):
         """A second copy of the read loop would be a second chance to reintroduce the truncation.
@@ -90,13 +90,123 @@ class SharedClientTest(unittest.TestCase):
         # written in parallel with the extraction and wired itself through nav-astar-probe.py,
         # where these helpers used to live; the merge repointed it. Naming both here is what stops
         # the next arrival taking the same indirect route back.
-        for script in ("live-hold-probe.py", "live-nav-probe.py"):
+        for script in ("live-hold-probe.py", "live-nav-probe.py", "live-look-probe.py"):
             derived = load(script)
             for helper in ("require_ticking", "allow_unfocused", "record"):
                 with self.subTest(probe=script, helper=helper):
                     self.assertIs(getattr(derived, helper, None), getattr(mcp_probe, helper),
                                   f"{script} must reuse mcp_probe.{helper} rather than "
                                   "reimplementing the guard")
+
+
+def java_string_blob(path):
+    """Every string literal in a Java file, concatenated into one searchable blob.
+
+    Java splits a long message across `+`-joined literals on separate lines, so a phrase the probe
+    matches on ("tracked for N ticks, aim held on ...") does not appear contiguously in the source.
+    Joining the literals in order reconstitutes what the code actually emits, minus the runtime
+    values -- which is exactly the part a probe matches on.
+
+    Crude on purpose: it does not parse Java. It only needs to answer "does this phrase survive in
+    the source", and a false PASS would require the phrase to appear in some unrelated literal,
+    which the phrases below are far too specific for.
+    """
+    with open(path, encoding="utf-8") as f:
+        src = f.read()
+    out = []
+    i = 0
+    while True:
+        start = src.find('"', i)
+        if start < 0:
+            break
+        j = start + 1
+        while j < len(src):
+            if src[j] == "\\":
+                j += 2
+                continue
+            if src[j] == '"':
+                break
+            j += 1
+        out.append(src[start + 1:j])
+        i = j + 1
+    return "".join(out)
+
+
+class ProbeMessageLiteralsMatchProductionTest(unittest.TestCase):
+    """The phrases live-look-probe.py matches on must exist in the code that emits them.
+
+    WHY THIS IS NOT PARANOIA. The probe's verdicts key on message text, and its self-check feeds
+    them fixtures TYPED BY HAND from reading the Java. So the self-check can pass 27/27 while every
+    live assertion fails, because both halves agree with each other and neither agrees with
+    production. That is the same shape as a description assertion that pins prose nobody emits --
+    the defect family this repo keeps finding in itself.
+
+    Reworded messages are the expected failure here, and the fix is to update both the probe and
+    this list together. A phrase deleted outright is the more interesting failure: it means the
+    probe is asserting on an ending the code no longer has.
+    """
+
+    LOOK_CONTROLLER = os.path.join(
+        SCRIPTS, os.pardir, "core", "src", "main", "java", "net", "marcloud", "mcp", "core",
+        "drivers", "act", "LookController.java")
+
+    # Every phrase a verdict in live-look-probe.py keys on, with the verdict that needs it.
+    PHRASES = (
+        ("holding aim on yaw=", "landed_verdict / following_verdict"),
+        ("slewing toward yaw=", "following_verdict"),
+        ("look cancelled after ", "cancel_verdict"),
+        ("tracked for ", "bounded_verdict / never_aimed_verdict"),
+        ("aim held on yaw=", "bounded_verdict"),
+        ("never reached the target", "never_aimed_verdict"),
+        ("degrees of yaw out", "never_aimed_verdict"),
+        ("is gone", "gone_verdict"),
+        ("ticks of tracking", "gone_verdict (the KEEP suffix)"),
+        ("not in world", "the world-gone ending"),
+    )
+
+    def test_every_phrase_the_look_probe_matches_on_exists_in_production(self):
+        blob = java_string_blob(self.LOOK_CONTROLLER)
+        self.assertGreater(len(blob), 200, "the literal extractor found almost nothing; it is "
+                                           "broken and every assertion below would be vacuous")
+        for phrase, used_by in self.PHRASES:
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, blob,
+                              f"live-look-probe.py's {used_by} matches on {phrase!r}, but "
+                              "LookController emits no such text. Either the message was reworded "
+                              "(update both) or the ending was removed (the probe is asserting on "
+                              "something the code no longer does)")
+
+    def test_the_extractor_would_notice_a_missing_phrase(self):
+        """Guards the check above from going hollow: prove a phrase that is NOT there fails.
+
+        Without this, a broken extractor returning a huge irrelevant blob could satisfy every
+        assertion above, and the length check alone would not catch it.
+        """
+        blob = java_string_blob(self.LOOK_CONTROLLER)
+        self.assertNotIn("holding aim on pitch-only", blob)
+        self.assertNotIn("tracked forever", blob)
+
+    def test_the_look_probe_verdicts_accept_productions_own_wording(self):
+        """End to end: build the message the way the Java does and feed it to the real verdict.
+
+        The strongest of the three, because it does not trust the phrase list either -- it takes
+        the fixtures out of the probe's own self-check and requires them to be recognised, which
+        only holds while the fixtures still look like what production emits.
+        """
+        probe = load("live-look-probe.py")
+        blob = java_string_blob(self.LOOK_CONTROLLER)
+        # Each fixture is the probe's, and each prefix must be production's.
+        for fixture, prefix, verdict, want in (
+            ("holding aim on yaw=-90.0 pitch=-0.0 (tick 12)", "holding aim on yaw=",
+             lambda m: probe.landed_verdict("ACTIVE", m), True),
+            ("look cancelled after 37 ticks", "look cancelled after ",
+             lambda m: probe.cancel_verdict("CANCELLED", m), True),
+            ("tracked for 40 ticks, aim held on yaw=-90.0 pitch=-0.0", "aim held on yaw=",
+             lambda m: probe.bounded_verdict("COMPLETE", m, 40), True),
+        ):
+            with self.subTest(fixture=fixture):
+                self.assertIn(prefix, blob, "the fixture's wording is not production's")
+                self.assertEqual(want, verdict(fixture))
 
 
 class ReplyFramingTest(unittest.TestCase):
