@@ -361,6 +361,133 @@ public class HoldControllerTest {
     }
 
     /**
+     * A PAUSED game freezes the use without clearing the key: the deadline must blame the client.
+     *
+     * <p>FOUND ON A LIVE CLIENT, and it is the branch automation hits while a human does not. A
+     * screen usually clears the use key, so the hold ends on the key-lost branch above with the
+     * screen named -- but that clearing runs inside {@code setIngameNotInFocus}, guarded by
+     * {@code if (this.inGameHasFocus)} ({@code Minecraft.java:1467-1469}). Measured both ways on a
+     * live client: with in-game focus, opening a screen cleared the key; without it, THE KEY
+     * SURVIVED, the hold kept re-asserting for 73 ticks with the count frozen, and the deadline then
+     * reported "the server never sent the finish (status id 9)".
+     *
+     * <p>That message was the defect. The server was never asked anything: in single player
+     * {@code isGamePaused} ({@code Minecraft.java:1184}) stops
+     * {@code theWorld.updateEntities()} ({@code Minecraft.java:2195-2202}), so the use does not
+     * progress on the CLIENT and the integrated server is not running either. A caller reading the
+     * old message checks its connection while the pause menu sits open in front of it -- the same
+     * message-names-a-cause-the-situation-does-not-support shape as the rest of this round.
+     *
+     * <p><b>The first version of this test named the wrong gate too</b>, asserting on
+     * {@code Minecraft.java:1829} and describing the screen as chat. The live client refuted both:
+     * chat does not pause ({@code GuiChat.doesGuiPauseGame()} is false) and a meal completes behind
+     * it, which is now the sibling test below. Kept in the record because a test that agrees with a
+     * wrong production message is worse than no test -- both halves were mine, and they agreed with
+     * each other rather than with the game.
+     */
+    @Test
+    public void aPausedGameFreezesTheUseAndTheDeadlineBlamesTheClientNotTheServer() {
+        FakeActuator act = holdingFood();
+        HoldController c = new HoldController(InteractIntent.holdUntilDone());
+
+        ActOutcome out = null;
+        for (int i = 0; i < 200; i++) {
+            out = c.tick(act);
+            act.advanceGameTick();
+            if (out.terminal()) {
+                break;
+            }
+            if (i == 3) {
+                // A PAUSING screen opens on a client with NO in-game focus: the world stops, so the
+                // count freezes -- but the key is NOT cleared, so the hold keeps going.
+                act.gamePaused = true;
+            }
+        }
+
+        assertTrue("must terminate at the deadline rather than holding forever",
+                out != null && out.terminal());
+        assertFalse("a use that never progressed is a failure", out.ok());
+        assertTrue("the message must report that the COUNT stopped moving, which is the fact in "
+                        + "hand: " + out.message(),
+                out.message().contains("the count has not moved for"));
+        assertTrue("and name the PAUSE gate, not the input gate: a wrong line number sends the "
+                        + "reader to the wrong mechanism: " + out.message(),
+                out.message().contains("isGamePaused"));
+        assertTrue("naming the screen predicate that decides it, since that is what tells a caller "
+                        + "WHICH screens do this: " + out.message(),
+                out.message().contains("doesGuiPauseGame"));
+        assertFalse("IT MUST NOT BLAME THE SERVER: nothing was ever asked of it, and a caller told "
+                        + "this checks its connection while the pause menu is open: " + out.message(),
+                out.message().contains("the server never sent the finish"));
+    }
+
+    /**
+     * Chat does NOT pause, so a meal finishes behind it -- the half the first fix got backwards.
+     *
+     * <p>Measured live: with chat open the count ran 32 down to 7 and the hold reported
+     * COMPLETE, because {@code GuiChat} is the one override whose {@code doesGuiPauseGame()} returns
+     * false ({@code GuiScreen}'s default is true). Without this test the production message could go
+     * back to listing chat among the causes and nothing would object.
+     */
+    @Test
+    public void aMealCompletesBehindChatBecauseChatDoesNotPauseTheGame() {
+        FakeActuator act = holdingFood();
+        HoldController c = new HoldController(InteractIntent.holdUntilDone());
+
+        ActOutcome out = null;
+        for (int i = 0; i < 200; i++) {
+            out = c.tick(act);
+            act.advanceGameTick();
+            if (out.terminal()) {
+                break;
+            }
+            if (i == 3) {
+                // Chat: the stop branch is gated off (allowUserInput false) but the world RUNS.
+                act.screenGatesVanillaStop = true;
+            }
+        }
+
+        assertTrue("must terminate", out != null && out.terminal());
+        assertTrue("the meal must COMPLETE behind chat -- the world is still running, so the count "
+                        + "reaches zero and the server's finish arrives: " + out.message(),
+                out.ok());
+        assertTrue("and it must read as a completed use, not as a rescue: " + out.message(),
+                out.message().contains("use completed"));
+    }
+
+    /**
+     * The sibling, so the fix above did not simply replace one wrong cause with another.
+     *
+     * <p>A use whose count IS moving and which still outlives its duration really is waiting on a
+     * server that never answered, and that message must survive. Without this test, blaming the
+     * client unconditionally would pass the test above and be just as wrong in the other direction.
+     */
+    @Test
+    public void aUseWhoseCountKeepsMovingStillBlamesTheMissingServerFinish() {
+        FakeActuator act = holdingFood();
+        // The count runs down past zero and the use never clears: exactly a finish that never came.
+        act.serverFinishDelayTicks = 10_000;
+        HoldController c = new HoldController(InteractIntent.holdUntilDone());
+
+        ActOutcome out = null;
+        for (int i = 0; i < 200; i++) {
+            out = c.tick(act);
+            act.advanceGameTick();
+            if (out.terminal()) {
+                break;
+            }
+        }
+
+        assertTrue("must terminate at the deadline", out != null && out.terminal());
+        assertFalse(out.ok());
+        assertTrue("a moving count with no finish IS the server's fault, and that message must "
+                        + "survive the fix: " + out.message(),
+                out.message().contains("the server never sent the finish"));
+        assertFalse("and it must not claim the count froze, because it did not: " + out.message(),
+                out.message().contains("the count has not moved"));
+    }
+
+    /**
      * The OTHER way to lose the key, where vanilla's coupling does hold and the use really does end.
      *
      * <p>Renamed from "a key cleared by a screen": that was the wrong mechanism. A screen gates

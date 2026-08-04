@@ -256,6 +256,36 @@ public class ActToolsTest {
                 runtime.status().slots().get(ActSlot.INTERACT.ordinal()).hasIntent());
     }
 
+    /**
+     * The screen claim must be CONDITIONED on focus, because measured live it is not unconditional.
+     *
+     * <p>The description said a hold ends FAILED when a screen opens. True with in-game focus, and
+     * false without it: {@code setIngameNotInFocus} clears the bindings only inside
+     * {@code if (this.inGameHasFocus)} ({@code Minecraft.java:1467-1469}). On an unfocused client --
+     * the normal state when a script drives one -- the key survives, the hold keeps re-asserting, and
+     * the use freezes instead. Measured both ways: focused cleared the key, unfocused did not and the
+     * hold ran 73 ticks with the count stuck at 32.
+     *
+     * <p>A description that states one branch as the whole truth sends the caller to the wrong
+     * diagnosis on the branch automation actually hits.
+     */
+    @Test
+    public void theActSetDescriptionConditionsTheScreenClaimOnInGameFocus() {
+        String desc = tools.actSet().tool().description();
+        assertTrue("the focus condition must be stated, or the screen claim is only half true: "
+                + desc, desc.contains("only CLEARS the key when the game had in-game focus"));
+        assertTrue("and what happens INSTEAD on an unfocused client must be named, since that is "
+                + "the branch a script hits", desc.contains("stops the world"));
+        assertTrue("naming the honest diagnosis the caller will read there",
+                desc.contains("count stopped moving"));
+        // The half the first version of this fix got backwards, so it is pinned explicitly: chat
+        // does NOT pause (GuiChat.doesGuiPauseGame() is false) and a meal completes behind it.
+        // Measured live -- the count ran 32 down to 7. A description that lumped chat in with the
+        // pausing screens would send a caller to close the one screen that was never the problem.
+        assertTrue("chat must be called out as the exception, not lumped in with pausing screens: "
+                + desc, desc.contains("CHAT does not pause"));
+    }
+
     /** The description must name 'hold' and say why 'use' cannot eat, or nobody will find it. */
     @Test
     public void theActSetDescriptionNamesHoldAndWhyUseIsNotEnough() {

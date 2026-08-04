@@ -114,6 +114,22 @@ public final class HoldController {
     private int initialSlot = -1;
     /** Set the tick the key was found cleared, so the NEXT tick can observe what vanilla did. */
     private boolean keyLost;
+
+    /**
+     * Consecutive HOLDING ticks on which vanilla's use count did not move.
+     *
+     * <p>The discriminator the deadline message needs, and it costs no new seam: the count is
+     * already read every tick. {@code EntityPlayer.onUpdate} decrements it once per tick, reached
+     * from {@code theWorld.updateEntities()} at {@code Minecraft.java:2202} inside
+     * {@code if (!this.isGamePaused)}. So a PAUSED game freezes the count, and a frozen count is
+     * therefore evidence about the CLIENT rather than about the server.
+     *
+     * <p>Measured live, both branches: with the pause menu open the count sat at 17 for 57
+     * consecutive ticks while the hold kept re-asserting; with CHAT open it decremented 32 to 7 and
+     * the meal completed, because {@code GuiChat} is the override whose
+     * {@code doesGuiPauseGame()} returns false.
+     */
+    private int frozenCountTicks;
     /** Draw ticks vanilla had counted at the moment of release, for the RELEASING message. */
     private int drawnAtRelease;
 
@@ -326,8 +342,7 @@ public final class HoldController {
         if (mode == InteractIntent.HoldMode.UNTIL_DONE && heldTicks > deadline) {
             act.releaseUseKey();
             return finish(act, ActOutcome.failed("still using after " + heldTicks + " ticks, but vanilla "
-                    + "gave this use only " + initialCount + " ticks -- the server never sent the "
-                    + "finish (status id 9), so the use is not going to complete"));
+                    + "gave this use only " + initialCount + " ticks -- " + whyNotFinishing()));
         }
 
         if (!act.holdUseKey()) {
@@ -335,11 +350,77 @@ public final class HoldController {
                     + heldTicks + " ticks; the hold cannot continue"));
         }
         heldTicks++;
-        lastCount = act.itemInUseCount();
+        int countNow = act.itemInUseCount();
+        // A count that does not move is the evidence the deadline message needs; see whyNotFinishing.
+        // Compared before lastCount is overwritten, and only while a use is live, so the streak
+        // cannot be extended by the zero an ended use reports.
+        frozenCountTicks = countNow == lastCount ? frozenCountTicks + 1 : 0;
+        lastCount = countNow;
         return ActOutcome.running("holding the use key, " + heldTicks + " ticks, use count "
                 + lastCount + (mode == InteractIntent.HoldMode.THEN_RELEASE
                         ? " (releasing at " + holdTicks + ")" : ""));
     }
+
+    /**
+     * Why an UNTIL_DONE hold outlived the item's own duration -- the client's fault or the server's.
+     *
+     * <p>This branch used to state one cause unconditionally: "the server never sent the finish
+     * (status id 9)". Reproduced live, that is the WRONG cause on the path most likely to produce
+     * it -- a PAUSED game. In single player {@code isGamePaused} is true whenever a screen with
+     * {@code doesGuiPauseGame()} is open ({@code Minecraft.java:1184}), which is
+     * {@code GuiScreen}'s DEFAULT, and that gate stops {@code theWorld.updateEntities}
+     * ({@code Minecraft.java:2195-2202}). Nothing counts down, and the integrated server is not
+     * running either -- so a caller told "the server never sent the finish" goes looking at its
+     * connection while the pause menu sits open in front of it.
+     *
+     * <p><b>The first version of this fix named the wrong gate,</b> and the record of that is worth
+     * more than the correction. It blamed the {@code currentScreen == null || allowUserInput} gate
+     * at {@code Minecraft.java:1829} and listed chat among the causes. Measured on a live client,
+     * both halves were wrong: with chat open the count decremented 32 to 7 and the meal COMPLETED
+     * ({@code GuiChat.doesGuiPauseGame()} is false, the one override that returns false), while the
+     * pause menu froze the count at 17 for 57 ticks. The 1829 gate governs the key-up-ends-the-use
+     * STOP branch, which is a different mechanism entirely. Naming a plausible-but-wrong line number
+     * is the exact defect shape this class's other messages were written to avoid.
+     *
+     * <p><b>Why this branch is reachable at all,</b> and it is the part that made it hard to see: a
+     * screen usually clears the use key ({@code KeyBinding.unPressAllKeys} via
+     * {@code displayGuiScreen}) and the hold then ends on the key-lost branch above with the screen
+     * named. But that clearing runs inside {@code setIngameNotInFocus}, guarded by
+     * {@code if (this.inGameHasFocus)} ({@code Minecraft.java:1467-1469}). Measured both ways on a
+     * live client: with in-game focus, opening a screen cleared the key; WITHOUT it, the key
+     * survived and the hold kept re-asserting until this deadline. A script-driven client is
+     * normally in that second state, so this is the branch automation hits and a human does not.
+     *
+     * <p>Diagnosed from the frozen count rather than by asking whether a screen is open. No new
+     * {@link ActActuator} method is needed, and the evidence is better than the guess would be: it
+     * reports that the use STOPPED PROGRESSING, which is the fact, and names the pause gate as the
+     * likely reason, which is the inference. Anything else that stops vanilla's entity update is
+     * covered by the same sentence.
+     */
+    private String whyNotFinishing() {
+        if (frozenCountTicks >= COUNT_FROZEN_TICKS) {
+            return "the count has not moved for " + frozenCountTicks + " ticks, so the use is not "
+                    + "progressing on the CLIENT and the server was never asked. THE GAME IS "
+                    + "PAUSED: in single player Minecraft.isGamePaused is true whenever a screen "
+                    + "whose doesGuiPauseGame() is true is open (Minecraft.java:1184), which is the "
+                    + "DEFAULT for GuiScreen -- the pause menu, a chest, a furnace -- and that gate "
+                    + "stops theWorld.updateEntities (Minecraft.java:2195-2202), so nothing counts "
+                    + "down and the integrated server is not running either. Chat is the exception "
+                    + "(doesGuiPauseGame() false), so a meal DOES finish behind it. Close the "
+                    + "pausing screen and retry";
+        }
+        return "the server never sent the finish (status id 9), so the use is not going to complete";
+    }
+
+    /**
+     * Frozen-count ticks before the deadline blames the client rather than the server.
+     *
+     * <p>Small, because the count moves every tick when anything is working: three consecutive
+     * unchanged samples is already impossible during a healthy use. Not one, because the sample is
+     * taken at the top of the tick and vanilla's decrement runs later in it, so a single repeat is
+     * ordinary staleness rather than a freeze.
+     */
+    private static final int COUNT_FROZEN_TICKS = 3;
 
     /**
      * Stop asserting the key, which is what fires a bow.

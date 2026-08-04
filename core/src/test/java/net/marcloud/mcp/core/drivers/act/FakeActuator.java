@@ -333,11 +333,45 @@ class FakeActuator implements ActActuator {
      */
     boolean screenGatesVanillaStop = false;
 
+    /**
+     * Model a PAUSING screen, which is a different gate from {@link #screenGatesVanillaStop}.
+     *
+     * <p>{@code isGamePaused} is {@code isSingleplayer() && currentScreen != null &&
+     * currentScreen.doesGuiPauseGame() && !getPublic()} ({@code Minecraft.java:1184}), and
+     * {@code doesGuiPauseGame()} returns true by DEFAULT on {@code GuiScreen} -- so the pause menu,
+     * a chest and a furnace all pause, while {@code GuiChat} is the override that returns false.
+     * When it is true, {@code theWorld.updateEntities()} does not run
+     * ({@code Minecraft.java:2195-2202}): the count freezes and no server finish arrives.
+     *
+     * <p>Separate from the stop gate because a live client proved they diverge, and conflating them
+     * produced a caller-facing message that named the wrong mechanism. Measured: pause menu froze
+     * the count at 17 for 57 ticks; chat let a meal complete normally.
+     */
+    boolean gamePaused = false;
+
     void advanceGameTick() {
+        if (gamePaused) {
+            // A PAUSED game: nothing advances at all, so the count does not move and no server
+            // finish arrives either (the integrated server is paused with it).
+            //
+            // Checked FIRST and separately from screenGatesVanillaStop, because measuring the live
+            // client proved the two are different gates with different screens:
+            //   - isGamePaused (Minecraft.java:1184) is true for any screen whose doesGuiPauseGame()
+            //     is true -- GuiScreen's DEFAULT, so the pause menu, a chest, a furnace -- and it
+            //     stops theWorld.updateEntities at Minecraft.java:2195-2202. Measured: the count sat
+            //     at 17 for 57 ticks.
+            //   - the allowUserInput gate (Minecraft.java:1829) stops the key-up-ends-the-use STOP
+            //     branch. Chat closes THAT gate but does NOT pause, because GuiChat is the override
+            //     returning false. Measured: with chat open the count ran 32 down to 7 and the meal
+            //     COMPLETED.
+            // A single flag modelling both made a chat window look like a pause menu, which is how
+            // the first version of this fix came to name the wrong line number in a caller-facing
+            // message.
+            return;
+        }
         if (screenGatesVanillaStop) {
-            // Vanilla's own gate is closed: no stop, no restart. The use itself still runs down,
-            // because EntityPlayer.onUpdate is reached from a different call site that the screen
-            // guard does not cover.
+            // The 1829 gate only: no stop, no restart, but the world still runs -- so the count
+            // keeps counting down and the server's finish still arrives. This is the chat case.
             if (usingItem) {
                 useCount--;
                 if (useCount <= -serverFinishDelayTicks) {
