@@ -18,7 +18,7 @@
 
 按顺序读这四份,别的按需:
 
-0. **任务是内核/游戏行动能力?先读 `agency/handoff-2026-08-04.md`**(最新交接),
+0. **任务是内核/游戏行动能力?先读 `agency/handoff-2026-08-05.md`**(最新交接),
    再读 `agency/command-to-action.md`(设计文档 + 岔路 + 真机数字)。**六个 Fork 里 B 与 C 已定**
    (B:不包 vanilla A*,自写邻居生成器;C:`NavIntent` 住 MOVE slot 内),
    **D 仍未定而且它吞掉其余几个** —— 谁持有循环、以什么频率。
@@ -68,7 +68,8 @@
 
 | 文档 | 内容 | 状态 |
 |---|---|---|
-| `agency/handoff-2026-08-04.md` | **最新交接** —— 空转断言与生产缺陷清单、并行 agent 的四条教训、**hold 通道真机 7/7**、§6.5 craft 配方侧已提交、§6.6 doc lint 曾恒绿 | **接手先读这份** |
+| `agency/handoff-2026-08-05.md` | **最新交接** —— hold 通道真机 7/7、七条空转断言累计、窄镜头 vs 宽任务的四次证据、文档梳理的三条规则 | **接手先读这份** |
+| `agency/handoff-2026-08-04.md` | 上一份交接。§2-§5(空转断言与生产缺陷清单、并行 agent 的四条教训、别再踩)仍有效;§1 已改成不钉数字。§6.6 记着 doc lint 曾恒绿 | 部分过时 |
 | `agency/handoff-2026-08-03.md` | 上一份交接。§2-§4(已建好的东西、Fork B/C 的裁决)仍有效;§5 的真机陷阱已被订正 | 部分过时 |
 | `agency/command-to-action.md` | 行动/感知层现状、差距、关键路径(§4 带进度横幅)、六个 Fork(**B/C 已定,D 仍未定**)、§5.5 全部真机数字 | 当前,逐节看横幅 |
 
@@ -85,10 +86,10 @@
 
 | 你想知道 | 去 |
 |---|---|
-| **接手内核任务,从哪开始** | `agency/handoff-2026-08-04.md`(最新;§0 是最要紧的三条) |
+| **接手内核任务,从哪开始** | `agency/handoff-2026-08-05.md`(最新;§0 是最要紧的三条) |
 | **真机验证的两个环境陷阱(必读)** | `agency/handoff-2026-08-04.md` §5(08-03 那版已被订正) |
 | **为什么"一条命令"还做不到、下一步做什么** | `agency/command-to-action.md` §0 §4 |
-| **有哪些架构取舍在等我拍** | `agency/command-to-action.md` §5 —— 主要是 **Fork D**(模型持环 ~2Hz vs 代码持环 20Hz);另有 craft 的 L4 权限与那 8 个诚实墓碑删不删,见 `handoff-2026-08-04.md` |
+| **有哪些架构取舍在等我拍** | `agency/command-to-action.md` §5 —— 主要是 **Fork D**(模型持环 ~2Hz vs 代码持环 20Hz);另有 craft 的 L4 权限与那 8 个诚实墓碑删不删,见 `handoff-2026-08-05.md` §8 |
 | **行动/感知层已经建好了什么(别重建)** | `agency/command-to-action.md` §1 |
 | **vanilla 自带寻路在哪** | `agency/command-to-action.md` §5 Fork B(`client/src/.../pathfinding/`) |
 | 现在该做什么(dwm 侧) | `dwm/handoff-2026-07-31.md` §6 |
