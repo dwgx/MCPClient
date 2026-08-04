@@ -22,6 +22,8 @@
 | `scripts/live-dwm-probe.py` | 30 项真机回归 | 客户端在跑 | 它自己也会有 bug(§6) |
 | `scripts/nav-astar-probe.py` | 内核侧:寻路/移动/感知 | 客户端在跑 | 见 §10 |
 | `scripts/live-hold-probe.py` | 内核侧:INTERACT hold 通道 7 项 | 客户端在跑 | 见 §10 |
+| `scripts/live-nav-probe.py` | 内核侧:四方向/**对角线**/1 格台阶 | 客户端在跑 | **尚未跑过**,见 §10 |
+| `scripts/mcp_probe.py` | 以上探针共用的客户端与守卫(不是探针本身) | 无 | 见 §10 |
 
 ---
 
@@ -280,8 +282,22 @@ MCP socket + `eval_java`,而不是 JUnit。原因写在 `LiveGameGate` 里:`Game
 `Minecraft.getMinecraft()`,那是只存在于游戏 JVM 的静态单例,所以 forked 的 surefire/failsafe
 JVM 里它恒为 null,那六个 `*LiveIT` **只可能 skip 或 FAIL,永远探不到东西**。
 
-范例:`scripts/nav-astar-probe.py`、`scripts/live-hold-probe.py`(后者复用前者的 socket 客户端与守卫,
-**不要写第三份** —— 读取循环存在两份、只修了一份的那次截断 bug 就是这么来的)。
+**共用部分现在有单一归属:`scripts/mcp_probe.py`** —— socket 客户端、"等到 id=2 那行能完整 parse"
+的分帧读取、游戏线程 eval 包装、`require_ticking` / `allow_unfocused` 守卫、以及
+record/report 与 0/1/2/3 退出码约定。三个探针都 `import mcp_probe`,**不要写第四份**。
+
+> 本节原文写的是"`live-hold-probe.py` 复用 `nav-astar-probe.py` 的 socket 客户端"。那在
+> 抽出共享模块之前是对的,现在已过时。而这条为什么值得单独立一节:**读取循环曾存在两份、
+> 只修了一份**,于是 dwm 探针带着同一个截断缺陷又活了整整一轮,直到一个 180KB 的回复
+> (4 个 recv 块)把它暴露成 `unparseable reply: Unterminated string`。
+> 修复住在拷贝里而不是共享处,就是那一轮的代价。
+>
+> `scripts/test_probe_framing.py` 现在用**身份断言**钉住这件事(`assertIs(probe.Mcp,
+> mcp_probe.Mcp)`),而不是比较 `__module__` 字符串 —— 后者放得过一个行为完全相同的
+> 子类,实测验过。
+
+范例:`scripts/nav-astar-probe.py`(寻路/感知)、`scripts/live-hold-probe.py`(hold 通道,
+真机 7/7 两次)、`scripts/live-nav-probe.py`(导航三条断言,**尚未跑过**)。
 
 ### ① 一次 `eval_java` 提交 = 一个游戏 tick。循环 tick 只会饿死它自己
 
