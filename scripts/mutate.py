@@ -42,12 +42,30 @@ def main():
             f.write(original)
 
     out = proc.stdout
+    ran_tests = "Tests run:" in out
+    compile_broke = "COMPILATION ERROR" in out or not ran_tests
+
+    # A mutation that does not COMPILE proves nothing, and reporting it as CAUGHT is the failure
+    # mode this tool exists to prevent -- it looks exactly like a passing verification. Two of the
+    # mutations written against this repo did precisely that (a `for` header replaced by `if (false)`
+    # leaves the loop variable undefined), and the run said CAUGHT with no failing test named.
+    if compile_broke:
+        errs = [ln.strip() for ln in out.splitlines() if "ERROR" in ln and ".java:" in ln]
+        print(f"INVALID   {label}")
+        print("    the mutant did not compile, so nothing was tested -- rewrite it as a change")
+        print("    that builds. This is NOT a caught mutation.")
+        for ln in errs[:6]:
+            print(f"    {ln}")
+        return 2
+
     caught = proc.returncode != 0
     failing = [ln.strip() for ln in out.splitlines()
                if ln.strip().startswith(("[ERROR]   ", "[ERROR] Tests run"))]
     print(f"{'CAUGHT ' if caught else 'SURVIVED'}  {label}")
     for ln in failing[:12]:
-        print(f"    {ln}")
+        # Truncated: several assertions in this repo embed the whole ~3KB tool description in
+        # their failure message, and two of those buries the one line that identifies the test.
+        print(f"    {ln[:300] + ' ...[truncated]' if len(ln) > 300 else ln}")
     if not caught:
         print("    ^ nothing went red: the assertions do not cover this behaviour")
     return 0 if caught else 1

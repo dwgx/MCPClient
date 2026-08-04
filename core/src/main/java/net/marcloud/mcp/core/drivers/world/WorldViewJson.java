@@ -43,6 +43,12 @@ public final class WorldViewJson {
         m.put("food", s.food());
         m.put("saturation", s.saturation());
         m.put("xpLevel", s.xpLevel());
+        // Shipped alongside xpLevel because the level alone cannot answer "can I afford this
+        // enchant": vanilla's own XP bar is this fraction, and a caller watching for a pickup
+        // between two levels has nothing else that moves. It reached SelfView from capture and was
+        // then dropped here, so mode=full never emitted it -- a field carried the whole way across
+        // the seam and discarded at the last step, which is invisible from either end.
+        m.put("xpProgress", s.xpProgress());
         m.put("armor", s.armor());
         // Omitted, not sentinelled, when the read failed. Every integer that would read as
         // "unknown" is one vanilla itself ticks through on the way to drowning (300 -> 0 -> -19,
@@ -54,7 +60,16 @@ public final class WorldViewJson {
         m.put("onGround", s.onGround());
         m.put("sneaking", s.sneaking());
         m.put("sprinting", s.sprinting());
-        if (s.effects() != null && !s.effects().isEmpty()) {
+        // Three states, two encodings, and the split is the opposite way round from air's on
+        // purpose. ABSENT means the player has no effects -- the common case, so it costs nothing --
+        // and an explicit NULL means the capture could not read them (SelfView#effects). Air is
+        // inverted because its common case is a readable number, so for air absence is the rare
+        // signal; both follow the one rule that the cheap encoding goes to the common case and the
+        // failure is never silent. Collapsing unread into empty is what made every live effect
+        // report as lost in diff mode.
+        if (s.effects() == null) {
+            m.put("effects", null);
+        } else if (!s.effects().isEmpty()) {
             List<Object> fx = new ArrayList<>();
             for (SelfView.Effect e : s.effects()) {
                 Map<String, Object> em = new LinkedHashMap<>();

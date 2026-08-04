@@ -277,14 +277,19 @@ public class DiffLeftMeansUnsampledNotGoneTest {
     /**
      * Guards the derivation above from going hollow the other way.
      *
-     * <p>The loop can only judge a field it can see on the wire, so a field mode=full does not
-     * emit is silently skipped -- and one is: {@code xpProgress} reaches
-     * {@link SelfView} from capture and is then dropped by {@code selfMap}. Pinning the skip set
-     * exactly means that gap cannot grow unnoticed, and that adding xpProgress to the full
-     * payload turns this red until the diff learns about it too.
+     * <p>The loop can only judge a field it can see on the wire, so a field mode=full does not emit
+     * is silently skipped by it. The set is now EMPTY, and it did not start that way: it was
+     * {@code [xpProgress]}, a field that reached {@link SelfView} from capture and was then dropped
+     * by {@code selfMap} -- carried the whole way across the seam and discarded at the last step,
+     * which is invisible from either end. This assertion is what turned red when xpProgress was put
+     * on the wire, and staying red until {@code selfDiff} learned to compare it is the entire
+     * purpose of pinning the set exactly rather than asserting {@code size() <= 1}.
+     *
+     * <p>Kept rather than deleted now that it is empty: a NEW field added to SelfView and projected
+     * nowhere lands here, and the loop above would skip it in silence.
      */
     @Test
-    public void theOnlySelfFieldInvisibleToThisRuleIsTheOneFullModeAlsoDrops() throws Exception {
+    public void noSelfFieldIsInvisibleToThisRule() throws Exception {
         RecordComponent[] rcs = SelfView.class.getRecordComponents();
         List<String> notOnTheWire = new ArrayList<>();
         for (int i = 0; i < rcs.length; i++) {
@@ -292,9 +297,9 @@ public class DiffLeftMeansUnsampledNotGoneTest {
                 notOnTheWire.add(rcs[i].getName());
             }
         }
-        assertEquals("if this set changes, the rule above started skipping fields (or stopped) "
-                + "and one of the two tests is now proving less than it claims",
-                List.of("xpProgress"), notOnTheWire);
+        assertEquals("every SelfView field must be observable in mode=full, or the rule above skips "
+                + "it in silence and proves less than it claims. Fields full mode drops: "
+                + notOnTheWire, List.of(), notOnTheWire);
     }
 
     // ---- the numbers the description quotes, recovered from BEHAVIOUR rather than copied ----

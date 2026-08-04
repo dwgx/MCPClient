@@ -474,8 +474,9 @@ public final class ToolRegistry {
                 .name("world_view")
                 .title("World view (structured observation)")
                 .description("[requires: in-world] The richer successor to scan_surroundings: a "
-                        + "structured, reference-free snapshot — self (pos/vel/look/hp/food/xp/armor/"
-                        + "air/effects/gamemode/flags), a columnar local block grid, nearby entities "
+                        + "structured, reference-free snapshot — self (pos/vel/look/hp/food/"
+                        + "xpLevel/xpProgress/armor/air/effects/gamemode/flags), a columnar local "
+                        + "block grid, nearby entities "
                         + "(sorted, capped), per-slot inventory (registry names), the crosshair target "
                         + "(raytrace), and env (dimension/biome/time). 'profile'=sparse|explore|combat "
                         + "sets token budget; 'mode'=full|diff (diff = changes since your last "
@@ -571,9 +572,18 @@ public final class ToolRegistry {
                         + "that edge can miss it — the duration you got when the effect was gained is "
                         + "the fallback. A stronger effect replacing a weaker one reports as GAINED "
                         + "rather than lost+gained, because vanilla raises the amplifier on the same "
-                        + "effect. And an empty effects list cannot distinguish 'no effects' from "
-                        + "'could not read them', in which case every active effect reports lost — "
-                        + "same caveat as entities.left above.")
+                        + "effect. 'no effects' and 'could not read them' are DISTINCT, unlike "
+                        + "entities.left above: in full mode an absent 'effects' means you have "
+                        + "none and an explicit null means the read failed, and in diff mode a "
+                        + "failed read is 'effects':{'unread':true} — which reports NOTHING as "
+                        + "lost, because a failed read used to make every active effect look like "
+                        + "it had just expired. After an unread poll the next successful one sends "
+                        + "'effects':{'now':[...]}, the whole current set, since there is no "
+                        + "baseline to diff against. Treat 'unread' as 'ask again', never as 'your "
+                        + "buffs ended'. "
+                        + "DIFF MODE, xp: 'xpProgress' is the 0..1 fraction of the way to your next "
+                        + "level (vanilla's own XP bar) and is compared EXACTLY, no dead-band, "
+                        + "because it only moves when XP is picked up or spent — it does not drift.")
                 .annotations(ToolAnnotations.builder()
                         .title("World view (structured observation)")
                         .readOnlyHint(true)

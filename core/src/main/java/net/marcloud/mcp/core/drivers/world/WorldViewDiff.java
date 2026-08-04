@@ -135,6 +135,11 @@ public final class WorldViewDiff {
         // here would only hide the 1.0 steps it exists to report.
         if (a.saturation() != b.saturation()) m.put("saturation", b.saturation());
         if (a.xpLevel() != b.xpLevel()) m.put("xpLevel", b.xpLevel());
+        // Exactly, no dead-band, the same call saturation makes: xpProgress does not drift on its
+        // own. EntityPlayer.addExperience moves it only when XP is picked up or spent, so an exact
+        // compare fires on the events a caller acts on and is silent between them. A band here
+        // would hide small pickups, which is the opposite of what the field is for.
+        if (a.xpProgress() != b.xpProgress()) m.put("xpProgress", b.xpProgress());
         if (a.armor() != b.armor()) m.put("armor", b.armor());
         // eq(), not !=: air is boxed (null = unreadable, see SelfView#air) and Integer identity
         // only coincides with equality inside the -128..127 cache, so != would have reported a
@@ -176,15 +181,54 @@ public final class WorldViewDiff {
      * {@code !=} rather than {@code >} so a lower amplifier (the old effect expired and a weaker
      * one was applied between two polls) is reported honestly instead of silently.
      *
-     * <p>Not distinguished, deliberately: an empty list because the player has no effects versus
-     * an empty list because {@code WorldViewCapture:80-94} swallowed a Throwable off
-     * getActivePotionEffects(). Both arrive here as {@code List.of()} and every active effect would
-     * report lost. Same shape as the entities.left caveat below and the same answer -- the capture
-     * would have to say whether it managed to read, and inventing that here would be a guess
-     * dressed as data.
+     * <p><b>Now distinguished</b>, which it was not: an empty list because the player has no
+     * effects, versus an empty list because the capture could not read them. Both used to arrive
+     * as {@code List.of()} and every active effect reported {@code lost} -- a model reads that as
+     * its fire resistance having just expired, and next to lava that is the fatal direction to be
+     * wrong in. The earlier note here said the fix had to be the CAPTURE reporting whether it
+     * managed to read, because no amount of comparing prev to cur can separate the two; that is
+     * now {@code WorldViewCapture#effectsOrNull}, which returns null on a failed read, and the
+     * two null cases are handled below.
+     *
+     * <p>Silence is not available for either of them, because in diff mode a missing key already
+     * means "unchanged" -- the same reason air puts an explicit null on the wire when it becomes
+     * unreadable rather than omitting itself.
+     *
+     * <ul>
+     *   <li><b>Current unread</b> ({@code pb == null}): {@code unread:true}, and NOTHING is
+     *       reported lost. The honest statement is "I could not look", and it is strictly more
+     *       useful than a list of departures that did not happen.
+     *   <li><b>Baseline unread</b> ({@code pa == null}, current readable): there is nothing to
+     *       diff against, so the whole current set ships as {@code now}. Otherwise every effect
+     *       the player has held since before the failed read would report as {@code gained} the
+     *       moment reading resumed. {@code selfDiff} and {@code inventoryDiff} already use
+     *       {@code now} for exactly this "no baseline" case.
+     * </ul>
      */
     private static Map<String, Object> effectsDiff(List<SelfView.Effect> pa,
                                                    List<SelfView.Effect> pb) {
+        if (pb == null) {
+            // EVERY failed poll says so, including a run of them -- deliberately unlike air, which
+            // compares by value and therefore reports only the TRANSITION to unreadable.
+            //
+            // The difference is what silence would mean afterwards. Air is a single value: once the
+            // caller has been handed an explicit null, later silence reads as "still that", and
+            // "that" is already "unknown". An effect SET has no such resting state -- silence means
+            // "unchanged", and the last set the caller actually saw is the one from before the
+            // failure, so going quiet on the second failed poll would re-assert a stale set as
+            // current. Repeating it keeps "I still cannot see your buffs" unambiguous, and the cost
+            // is one key on a poll that is already anomalous.
+            return Map.of("unread", true);
+        }
+        if (pa == null) {
+            List<Object> now = new ArrayList<>();
+            for (SelfView.Effect e : pb) {
+                now.add(effectMap(e, true));
+            }
+            // An empty current set with an unread baseline: say so rather than omitting, because
+            // the caller's previous poll left it not knowing what it holds.
+            return Map.of("now", now);
+        }
         Map<Integer, SelfView.Effect> a = byPotionId(pa);
         Map<Integer, SelfView.Effect> b = byPotionId(pb);
         List<Object> gained = new ArrayList<>();

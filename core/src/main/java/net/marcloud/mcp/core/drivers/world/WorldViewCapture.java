@@ -76,22 +76,7 @@ public final class WorldViewCapture {
             }
         } catch (Throwable ignored) {
         }
-        List<SelfView.Effect> effects = new ArrayList<>();
-        try {
-            for (Object o : p.getActivePotionEffects()) {
-                if (o instanceof PotionEffect pe) {
-                    int id = pe.getPotionID();
-                    String name;
-                    try {
-                        name = Potion.potionTypes[id] != null ? Potion.potionTypes[id].getName() : "potion." + id;
-                    } catch (Throwable t) {
-                        name = "potion." + id;
-                    }
-                    effects.add(new SelfView.Effect(id, name, pe.getAmplifier(), pe.getDuration()));
-                }
-            }
-        } catch (Throwable ignored) {
-        }
+        List<SelfView.Effect> effects = effectsOrNull(p::getActivePotionEffects);
         return new SelfView(
                 p.posX, p.posY, p.posZ,
                 p.motionX, p.motionY, p.motionZ,
@@ -101,6 +86,52 @@ public final class WorldViewCapture {
                 safeInt(p::getTotalArmorValue), boxedInt(p::getAir),
                 gamemode, p.isSneaking(), p.isSprinting(), p.onGround,
                 effects);
+    }
+
+    /**
+     * The active potion effects, or {@code null} when they could not be READ.
+     *
+     * <p>Null rather than an empty list, and that is the whole point of this method existing. This
+     * used to swallow a Throwable and return whatever had accumulated -- {@code List.of()} in
+     * practice -- so "no effects" and "the read failed" arrived at the differ identically, and
+     * {@code WorldViewDiff} then reported EVERY live effect as lost. A model reading that concludes
+     * its fire resistance just ran out; next to lava that is a fatal direction to be wrong in.
+     * {@link WorldViewDiff#diff} named this gap in its own javadoc and said the fix had to be the
+     * capture reporting whether it managed to read, which is this.
+     *
+     * <p>Same shape as {@link #boxedInt} and for the same reason: absence is the payload's existing
+     * word for "no value", and the alternative -- an in-band sentinel like an effect with id -1 --
+     * would put a fake effect in a list callers iterate.
+     *
+     * <p>An all-or-nothing result, not a partial one. A throw partway through the loop discards
+     * what was collected, because a HALF list is the dangerous case rather than the safe one: the
+     * effects it is missing would each report lost, which is exactly the false ending this exists to
+     * prevent. Better to say "could not read" than to hand over a list that is quietly incomplete.
+     *
+     * <p>Takes a supplier rather than the player so the failure branch is reachable without a live
+     * one -- the same reason {@link #nearestWithinCap} and {@link #boxedInt} are package-private.
+     * The real trigger is a {@code DataWatcher}/effect map in a state the getter throws on, which a
+     * test can hand over verbatim instead of approximating.
+     */
+    static List<SelfView.Effect> effectsOrNull(java.util.function.Supplier<Iterable<?>> src) {
+        try {
+            List<SelfView.Effect> out = new ArrayList<>();
+            for (Object o : src.get()) {
+                if (o instanceof PotionEffect pe) {
+                    int id = pe.getPotionID();
+                    String name;
+                    try {
+                        name = Potion.potionTypes[id] != null ? Potion.potionTypes[id].getName() : "potion." + id;
+                    } catch (Throwable t) {
+                        name = "potion." + id;
+                    }
+                    out.add(new SelfView.Effect(id, name, pe.getAmplifier(), pe.getDuration()));
+                }
+            }
+            return out;
+        } catch (Throwable t) {
+            return null;
+        }
     }
 
     private static List<EntityView> entities(EntityPlayerSP p, WorldClient w,

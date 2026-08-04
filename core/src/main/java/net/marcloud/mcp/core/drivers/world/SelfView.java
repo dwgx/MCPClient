@@ -7,7 +7,7 @@ import java.util.List;
  * Immutable, reference-free (boxed primitives/String/List only).
  *
  * @param air breath ticks, {@code null} when the read FAILED — not a number.
- *            Boxed alone among these fields because air is the only one whose natural
+ *            Boxed alone among the NUMERIC fields because air is the only one whose natural
  *            failure sentinel is a value the game legitimately produces: vanilla ticks it
  *            300 down through 0 and on into the negatives, resetting only at exactly
  *            {@code -20} ({@code EntityLivingBase:301-305}), so {@code -1} through
@@ -16,6 +16,14 @@ import java.util.List;
  *            indistinguishable from "you are 19 ticks from drowning damage". {@code null}
  *            is projected as ABSENCE, the same convention {@code surfaceDy} and {@code drop}
  *            already use.
+ * @param effects active potion effects, or {@code null} when the read FAILED — the same
+ *            three-state distinction air makes, for the same reason. An EMPTY list means the
+ *            player genuinely has no effects; {@code null} means the capture could not ask.
+ *            Collapsing the two is not cosmetic: {@code WorldViewDiff} compares effect sets,
+ *            so a failed read arriving as an empty list makes every live effect report as
+ *            {@code lost}, and a model reads that as its fire resistance having just expired.
+ *            Next to lava, that is the dangerous direction to be wrong in. See
+ *            {@code WorldViewCapture#effectsOrNull}.
  */
 public record SelfView(
         double x, double y, double z,
