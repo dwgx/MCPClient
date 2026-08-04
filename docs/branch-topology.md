@@ -104,8 +104,11 @@ origin/main  c2cf357                origin/mcp-core  1dbf475
   和游戏素材,在 CI 上会 `Assume` 自跳过。CI 能给的只有"单测 + 能打包",
   拿不到本线唯一在乎的那种证据(像素)。
 
-所以现状是:**本线的回归网是本地的**(core 662 + dwm 35 单测 + 43 live IT + 真机探针 33/33),
-不是 CI 的。谁接手都要知道"绿"是在本机跑出来的。
+所以现状是:**本线的回归网是本地的**,不是 CI 的。谁接手都要知道"绿"是在本机跑出来的。
+
+构成:core/board/dwm/shim/client/pg 六个模块的单测 + dwm 的 live IT(要显示器)+ 内核与 dwm 的
+真机探针(要客户端在跑)。**具体条数现场跑,别在这里钉** —— 同 §0.1,本文早先钉过 `core 662`
+和 `core 656` 两个数,两个都在钉下之后没几轮就作废了。
 
 ---
 
@@ -113,7 +116,7 @@ origin/main  c2cf357                origin/mcp-core  1dbf475
 
 ```bash
 export JAVA_HOME=~/.jdks/jdk-25.0.3+9/Contents/Home   # 必须,见下
-./mvnw -B -ntp test                                    # core 656 + dwm 32 单测
+./mvnw -B -ntp test                                    # 全 reactor 单测
 ./mvnw -B -ntp -pl dwm verify -Ddwm.live.skip=false    # 43 live IT(要显示器)
 ./scripts/run-mcp.sh                                   # 起客户端
 python3 scripts/live-dwm-probe.py                      # 33 项真机验证
@@ -134,6 +137,38 @@ python3 scripts/live-dwm-probe.py                      # 33 项真机验证
 | `codegraph`(CLAUDE.md 铁律⑥的读码路径) | 有(dwgx 那套) | **有,但是另一套** —— `tools/codegraph/`,见 `codegraph.md` |
 | `ARCHITECTURE-LOCK.md` | 有 | **没有** —— 动骨架要不要走 ADR 本机无法自证 |
 | 两把 Ed25519 私钥 | ? | **在 `~/.mcp-keys/`,权限 600,仓库外** |
+
+### 4.1 派 worktree agent 前必须改一个设置(**否则整批白跑**)
+
+`worktree.baseRef` 默认是 `fresh`,即从 `origin/<默认分支>` 开新分支 —— 而这个仓库的默认分支是
+`origin/main`,**而 `main` 里没有 core**(见 §0:`main` 与 `mcp-core` 在 `288be3c` 就分叉了,
+core/board/pg 只在 `mcp-core` 那一侧)。
+
+实测后果:四个 agent 起来时全在一棵**没有目标代码**的树上,任务是改 `core/src/...` 而那个目录
+根本不存在。对绝大多数仓库这个默认值是对的,对这个仓库是致命的。
+
+修法 —— 项目级 `.claude/settings.local.json`(被全局 gitignore 覆盖,不进仓库):
+
+```json
+{ "worktree": { "baseRef": "head" } }
+```
+
+**派完立刻 `git worktree list` 核基点**,那是 45 秒的事,而不核就是十几分钟乘以 agent 数。
+
+### 4.2 要编译的 agent 别指望 worktree 隔离
+
+同一批实测的第二件事:**新 worktree 里没有 `client/target/classes`**,而 core 依赖 client,
+所以 agent 一跑 `-am` 就要从零编 2499 个 client 类 —— 几分钟没有任何工具输出,
+撞上 180 秒无进展的 stall 检测。
+
+| 形状 | 结果 |
+|---|---|
+| 只读(不编译,不隔离) | 11/11 与 1/1 成功 |
+| 改码 + 编译 + 提交(worktree) | 一批 4/4 但每个都 stall 重试过;另两批 3/4 与 **0/5** 全死 |
+
+**只读调研/审计放心派;要编译的改动自己做,或在主树里串行。** 而在主树里跑过 agent 之后,
+提交一律逐个指定文件 —— `git add -A` 会把它没还原的变异一起发出去,这件事已经发生过一次
+(见 `agency/handoff-2026-08-04.md` §4④)。
 
 **私钥那条最要紧:丢了没有恢复路径**,必须重走两层仪式并重签所有 compat 补丁。
 `~/.mcp-keys/{kernel,root}-ed25519.key.b64`。流程见 `dwm/key-ceremony.md`。

@@ -93,6 +93,8 @@
 | 这条线能不能合回主线 | `branch-topology.md` §6 |
 | 私钥丢了怎么办 | `dwm/key-ceremony.md` §0(**没有恢复路径**) |
 | 怎么开原生调试器 | `debugging.md` §1(`MCP_JVMTI=1`) |
+| **内核侧真机验证怎么写(四条会让你误诊自己代码的规则)** | `debugging.md` §10 |
+| **派 worktree agent 前要改的设置,以及为什么编译类 agent 会 stall** | `branch-topology.md` §4.1 §4.2 |
 | 为什么某个颜色画不出来 | `debugging.md` §9 + `dwm/fluent-spec.md` 颜色节的横幅 |
 | 某个 Fluent 数值的出处 | `dwm/fluent-spec.md` |
 | 真机怎么跑、探针测什么 | `dwm/live-verification.md` |

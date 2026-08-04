@@ -20,6 +20,8 @@
 | **`redefine_class`** | "在不改源码的前提下插桩计数" | agent(热替换需要) | 改错会让类失效 |
 | `gui_snapshot` / `gui_click_element` | vanilla GUI 自动化 | 无 | **看不到 dwm 控件**(§5) |
 | `scripts/live-dwm-probe.py` | 30 项真机回归 | 客户端在跑 | 它自己也会有 bug(§6) |
+| `scripts/nav-astar-probe.py` | 内核侧:寻路/移动/感知 | 客户端在跑 | 见 §10 |
+| `scripts/live-hold-probe.py` | 内核侧:INTERACT hold 通道 7 项 | 客户端在跑 | 见 §10 |
 
 ---
 
@@ -211,6 +213,8 @@ MC 的 `GL_ALPHA_TEST`(§9)。
 
 - **断点在渲染线程上不可用**(会冻死客户端),所以渲染路径的控制流只能靠插桩推断
 - **`gui_*` 工具对 dwm 无效**(§5)
+- **core 的六个 `*LiveIT` 在任何 forked JVM 里只可能 skip 或 FAIL** —— 它们是诚实的墓碑,
+  不是能用的测试(理由见 §10 开头)。内核侧真机验证走 MCP socket + `eval_java`
 - **`.ai-notes/` 不在这台机器上**;`codegraph` 有本地替代(`tools/codegraph/`,见 `codegraph.md`),
   但它只见**字节码里的静态调用边**,反射/动态注册的边它看不见
 - **长时间运行未验**:探针跑完就关,帧率影响、显存增长、几十分钟后的稳定性都未知
@@ -266,3 +270,74 @@ GL_ALPHA_TEST            -> GREATER ref=0.1 => 25.5         ⇒ 命中,8/8 数�
 **只有"在 MC 自己的 GL 状态下真的画一次"才能看见它。** 现在
 `GlStateGuardLiveIT.aLowAlphaFillIsNotDiscardedByMinecraftsAlphaTest` 就是那条断言,
 探针里也加了 `a card's plate is brighter than the page behind it, on the SCREEN`。
+
+---
+
+## 10. 内核侧真机验证:四条会让你误诊自己代码的规则
+
+前九节都是 dwm/渲染侧。内核侧(act / world_view / hold)的真机验证走**另一条路** ——
+MCP socket + `eval_java`,而不是 JUnit。原因写在 `LiveGameGate` 里:`GameAccess` 读
+`Minecraft.getMinecraft()`,那是只存在于游戏 JVM 的静态单例,所以 forked 的 surefire/failsafe
+JVM 里它恒为 null,那六个 `*LiveIT` **只可能 skip 或 FAIL,永远探不到东西**。
+
+范例:`scripts/nav-astar-probe.py`、`scripts/live-hold-probe.py`(后者复用前者的 socket 客户端与守卫,
+**不要写第三份** —— 读取循环存在两份、只修了一份的那次截断 bug 就是这么来的)。
+
+### ① 一次 `eval_java` 提交 = 一个游戏 tick。循环 tick 只会饿死它自己
+
+实测:同一次 `GameBridge.onGameThread` 提交内 `getTotalWorldTime()` **完全不动**
+(246579 → 246579),跨提交才推进。
+
+所以下面这个写法是错的,而且错得很像被测代码的失败:
+
+```java
+for (int i = 0; i < 120; i++) o = controller.tick(act);   // 120 次全在同一个 tick 里
+```
+
+计数不减、服务器不答、使用永不完成,controller 于是**诚实地**报告"这个使用没在推进"。
+我因此追了三轮才发现问题在 harness 而不在 controller。
+
+**正确做法:一次提交推一步,或者干脆走生产路径** —— `act_set` 提交意图,`act_status` 轮询,
+让 `ActTickLoop` 每游戏 tick 推一次。后者还顺带验了工具面的接线。
+
+同一形状 dwm 侧记过一次(`live-verification.md` §8 的 `scroll_into_view`)。**这是第二次。**
+
+### ② 单人也有两侧,而服务端才是权威。只布置客户端等于什么都没布置
+
+单人集成服务端在同一 JVM 里,但玩家是**两个对象**:`EntityPlayerSP`(客户端预测)与
+`EntityPlayerMP`(服务端裁决)。踩过的三条:
+
+- **只改客户端背包**:服务端手里是空的,于是服务端从不开始进食(`status id 9` 永不到),
+  弓的 `hasItem(arrow)` 也失败。看起来像 controller 不工作。
+- **直写 `p.inventory.currentItem`**:不发 C09,两侧对"手里是什么"意见不一。
+  换手要走生产路径 `act_set interact{kind:"hotbar"}`。
+- **前提检查只问客户端**:可以在整轮注定失败时报告"前提成立"。**前提要问服务端。**
+
+拿到服务端玩家:
+
+```java
+net.minecraft.server.integrated.IntegratedServer srv = mc.getIntegratedServer();
+net.minecraft.entity.player.EntityPlayerMP sp =
+    srv.getConfigurationManager().getPlayerList().get(0);   // playerEntityList 是私有的
+```
+
+### ③ 布置场景本身的三个坑
+
+- **`canEat` 还要求 `!capabilities.disableDamage`**(`EntityPlayer.java:2088`),而创造模式下
+  它是 true —— **创造玩家吃不了东西**,测进食必须切生存。
+- **切模式要走服务端 `sp.setGameType(...)`**。客户端直改字段两侧 desync;
+  `/gamemode` 在没开作弊的存档里报 `You do not have permission`。
+- **别在玩家悬空时关掉创造+飞行** —— 我这么干了一次,`Player0 fell out of the world`,背包全没。
+  先确认 `onGround`。
+
+### ④ 取样窗口:平射的箭会被自己捡回去
+
+弓的验证一度全部读作"没发射":箭矢数 32→31→32、实体消失。真因是箭落地后被站在原地的
+survival 玩家**捡了回去**,消耗 1 又捡回 1,净变化 0。
+
+两条通用做法:
+- **让效果跑远**(朝天射,`pitch=-80`),别在原地取样;
+- **找一个不可逆的信号**。这里是弓的耐久 —— `stack.damageItem(1, playerIn)` 那行在产生箭的块
+  **内部**,所以即使箭实体已经消失,耐久 +1 也证明代码路径跑到了那里。
+
+**"没观测到效果"和"效果发生过又被撤销了"是两件事**,而这个仓库反复栽在把后者当前者。
