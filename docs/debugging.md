@@ -277,7 +277,7 @@ GL_ALPHA_TEST            -> GREATER ref=0.1 => 25.5         ⇒ 命中,8/8 数�
 
 ---
 
-## 10. 内核侧真机验证:七条会让你误诊自己代码的规则
+## 10. 内核侧真机验证:八条会让你误诊自己代码的规则
 
 前九节都是 dwm/渲染侧。内核侧(act / world_view / hold)的真机验证走**另一条路** ——
 MCP socket + `eval_java`,而不是 JUnit。原因写在 `LiveGameGate` 里:`GameAccess` 读
@@ -303,7 +303,7 @@ record/report 与 0/1/2/3 退出码约定。三个探针都 `import mcp_probe`,*
 `scripts/live-look-probe.py`(LOOK 追踪,11/11)。
 
 > **2026-08-06 补了 ⑤⑥⑦ 三条,都是这一轮真机踩出来的。** 完整证据链在
-> `agency/handoff-2026-08-06.md` §3 —— 那一节记着六个缺陷,其中两个是当轮作者自己的误诊。
+> `agency/handoff-2026-08-06.md` §3 —— 那一节记着七条,其中两个是当轮作者自己的误诊。
 
 ### ① 一次 `eval_java` 提交 = 一个游戏 tick。循环 tick 只会饿死它自己
 
@@ -409,3 +409,15 @@ nav 探针的 step 墙拆除只被 `print` 从未被断言,加上 ⑥ 那个坑�
 **重启客户端要等端口真的释放。** `pkill` 之后立刻起新的会撞
 `BindException: Address already in use`,而新客户端会**没有 transport 地跑起来** ——
 看起来像探针连不上,实际上是两个进程抢 25599。踩过一次。
+
+### ⑧ `eval_java` 的 static 不跨提交存活,所以探针持不住多 tick 状态
+
+**实测,一条命令就能复现**:同一份源码、同一个类名连调三次,`static int n` 的自增三次都返回
+`count=1`。每次提交都是**全新的类定义**。
+
+这条否掉了一整类看起来很自然的做法:"在探针里 new 一个多 tick controller,每次提交推它一步"。
+`CraftController` / `DigController` / `HoldController` 都是跨 tick 有状态的,所以**它们只能由
+一个活在 core 里的驱动器推**(act 包是 `ActTickLoop`,走 `act_set` + `act_status` 的生产路径)。
+一个还没有生产路径的 controller,**在真机上就是够不着的** —— 那不是没写对探针,是结构。
+
+同一条的另一面:**这也是为什么"走生产路径"不只是更整洁(§10①),而是唯一可行**。
