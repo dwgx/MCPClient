@@ -28,9 +28,22 @@ final class CraftBench {
     private CraftBench() {
     }
 
-    /** The one place Bootstrap is triggered; idempotent, so every test may call it. */
-    static List<IRecipe> recipes() {
+    /**
+     * The one place {@code Bootstrap} is triggered. Idempotent, so every caller may invoke it.
+     *
+     * <p>Extracted from {@link #recipes()} because that javadoc claimed to BE the one place while
+     * {@code FakeCraftWindow} called {@code Bootstrap.register()} itself -- two homes and a comment
+     * asserting one. A third caller wanting the registries without the recipe list is what surfaced
+     * it, and the fix is the same one this repo applies to every duplicated lesson: give it a single
+     * home rather than a third copy.
+     */
+    static void boot() {
         net.minecraft.init.Bootstrap.register();
+    }
+
+    /** Every vanilla recipe, with the registries booted. */
+    static List<IRecipe> recipes() {
+        boot();
         return CraftingManager.getInstance().getRecipeList();
     }
 

@@ -98,7 +98,7 @@ final class FakeCraftWindow implements CraftWindow {
         this.windowId = windowId;
         this.slots = new ItemStack[storageStart + storageSlots];
         this.serverSlots = new ItemStack[slots.length];
-        net.minecraft.init.Bootstrap.register();
+        CraftBench.boot();
     }
 
     /** The player's own window: a 2x2 grid, id 0, with 36 inventory slots. */
