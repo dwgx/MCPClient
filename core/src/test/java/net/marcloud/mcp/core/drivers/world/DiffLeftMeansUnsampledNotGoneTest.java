@@ -212,6 +212,20 @@ public class DiffLeftMeansUnsampledNotGoneTest {
         if (type == List.class) {
             return List.of(new SelfView.Effect(12, "potion.fireResistance", 0, 6000));
         }
+        if (type == Integer.class) {
+            // Boxed because air carries null for "could not be read" (SelfView#air). Mutating to
+            // ANOTHER READABLE VALUE rather than to null is deliberate: this rule exists to prove
+            // every shipped field is observable in diff mode, and null would instead exercise the
+            // readable -> unreadable transition, which is a different property with its own test
+            // (SelfAirSeparatesUnreadableFromDrowningTest). Mutating to null here would quietly
+            // move this test off the property its name claims.
+            //
+            // This branch was added at a merge: the boxing and this reflection sweep arrived from
+            // two changes written in parallel, and the sweep's refusal to skip an unknown type is
+            // what surfaced it -- exactly as its own message intends. A version that skipped
+            // silently would have left air undiffed and still green.
+            return old == null ? 5 : (Integer) old + 5;
+        }
         throw new AssertionError("no mutation rule for " + type + "; add one rather than "
                 + "skipping the component, or this test goes quietly hollow");
     }
