@@ -66,7 +66,7 @@
 
 | 文档 | 内容 | 状态 |
 |---|---|---|
-| `agency/handoff-2026-08-04.md` | **最新交接** —— 空转断言与生产缺陷清单、并行 agent 的四条教训、**hold 通道真机 7/7** | **接手先读这份** |
+| `agency/handoff-2026-08-04.md` | **最新交接** —— 空转断言与生产缺陷清单、并行 agent 的四条教训、**hold 通道真机 7/7**、§6.5 craft 配方侧已提交、§6.6 doc lint 曾恒绿 | **接手先读这份** |
 | `agency/handoff-2026-08-03.md` | 上一份交接。§2-§4(已建好的东西、Fork B/C 的裁决)仍有效;§5 的真机陷阱已被订正 | 部分过时 |
 | `agency/command-to-action.md` | 行动/感知层现状、差距、关键路径、**必须 owner 定的六个岔路**、§5.5 全部真机数字 | 当前 |
 
@@ -83,8 +83,8 @@
 
 | 你想知道 | 去 |
 |---|---|
-| **接手内核任务,从哪开始** | `agency/handoff-2026-08-03.md` |
-| **真机验证的两个环境陷阱(必读)** | `agency/handoff-2026-08-03.md` §5 |
+| **接手内核任务,从哪开始** | `agency/handoff-2026-08-04.md`(最新;§0 是最要紧的三条) |
+| **真机验证的两个环境陷阱(必读)** | `agency/handoff-2026-08-04.md` §5(08-03 那版已被订正) |
 | **为什么"一条命令"还做不到、下一步做什么** | `agency/command-to-action.md` §0 §4 |
 | **有哪些架构取舍在等我拍** | `agency/command-to-action.md` §5(六个 Fork) |
 | **行动/感知层已经建好了什么(别重建)** | `agency/command-to-action.md` §1 |
@@ -95,6 +95,7 @@
 | 怎么开原生调试器 | `debugging.md` §1(`MCP_JVMTI=1`) |
 | **内核侧真机验证怎么写(四条会让你误诊自己代码的规则)** | `debugging.md` §10 |
 | **派 worktree agent 前要改的设置,以及为什么编译类 agent 会 stall** | `branch-topology.md` §4.1 §4.2 |
+| **为什么 doc lint 在本分支上跑等于没跑** | `agency/handoff-2026-08-04.md` §6.6 |
 | 为什么某个颜色画不出来 | `debugging.md` §9 + `dwm/fluent-spec.md` 颜色节的横幅 |
 | 某个 Fluent 数值的出处 | `dwm/fluent-spec.md` |
 | 真机怎么跑、探针测什么 | `dwm/live-verification.md` |
