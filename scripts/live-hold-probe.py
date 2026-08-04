@@ -16,36 +16,25 @@ model was wrong once already in the same direction as the controller, so the two
 twenty tests stayed green while the reported outcome was the opposite of vanilla's. These
 checks are the only thing that can catch that class of agreement.
 
-Exit codes follow smoke-live-gl.sh: 0 PASS, 1 FAIL, 2 TIMEOUT, 3 SETUP.
+The socket client, the eval_java wrapper, the ticking guard and the record/report harness live in
+scripts/mcp_probe.py, shared with the other live probes. Exit codes follow smoke-live-gl.sh:
+0 PASS, 1 FAIL, 2 TIMEOUT, 3 SETUP.
 """
 
-import importlib.util
 import os
 import sys
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+# scripts/ is not on sys.path when this file is loaded BY PATH, which test_probe_framing.py does
+# (the hyphen in the filename rules out a plain import). Running it directly already puts it there.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-
-def _load_nav_probe():
-    """Reuse nav-astar-probe.py's socket client and guards rather than a second copy.
-
-    A second implementation of the framing would drift, and this repo has already paid for one
-    such drift: the id=2 read loop existed twice and only one copy was fixed, so the other
-    silently truncated every reply larger than a single recv.
-    """
-    path = os.path.join(HERE, "nav-astar-probe.py")
-    spec = importlib.util.spec_from_file_location("nav_astar_probe", path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-NAV = _load_nav_probe()
-Mcp = NAV.Mcp
-record = NAV.record
-require_ticking = NAV.require_ticking
-allow_unfocused = NAV.allow_unfocused
-PREAMBLE = NAV.PREAMBLE
+# Previously this file EXEC'D nav-astar-probe.py by path to borrow its Mcp and guards -- which
+# worked, but made a sibling probe's checks the price of importing a socket client, and every
+# import of the hold probe ran the nav probe's module body. The shared parts now have their own
+# home, so the dependency is on the module rather than on a neighbour.
+from mcp_probe import (  # noqa: E402 - the sys.path line above has to run first
+    EXIT_SETUP, Mcp, PREAMBLE, allow_unfocused, probe_in_world, record, report, require_ticking,
+)
 
 # The actuator the hold controller drives, built fresh per snippet: it holds no state of its
 # own, and constructing it inside the game thread keeps every read on the thread that owns it.
@@ -388,18 +377,18 @@ def probe_bow_fires_on_release(mcp):
 
 def main():
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 25599
-    mcp = Mcp(port)
+    mcp = Mcp(port, client_name="live-hold-probe")
     print(f"-- hold-channel probe on port {port}\n")
 
     ping = mcp.call("read_player_state", {})
     if "error" in ping:
         print(f"SETUP: cannot reach MCP on port {port}: {ping['error']}")
         print("       start the client first: ./scripts/run-mcp.sh")
-        return 3
+        return EXIT_SETUP
 
-    if not NAV.probe_in_world(mcp):
+    if not probe_in_world(mcp):
         print("\nSETUP: not in a world. Load a world and re-run.")
-        return 3
+        return EXIT_SETUP
 
     # The window will not have focus while a script drives it, and an unfocused vanilla stops
     # ticking -- which would freeze every count this probe reads and look exactly like a
@@ -407,7 +396,7 @@ def main():
     print(f"-- unfocused ticking: {allow_unfocused(mcp)}")
     if not require_ticking(mcp, "the world is advancing before any hold is measured"):
         print("\nSETUP: world not ticking; nothing below would measure the code.")
-        return 3
+        return EXIT_SETUP
 
     print("\n-- the seam itself")
     probe_seam_writes_and_reads_back(mcp)
@@ -422,10 +411,7 @@ def main():
     print("\n-- a bow fires on release (hold a bow to exercise this)")
     probe_bow_fires_on_release(mcp)
 
-    passed = sum(1 for _, ok, _ in NAV.results if ok)
-    total = len(NAV.results)
-    print(f"\n{'PASS' if passed == total else 'FAIL'}: {passed}/{total} checks")
-    return 0 if passed == total else 1
+    return report()
 
 
 if __name__ == "__main__":

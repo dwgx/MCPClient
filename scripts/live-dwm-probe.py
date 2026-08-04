@@ -23,17 +23,28 @@ uses, so the probe exercises production code rather than a test-only shim.
 Usage:
     python3 scripts/live-dwm-probe.py [--port 25599] [--keep]
 
-Exit codes follow smoke-live-gl.sh's convention:
+The socket client, the eval_java wrapper and the record/report harness live in
+scripts/mcp_probe.py, shared with the other live probes -- this probe's own copy of the reply
+framing is exactly what let the truncation bug survive a session here after nav-astar-probe.py
+had already fixed it. Exit codes follow smoke-live-gl.sh's convention:
     0 PASS · 1 FAIL (an assertion failed) · 2 TIMEOUT (no MCP within the deadline) · 3 SETUP
 """
 
 import argparse
-import json
 import os
 import socket
 import subprocess
 import sys
 import time
+
+# scripts/ is not on sys.path when this file is loaded BY PATH, which test_probe_framing.py and
+# the ad-hoc probes noted in .gitignore both do (the hyphen rules out a plain import). Running it
+# directly already puts scripts/ there.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from mcp_probe import (  # noqa: E402 - the sys.path line above has to run first
+    EXIT_FAIL, EXIT_SETUP, EXIT_TIMEOUT, Mcp, record, report,
+)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -48,122 +59,6 @@ PAGES = [
 # The rail rows that reach them, by the names NavigationView gives its items. Paired with PAGES
 # by index; their POSITIONS are read from the live scene rather than listed (see row_centre).
 ROWS = ["navHome", "navKernel", "navChips", "navSettings"]
-
-results = []
-
-
-def record(name, ok, detail=""):
-    results.append((name, ok, detail))
-    print(("  PASS  " if ok else "  FAIL  ") + name + (f"\n          {detail}" if detail else ""))
-    return ok
-
-
-class Mcp:
-    """One JSON-RPC call per connection.
-
-    Deliberately not a persistent session: the kernel's socket transport expects a fresh
-    initialize handshake, and a probe that reconnects per call cannot leave a half-read stream
-    behind to confuse the next assertion.
-    """
-
-    def __init__(self, port, timeout=25):
-        self.port = port
-        self.timeout = timeout
-
-    def call(self, tool, args):
-        try:
-            sock = socket.create_connection(("127.0.0.1", self.port), 5)
-        except OSError as e:
-            return {"error": f"connect failed: {e}"}
-        sock.settimeout(self.timeout)
-        try:
-            for msg in (
-                {"jsonrpc": "2.0", "id": 1, "method": "initialize",
-                 "params": {"protocolVersion": "2024-11-05", "capabilities": {},
-                            "clientInfo": {"name": "live-dwm-probe", "version": "1"}}},
-                {"jsonrpc": "2.0", "method": "notifications/initialized"},
-                {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
-                 "params": {"name": tool, "arguments": args}},
-            ):
-                sock.sendall((json.dumps(msg) + "\n").encode())
-
-            # Read until the id=2 line is COMPLETE, not merely present. Breaking the moment
-            # '"id":2' appears anywhere in the buffer truncates any reply larger than one recv.
-            # This probe's payloads have so far been small enough to hide it, which is why it
-            # survived here after nav-astar-probe.py fixed the same shape -- measured there,
-            # world_view at radius 16 is 180149 bytes over 4 chunks and returned
-            # "unparseable reply: Unterminated string".
-            buf = b""
-            deadline = time.time() + self.timeout
-            while time.time() < deadline:
-                try:
-                    chunk = sock.recv(65536)
-                except socket.timeout:
-                    break
-                if not chunk:
-                    break
-                buf += chunk
-                if self._complete_reply(buf) is not None:
-                    break
-        finally:
-            sock.close()
-
-        line = self._complete_reply(buf)
-        if line is None:
-            return {"error": f"no complete reply in {len(buf)} bytes"}
-        try:
-            reply = json.loads(line)
-        except ValueError as e:
-            return {"error": f"unparseable reply: {e}"}
-        content = reply.get("result", {}).get("content", [])
-        text = content[0].get("text", "") if content else ""
-        return {"text": text, "isError": reply.get("result", {}).get("isError", False)}
-
-    @staticmethod
-    def _complete_reply(buf):
-        """The id=2 line, but only once it parses as whole JSON; None while it is still partial.
-
-        A large reply arrives across several recv calls, so this is what makes the read loop wait
-        for the rest instead of truncating mid-string.
-        """
-        for line in buf.split(b"\n"):
-            if b'"id":2' not in line:
-                continue
-            try:
-                json.loads(line)
-            except ValueError:
-                return None
-            return line
-        return None
-
-    def java(self, class_name, body):
-        """Run a snippet on the GAME thread and return its text.
-
-        The marshalling is not optional: eval_java runs on a worker thread, and touching the
-        screen or GL from there is a race at best. Everything this probe does is a game-thread
-        operation, so the wrapper is applied here once rather than in each snippet.
-        """
-        source = (
-            "package gen;\n"
-            f"public class {class_name} {{\n"
-            "  public Object run() throws Exception {\n"
-            "    return net.marcloud.mcp.core.GameBridge.onGameThread(() -> {\n"
-            "      try {\n"
-            f"{body}\n"
-            "      } catch (Throwable t) {\n"
-            "        java.io.StringWriter w = new java.io.StringWriter();\n"
-            "        t.printStackTrace(new java.io.PrintWriter(w));\n"
-            "        return \"THREW \" + w;\n"
-            "      }\n"
-            "    });\n"
-            "  }\n"
-            "}\n"
-        )
-        reply = self.call("eval_java", {"className": f"gen.{class_name}", "source": source})
-        if "error" in reply:
-            return "PROBE-ERROR " + reply["error"]
-        return reply.get("text", "")
-
 
 # --- the snippets ---------------------------------------------------------------------------
 # Each reaches dwm reflectively, because core must not link the dwm module and this probe must
@@ -811,19 +706,19 @@ def main():
     if not wait_for_mcp(args.port, args.timeout):
         print(f"TIMEOUT: nothing listening on {args.port} within {args.timeout}s.")
         print("Start the client first:  ./scripts/run-mcp.sh")
-        return 2
+        return EXIT_TIMEOUT
     if not alive():
         print("SETUP: the port is open but no client process was found.")
-        return 3
+        return EXIT_SETUP
 
-    mcp = Mcp(args.port)
+    mcp = Mcp(args.port, client_name="live-dwm-probe")
 
     print("\n-- world")
     step("a world can be entered", load_world(mcp),
          lambda v: "already-in-world" in v or "loading" in v)
     if not wait_for_world(mcp):
         record("the world finished loading", False, "still not in a world")
-        return report(args)
+        return report()
     record("the world finished loading", True)
 
     print("\n-- opening the UI over live gameplay")
@@ -891,7 +786,7 @@ def main():
         step("the screen closes cleanly", close_ui(mcp), lambda v: "closed" in v)
         step("the client is still running after closing", "alive", lambda v: alive())
 
-    return report(args)
+    return report()
 
 
 def check_controls(mcp):
@@ -1070,22 +965,9 @@ def hovered(mcp, object_name):
 """)
 
 
-def report(args):
-    passed = sum(1 for _, ok, _ in results if ok)
-    total = len(results)
-    print(f"\n{'PASS' if passed == total else 'FAIL'}: {passed}/{total} checks")
-    if passed != total:
-        print("failed:")
-        for name, ok, detail in results:
-            if not ok:
-                print(f"  - {name}: {detail.splitlines()[0] if detail else ''}")
-        return 1
-    return 0
-
-
 if __name__ == "__main__":
     try:
         sys.exit(main())
     except KeyboardInterrupt:
         print("\ninterrupted")
-        sys.exit(1)
+        sys.exit(EXIT_FAIL)

@@ -26,197 +26,25 @@ Usage:
     ./scripts/run-mcp.sh            # then get in a world, stand somewhere open
     python3 scripts/nav-astar-probe.py [--port 25599] [--offset 12]
 
-Exit codes follow smoke-live-gl.sh: 0 PASS, 1 FAIL, 2 TIMEOUT, 3 SETUP.
+The socket client, the eval_java wrapper, the ticking guard and the record/report harness live in
+scripts/mcp_probe.py, shared with the other live probes. Exit codes follow smoke-live-gl.sh:
+0 PASS, 1 FAIL, 2 TIMEOUT, 3 SETUP.
 """
 
 import argparse
 import json
-import socket
+import os
 import sys
 import time
 
-results = []
+# scripts/ is not on sys.path when this file is loaded BY PATH -- which live-hold-probe.py and
+# test_probe_framing.py both do, because the hyphen in the filename rules out a plain import.
+# Running it directly puts scripts/ on the path already; being imported does not.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-
-def record(name, ok, detail=""):
-    results.append((name, ok, detail))
-    print(("  PASS  " if ok else "  FAIL  ") + name + (f"\n          {detail}" if detail else ""))
-    return ok
-
-
-class Mcp:
-    """One JSON-RPC call per connection, mirroring live-dwm-probe.py.
-
-    The kernel's socket transport expects a fresh initialize handshake, and reconnecting per call
-    cannot leave a half-read stream behind to confuse the next assertion.
-    """
-
-    def __init__(self, port, timeout=30):
-        self.port = port
-        self.timeout = timeout
-
-    def call(self, tool, args):
-        try:
-            sock = socket.create_connection(("127.0.0.1", self.port), 5)
-        except OSError as e:
-            return {"error": f"connect failed: {e}"}
-        sock.settimeout(self.timeout)
-        try:
-            for msg in (
-                {"jsonrpc": "2.0", "id": 1, "method": "initialize",
-                 "params": {"protocolVersion": "2024-11-05", "capabilities": {},
-                            "clientInfo": {"name": "nav-astar-probe", "version": "1"}}},
-                {"jsonrpc": "2.0", "method": "notifications/initialized"},
-                {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
-                 "params": {"name": tool, "arguments": args}},
-            ):
-                sock.sendall((json.dumps(msg) + "\n").encode())
-            # Read until the id=2 line is COMPLETE, not merely present. Breaking the moment
-            # '"id":2' appears anywhere in the buffer truncates any reply larger than one recv --
-            # measured, world_view at radius 16 is 180149 bytes over 4 chunks, and the naive
-            # version returned "unparseable reply: Unterminated string". live-dwm-probe.py has the
-            # same shape and has simply never sent a payload big enough to hit it.
-            buf = b""
-            deadline = time.time() + self.timeout
-            while time.time() < deadline:
-                try:
-                    chunk = sock.recv(65536)
-                except socket.timeout:
-                    break
-                if not chunk:
-                    break
-                buf += chunk
-                if self._complete_reply(buf) is not None:
-                    break
-        finally:
-            sock.close()
-
-        line = self._complete_reply(buf)
-        if line is None:
-            return {"error": f"no complete reply in {len(buf)} bytes"}
-        try:
-            reply = json.loads(line)
-        except ValueError as e:
-            return {"error": f"unparseable reply: {e}"}
-        content = reply.get("result", {}).get("content", [])
-        text = content[0].get("text", "") if content else ""
-        return {"text": text, "isError": reply.get("result", {}).get("isError", False)}
-
-    @staticmethod
-    def _complete_reply(buf):
-        """The id=2 line, but only once it parses as whole JSON. None while still arriving.
-
-        Presence of the marker is not the same as arrival of the message: a large reply spans
-        several recv calls, so this is what makes the read loop wait for the rest instead of
-        truncating mid-string.
-        """
-        for line in buf.split(b"\n"):
-            if b'"id":2' not in line:
-                continue
-            try:
-                json.loads(line)
-            except ValueError:
-                return None
-            return line
-        return None
-
-    def java(self, class_name, body):
-        """Run a snippet on the GAME thread and return its text.
-
-        Marshalling is not optional: eval_java runs on a worker thread, and the pathfinder reads
-        live chunk state. Reading world state off the game thread is a race at best.
-        """
-        source = (
-            "package gen;\n"
-            f"public class {class_name} {{\n"
-            "  public Object run() throws Exception {\n"
-            "    return net.marcloud.mcp.core.GameBridge.onGameThread(() -> {\n"
-            "      try {\n"
-            f"{body}\n"
-            "      } catch (Throwable t) {\n"
-            "        java.io.StringWriter w = new java.io.StringWriter();\n"
-            "        t.printStackTrace(new java.io.PrintWriter(w));\n"
-            "        return \"THREW \" + w;\n"
-            "      }\n"
-            "    });\n"
-            "  }\n"
-            "}\n"
-        )
-        reply = self.call("eval_java", {"className": f"gen.{class_name}", "source": source})
-        if "error" in reply:
-            return "PROBE-ERROR " + reply["error"]
-        return reply.get("text", "")
-
-
-PREAMBLE = """
-        net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getMinecraft();
-        if (mc.thePlayer == null || mc.theWorld == null) return "NOT-IN-WORLD";
-        net.minecraft.client.entity.EntityPlayerSP p = mc.thePlayer;
-        net.minecraft.client.multiplayer.WorldClient w = mc.theWorld;
-        net.minecraft.util.BlockPos from = new net.minecraft.util.BlockPos(
-            p.posX, p.getEntityBoundingBox().minY, p.posZ);
-"""
-
-
-def probe_in_world(mcp):
-    out = mcp.java("NavWhere", PREAMBLE + """
-        return "AT " + from + " onGround=" + p.onGround + " dim=" + w.provider.getDimensionId();
-    """)
-    return record("the player is in a world", out.startswith("AT "), out.strip()[:200])
-
-
-def is_ticking(mcp):
-    """Whether the world is actually advancing, and why not if it is not.
-
-    Vanilla single-player stops advancing on focus loss, and the game thread keeps servicing
-    eval_java throughout -- so every tick-dependent check reads a frozen world and fails for a
-    reason that has nothing to do with the code under test. That is exactly what happened before
-    this guard existed.
-
-    The reopening screen comes from EntityRenderer.updateCameraAndRender:1071-1076 (500ms
-    unfocused -> displayInGameMenu), gated on gameSettings.pauseOnLostFocus. Minecraft.java:1184
-    only *reads* that screen to set isGamePaused. Clearing currentScreen alone does not help,
-    because the gate reopens it every frame -- clear the gate instead, via allow_unfocused().
-    """
-    out = mcp.java("Ticking", PREAMBLE + """
-        return "paused=" + mc.isGamePaused() + " active=" + org.lwjgl.opengl.Display.isActive()
-             + " t=" + mc.theWorld.getTotalWorldTime();
-    """)
-    if "paused=false" in out:
-        return True, out.strip()
-    return False, out.strip()
-
-
-def allow_unfocused(mcp):
-    """Stop the world freezing while the window is in the background, and report the state.
-
-    pauseOnLostFocus is a public GameSettings field that vanilla itself toggles with F3+P, so
-    this is a supported state rather than a hack. Preferred over the shareToLAN workaround an
-    earlier session used: that one also defeats the pause, but it moves the player onto a
-    different server path mid-run and was itself a source of bogus stalls.
-
-    Static reasoning only when written -- verify the returned state rather than assuming it took.
-    """
-    return mcp.java("AllowUnfocused", PREAMBLE + """
-        mc.gameSettings.pauseOnLostFocus = false;
-        if (mc.currentScreen != null && mc.currentScreen.doesGuiPauseGame()) {
-            mc.displayGuiScreen(null);
-        }
-        return "pauseOnLostFocus=" + mc.gameSettings.pauseOnLostFocus
-             + " screen=" + (mc.currentScreen == null ? "null" : mc.currentScreen.getClass().getName())
-             + " paused=" + mc.isGamePaused();
-    """).strip()
-
-
-def require_ticking(mcp, what):
-    """Skip rather than fail when the world is frozen. A false FAIL is worse than a skip."""
-    ok, detail = is_ticking(mcp)
-    if not ok:
-        record(what, False,
-               "SKIPPED-NOT-MEASURED: the world is not ticking, so this proves nothing about the "
-               "code. Focus the game window, or call allow_unfocused(mcp), and re-run. "
-               + detail[:160])
-    return ok
+from mcp_probe import (  # noqa: E402 - the sys.path line above has to run first
+    EXIT_SETUP, Mcp, PREAMBLE, allow_unfocused, probe_in_world, record, report, require_ticking,
+)
 
 
 def probe_path(mcp, offset):
@@ -435,19 +263,19 @@ def main():
                          "instead of needing the game window focused for the whole run")
     args = ap.parse_args()
 
-    mcp = Mcp(args.port)
+    mcp = Mcp(args.port, client_name="nav-astar-probe")
     print(f"-- nav/A* probe on port {args.port}, target offset {args.offset}\n")
 
     ping = mcp.call("read_player_state", {})
     if "error" in ping:
         print(f"SETUP: cannot reach MCP on port {args.port}: {ping['error']}")
         print("       start the client first: ./scripts/run-mcp.sh")
-        return 3
+        return EXIT_SETUP
 
     print("-- is anybody home")
     if not probe_in_world(mcp):
         print("\nSETUP: not in a world. Load a world, stand somewhere open, re-run.")
-        return 3
+        return EXIT_SETUP
 
     if args.allow_unfocused:
         print(f"-- unfocused ticking: {allow_unfocused(mcp)}")
@@ -466,10 +294,7 @@ def main():
         print("\n-- unknown 5: does open-loop MOVE displace the player at all")
         probe_open_loop_straight_line(mcp)
 
-    passed = sum(1 for _, ok, _ in results if ok)
-    total = len(results)
-    print(f"\n{'PASS' if passed == total else 'FAIL'}: {passed}/{total} checks")
-    return 0 if passed == total else 1
+    return report()
 
 
 if __name__ == "__main__":

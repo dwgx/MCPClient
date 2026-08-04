@@ -3,23 +3,34 @@
 
     python3 -m unittest discover -s scripts -p 'test_*.py' -v
 
-Both probes read a line-delimited JSON-RPC reply off a socket. The bug this pins: breaking the
+The probes read a line-delimited JSON-RPC reply off a socket. The bug this pins: breaking the
 read loop as soon as b'"id":2' appears anywhere in the buffer, which truncates any reply larger
 than one recv. nav-astar-probe.py hit it for real -- world_view at radius 16 is ~180KB over 4
 chunks and came back "unparseable reply: Unterminated string". live-dwm-probe.py carried the same
 shape for longer, hidden only by smaller payloads.
 
-Both probes must therefore treat "the id=2 line is present" and "the id=2 line is complete" as
+The framing must therefore treat "the id=2 line is present" and "the id=2 line is complete" as
 different questions. These tests fail against the old logic.
+
+The contract now has ONE home: scripts/mcp_probe.py. This file used to run it twice, once per
+copy, because there were two copies -- that duplication is precisely how the fixed probe and the
+broken one coexisted for a session. So the framing tests below address mcp_probe.Mcp directly, and
+a separate test pins that every probe still gets its client from there rather than growing a
+third copy.
 """
 
-import importlib.util
 import json
 import os
+import sys
 import unittest
 
 SCRIPTS = os.path.dirname(os.path.abspath(__file__))
-RECV = 65536  # the probes' recv size; chunk boundaries are what the old logic tripped over
+sys.path.insert(0, SCRIPTS)
+
+import importlib.util  # noqa: E402 - after the sys.path line, same as the probes do it
+import mcp_probe  # noqa: E402
+
+RECV = mcp_probe.RECV_SIZE  # chunk boundaries are what the old logic tripped over
 
 
 def load(script):
@@ -40,77 +51,84 @@ def reply(text):
     return encode({"jsonrpc": "2.0", "id": 2, "result": {"content": [{"text": text}]}})
 
 
-class ReplyFramingTest(unittest.TestCase):
-    """Run the same contract against both probes, so neither drifts back."""
+class SharedClientTest(unittest.TestCase):
+    """Every probe must take its socket client from mcp_probe, not carry its own."""
 
-    def setUp(self):
-        # live-hold-probe.py reuses nav-astar-probe.py's Mcp rather than copying it, which is the
-        # point: the framing bug this file pins existed in two copies and only one was fixed.
-        self.probes = {
-            "nav-astar-probe.py": load("nav-astar-probe.py").Mcp,
-            "live-dwm-probe.py": load("live-dwm-probe.py").Mcp,
-        }
+    PROBES = ("nav-astar-probe.py", "live-dwm-probe.py", "live-hold-probe.py")
 
-    def test_the_hold_probe_reuses_the_socket_client_rather_than_copying_it(self):
-        """A third copy of the read loop would be a third chance to reintroduce the truncation.
+    def test_no_probe_defines_its_own_socket_client(self):
+        """A second copy of the read loop would be a second chance to reintroduce the truncation.
 
         Asserting on identity, not on behaviour: a copy that happens to be correct today still
         drifts, and this file's whole reason for existing is that exactly that happened once.
+
+        assertIs works here only because the probes now `import mcp_probe` by name, so every one
+        of them resolves to the same sys.modules entry. It could NOT be written while the shared
+        parts lived in nav-astar-probe.py: load() execs a fresh module per call, and the hold
+        probe's own by-path load of the nav probe produced a second class object with the same
+        name, so an identity check failed with "X is not X" and said nothing about the property.
+        The weaker check available then compared Mcp.__module__ as a string -- which two copies
+        in one file could also satisfy.
+        """
+        for script in self.PROBES:
+            with self.subTest(probe=script):
+                probe = load(script)
+                self.assertIs(probe.Mcp, mcp_probe.Mcp,
+                              f"{script} must use mcp_probe.Mcp rather than defining its own; "
+                              "another copy of the read loop is another chance to reintroduce "
+                              "the truncation this file exists to pin")
+
+    def test_the_hold_probe_reuses_the_guards_too(self):
+        """The guards are the other half of what a copy loses.
+
+        Writing a bare call past the ticking guard is the mistake that produced a false bug
+        report in this repo before, so the hold probe must reach for the shared guard rather than
+        reimplement it.
         """
         hold = load("live-hold-probe.py")
-        # Not an identity check: load() execs a fresh module each call, so the hold probe's own
-        # import of the nav probe yields a different class object with the same name -- an
-        # assertIs here fails with "X is not X", which says nothing about the property. The
-        # checkable property is WHERE the class was defined.
-        self.assertEqual("nav_astar_probe", hold.Mcp.__module__,
-                         "live-hold-probe must reuse nav-astar-probe's Mcp rather than defining "
-                         "its own; a third copy of the read loop is a third chance to "
-                         "reintroduce the truncation this file exists to pin")
         for helper in ("require_ticking", "allow_unfocused", "record"):
-            self.assertTrue(hasattr(hold, helper),
-                            f"the hold probe must reuse {helper} rather than reimplementing the "
-                            "guard -- writing a bare call past the guard is the mistake that "
-                            "produced a false bug report in this repo before")
+            with self.subTest(helper=helper):
+                self.assertIs(getattr(hold, helper, None), getattr(mcp_probe, helper),
+                              f"the hold probe must reuse mcp_probe.{helper} rather than "
+                              "reimplementing the guard")
+
+
+class ReplyFramingTest(unittest.TestCase):
+    """The contract itself, against the one implementation every probe shares."""
+
+    def setUp(self):
+        self.mcp = mcp_probe.Mcp
 
     def test_should_reject_a_reply_that_is_still_arriving(self):
         big = reply("X" * 200_000)
         self.assertGreater(len(big) // RECV, 2, "fixture must span several recv calls")
-        for name, mcp in self.probes.items():
-            for cut in (100, RECV, 2 * RECV, len(big) - 1):
-                with self.subTest(probe=name, received=cut):
-                    self.assertIsNone(
-                        mcp._complete_reply(big[:cut]),
-                        "a partial reply was accepted, so the read loop stops early and truncates",
-                    )
+        for cut in (100, RECV, 2 * RECV, len(big) - 1):
+            with self.subTest(received=cut):
+                self.assertIsNone(
+                    self.mcp._complete_reply(big[:cut]),
+                    "a partial reply was accepted, so the read loop stops early and truncates",
+                )
 
     def test_should_accept_the_reply_once_it_is_whole(self):
         big = reply("X" * 200_000)
-        for name, mcp in self.probes.items():
-            with self.subTest(probe=name):
-                self.assertEqual(mcp._complete_reply(big), big)
+        self.assertEqual(self.mcp._complete_reply(big), big)
 
     def test_should_ignore_the_initialize_reply(self):
         init = encode({"jsonrpc": "2.0", "id": 1, "result": {}}) + b"\n"
-        for name, mcp in self.probes.items():
-            with self.subTest(probe=name):
-                self.assertIsNone(mcp._complete_reply(init))
+        self.assertIsNone(self.mcp._complete_reply(init))
 
     def test_should_not_mistake_a_finished_id1_reply_for_the_id2_one(self):
         """The real wire order: initialize completes first, then the big reply streams in."""
         init = encode({"jsonrpc": "2.0", "id": 1, "result": {}}) + b"\n"
         big = reply("X" * 200_000)
-        for name, mcp in self.probes.items():
-            with self.subTest(probe=name):
-                self.assertIsNone(mcp._complete_reply(init + big[:5000]))
-                self.assertEqual(mcp._complete_reply(init + big), big)
+        self.assertIsNone(self.mcp._complete_reply(init + big[:5000]))
+        self.assertEqual(self.mcp._complete_reply(init + big), big)
 
     def test_should_read_a_small_reply_in_one_chunk(self):
         """The case that let the bug hide in live-dwm-probe.py: payload smaller than one recv."""
         small = reply("ok")
         self.assertLess(len(small), RECV)
-        for name, mcp in self.probes.items():
-            with self.subTest(probe=name):
-                self.assertEqual(mcp._complete_reply(small), small)
+        self.assertEqual(self.mcp._complete_reply(small), small)
 
 
 if __name__ == "__main__":
