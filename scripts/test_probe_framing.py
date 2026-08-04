@@ -54,7 +54,8 @@ def reply(text):
 class SharedClientTest(unittest.TestCase):
     """Every probe must take its socket client from mcp_probe, not carry its own."""
 
-    PROBES = ("nav-astar-probe.py", "live-dwm-probe.py", "live-hold-probe.py")
+    PROBES = ("nav-astar-probe.py", "live-dwm-probe.py", "live-hold-probe.py",
+              "live-nav-probe.py")
 
     def test_no_probe_defines_its_own_socket_client(self):
         """A second copy of the read loop would be a second chance to reintroduce the truncation.
@@ -85,12 +86,17 @@ class SharedClientTest(unittest.TestCase):
         report in this repo before, so the hold probe must reach for the shared guard rather than
         reimplement it.
         """
-        hold = load("live-hold-probe.py")
-        for helper in ("require_ticking", "allow_unfocused", "record"):
-            with self.subTest(helper=helper):
-                self.assertIs(getattr(hold, helper, None), getattr(mcp_probe, helper),
-                              f"the hold probe must reuse mcp_probe.{helper} rather than "
-                              "reimplementing the guard")
+        # Both derived probes, not only the hold one. live-nav-probe.py arrived from a change
+        # written in parallel with the extraction and wired itself through nav-astar-probe.py,
+        # where these helpers used to live; the merge repointed it. Naming both here is what stops
+        # the next arrival taking the same indirect route back.
+        for script in ("live-hold-probe.py", "live-nav-probe.py"):
+            derived = load(script)
+            for helper in ("require_ticking", "allow_unfocused", "record"):
+                with self.subTest(probe=script, helper=helper):
+                    self.assertIs(getattr(derived, helper, None), getattr(mcp_probe, helper),
+                                  f"{script} must reuse mcp_probe.{helper} rather than "
+                                  "reimplementing the guard")
 
 
 class ReplyFramingTest(unittest.TestCase):
