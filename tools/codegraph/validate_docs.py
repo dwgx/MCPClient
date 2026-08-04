@@ -92,6 +92,17 @@ def main():
     for path, line_no, method, cls in unresolved:
         print(f"  {path}:{line_no}  {method}() not declared by {cls}")
 
+    # Checking nothing is not passing. On this branch DOCS does not exist at all -- docs/mc189 lives
+    # on docs/mc189-source-map -- so this printed "0/0 ... (0.0%)" and exited 0, a gate whose own
+    # docstring offers it to CI reporting success for having validated zero signatures. That is the
+    # failure shape this repository keeps hitting, so the empty case is now loud.
+    if not checked:
+        where = DOCS if os.path.isdir(DOCS) else f"{DOCS} (no such directory)"
+        print(f"no hook-point signatures found under {where} -- nothing was validated.")
+        print("  docs/mc189 lives on the docs/mc189-source-map branch; point MC189_DOCS at a")
+        print("  checkout of it, or run this from that branch.")
+        return 1
+
     return 1 if unresolved else 0
 
 
