@@ -185,7 +185,22 @@ public final class ActTools {
                         + "vanilla sign +ahead/+left), "
                         + "jump,sneak,sprint (bool), durationTicks (<=0 = hold until cancelled)}. "
                         + "look:{mode 'set'|'look_at', yaw/pitch (SET degrees), block:[x,y,z] or "
-                        + "entityId (LOOK_AT), slewDegPerTick (<=0 = instant snap)}. "
+                        + "entityId (LOOK_AT), slewDegPerTick (<=0 = instant snap), track (bool), "
+                        + "durationTicks}. By default an aim ENDS THE MOMENT IT LANDS: the slot goes "
+                        + "COMPLETE and nothing corrects it afterwards, so aiming at a mob that then "
+                        + "walks leaves you pointed where it USED to be. 'track':true is the "
+                        + "following mode -- it re-aims every tick and does NOT stop on arrival, "
+                        + "ending only when you act_cancel it, when a new look intent replaces it, "
+                        + "when a tracked entityId is gone (FAILED, and for a mob that reads as died "
+                        + "or left render distance), or after 'durationTicks' if you gave one. "
+                        + "durationTicks defaults to 0 = track until cancelled, and is REJECTED "
+                        + "without track:true rather than ignored. A track holds the look slot for "
+                        + "its whole life and rewrites rotation every tick, so it overrides a human "
+                        + "moving the mouse and overrides the server's own rotation packets -- give a "
+                        + "duration unless you really mean indefinitely. If the slew cap is too slow "
+                        + "to catch the target, a bounded track ends FAILED saying the crosshair "
+                        + "never arrived, so 'tracked for N ticks' never means 'aimed' unless it "
+                        + "says so. "
                         + "interact:{kind 'dig'|'use'|'place'|'attack'|'hotbar'|'hold', block:[x,y,z], "
                         + "face 0-5, entityId, hotbarSlot 0-8, holdTicks, hitX/hitY/hitZ (place "
                         + "only: where on the face, 0..1 each)}. 'use' is a SINGLE "
@@ -218,7 +233,9 @@ public final class ActTools {
                                         + "to a destination, or raw axes forward,strafe,jump,sneak,"
                                         + "sprint,durationTicks"),
                         "look", Map.of("type", "object",
-                                "description", "camera aim: mode set|look_at, yaw,pitch,block,entityId,slewDegPerTick"),
+                                "description", "camera aim: mode set|look_at, yaw,pitch,block,"
+                                        + "entityId,slewDegPerTick, track (keep aiming after "
+                                        + "arrival), durationTicks (track only; 0 = until cancelled)"),
                         "interact", Map.of("type", "object",
                                 "description", "world interaction: kind dig|use|place|attack|hotbar|hold, "
                                         + "block,face,entityId,hotbarSlot,holdTicks,hitX,hitY,hitZ "
@@ -325,17 +342,41 @@ public final class ActTools {
         String modeStr = strArg(m, "mode");
         String mode = modeStr == null ? "set" : modeStr.trim().toLowerCase(Locale.ROOT);
         float slew = floatArg(m, "slewDegPerTick", 0f);
+        // An explicit flag rather than "durationTicks was supplied", which is how 'hold' picks its
+        // mode. The two are not the same shape: a hold's two endings need a tick count to tell them
+        // apart, while a track's most useful form is the UNBOUNDED one -- follow this mob until I say
+        // stop -- and inferring track from a count would make that form unrequestable.
+        boolean track = boolArg(m, "track", false);
+        int durationTicks = intArg(m, "durationTicks", 0);
+        if (durationTicks < 0) {
+            throw new IllegalArgumentException("act_set look 'durationTicks' must be >= 0 (0 = until "
+                    + "cancelled or replaced), got " + durationTicks);
+        }
+        if (durationTicks > 0 && !track) {
+            // Silently ignoring it would be the failure this repo keeps finding: the caller stated a
+            // duration, the reply says accepted, and the aim ends on the first tick it lands anyway.
+            throw new IllegalArgumentException("act_set look 'durationTicks' only applies with "
+                    + "'track':true -- without tracking the aim ends as soon as it reaches the "
+                    + "target, so a duration would be accepted and never used");
+        }
         switch (mode) {
             case "set":
-                return LookIntent.set(floatArg(m, "yaw", 0f), floatArg(m, "pitch", 0f), slew);
+                return track
+                        ? LookIntent.holdSet(floatArg(m, "yaw", 0f), floatArg(m, "pitch", 0f), slew,
+                                durationTicks)
+                        : LookIntent.set(floatArg(m, "yaw", 0f), floatArg(m, "pitch", 0f), slew);
             case "look_at": {
                 int[] block = intTriple(m.get("block"));
                 if (block != null) {
-                    return LookIntent.lookAtBlock(block[0], block[1], block[2], slew);
+                    return track
+                            ? LookIntent.trackBlock(block[0], block[1], block[2], slew, durationTicks)
+                            : LookIntent.lookAtBlock(block[0], block[1], block[2], slew);
                 }
                 int entityId = intArg(m, "entityId", -1);
                 if (entityId >= 0) {
-                    return LookIntent.lookAtEntity(entityId, slew);
+                    return track
+                            ? LookIntent.trackEntity(entityId, slew, durationTicks)
+                            : LookIntent.lookAtEntity(entityId, slew);
                 }
                 throw new IllegalArgumentException(
                         "act_set look mode 'look_at' needs a 'block':[x,y,z] or a non-negative 'entityId'");

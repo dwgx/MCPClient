@@ -176,7 +176,12 @@ public final class ActRuntime implements MoveIntentView {
             return "-";
         }
         if (intent instanceof LookIntent li) {
-            return "LOOK:" + li.mode();
+            // The aim mode is appended only when it is KEEP, so the label of an ordinary aim is
+            // unchanged. It belongs here at all because the two have different lifetimes: a KEEP
+            // aim holds the slot until something cancels it, and a caller reading act_status needs
+            // to know that the LOOK channel is occupied by a track rather than by an aim that is
+            // about to finish on its own.
+            return "LOOK:" + li.mode() + (li.keepsAiming() ? "+KEEP" : "");
         }
         if (intent instanceof InteractIntent ii) {
             return "INTERACT:" + ii.kind();

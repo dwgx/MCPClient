@@ -19,6 +19,7 @@ import io.modelcontextprotocol.spec.McpSchema.TextContent;
 import net.marcloud.mcp.core.drivers.act.ActPhase;
 import net.marcloud.mcp.core.drivers.act.ActRuntime;
 import net.marcloud.mcp.core.drivers.act.ActSlot;
+import net.marcloud.mcp.core.drivers.act.LookIntent;
 import net.marcloud.mcp.core.io.http.Json;
 import net.marcloud.mcp.core.ke.GameClock;
 
@@ -124,6 +125,78 @@ public class ActToolsTest {
         Map<String, Object> out = parseJson(text(r));
         Map<String, Object> eff = (Map<String, Object>) out.get("effectiveTick");
         assertEquals(2L, ((Number) eff.get("look")).longValue());
+    }
+
+    // ===== act_set look: the tracking (non-self-terminating) mode =====
+    //
+    // The controller half of this is pinned by LookTrackingDoesNotSelfTerminateTest. These four are
+    // the wiring: a mode reachable only from Java is not a capability the model has. The hold channel
+    // shipped in exactly that state for one commit -- parseInteract had no 'hold' case -- which is
+    // why the wiring gets its own tests rather than being assumed from the controller's.
+
+    /** The LOOK slot must actually receive an intent whose aim mode is KEEP. */
+    @Test
+    public void actSetLookTrackReachesTheSlotAsAKeepAim() {
+        clock.advance();
+        CallToolResult r = call(tools.actSet(),
+                Map.of("look", Map.of("mode", "look_at", "entityId", 42, "track", true,
+                        "slewDegPerTick", 6)));
+        assertFalse("not an error: " + text(r), Boolean.TRUE.equals(r.isError()));
+
+        var intent = runtime.record(ActSlot.LOOK).intent();
+        assertTrue("the LOOK slot holds a look intent", intent instanceof LookIntent);
+        LookIntent li = (LookIntent) intent;
+        assertEquals("track:true must become AimMode.KEEP, or the wire flag does nothing",
+                LookIntent.AimMode.KEEP, li.aim());
+        assertTrue(li.keepsAiming());
+        assertEquals(42, li.targetEntityId());
+        assertEquals("unbounded by default, which is the useful form of a track",
+                0, li.durationTicks());
+        assertEquals("and act_status must distinguish an occupied-by-a-track LOOK channel",
+                "LOOK:LOOK_AT+KEEP",
+                runtime.status().slots().get(ActSlot.LOOK.ordinal()).intentKind());
+    }
+
+    /** Omitting track must leave the default aim alone. */
+    @Test
+    public void actSetLookWithoutTrackIsStillAOneShotAim() {
+        clock.advance();
+        call(tools.actSet(), Map.of("look", Map.of("mode", "look_at", "entityId", 42)));
+        LookIntent li = (LookIntent) runtime.record(ActSlot.LOOK).intent();
+        assertEquals(LookIntent.AimMode.ONCE, li.aim());
+        assertEquals("LOOK:LOOK_AT",
+                runtime.status().slots().get(ActSlot.LOOK.ordinal()).intentKind());
+    }
+
+    @Test
+    public void actSetLookTrackCarriesDurationTicks() {
+        clock.advance();
+        call(tools.actSet(), Map.of("look", Map.of("mode", "look_at", "block", List.of(1, 2, 3),
+                "track", true, "durationTicks", 40)));
+        LookIntent li = (LookIntent) runtime.record(ActSlot.LOOK).intent();
+        assertEquals(LookIntent.AimMode.KEEP, li.aim());
+        assertEquals(40, li.durationTicks());
+        assertTrue("a block track must keep its block target", li.hasBlock());
+    }
+
+    /**
+     * A duration without track is rejected rather than accepted and discarded.
+     *
+     * <p>This is the defect shape the last several commits were all about: the reply says accepted,
+     * the caller believes it asked for 40 ticks of aim, and the intent ends on the first tick it
+     * lands. Silence there is worse than an error, because nothing downstream ever contradicts it.
+     * Asserting on WHICH complaint, not merely that one happened -- a weaker assertion passes even
+     * with the whole feature deleted, which is the hollow shape this repo keeps catching.
+     */
+    @Test
+    public void actSetLookRejectsDurationTicksWithoutTrackRatherThanIgnoringIt() {
+        CallToolResult r = call(tools.actSet(),
+                Map.of("look", Map.of("mode", "look_at", "entityId", 42, "durationTicks", 40)));
+        assertTrue("durationTicks without track must be an error", Boolean.TRUE.equals(r.isError()));
+        assertTrue("and the message must name both arguments so the fix is obvious: " + text(r),
+                text(r).contains("durationTicks") && text(r).contains("track"));
+        assertFalse("nothing was partially submitted",
+                runtime.record(ActSlot.LOOK).intent() != null);
     }
 
     @Test
@@ -458,6 +531,64 @@ public class ActToolsTest {
         assertFalse("the interact clause must not advertise 'mode' -- only parseLook reads it, so an "
                         + "interact 'mode' is accepted and silently discarded: " + interactClause,
                 interactClause.contains("mode"));
+    }
+
+    /**
+     * The two new look arguments must be both READ and DOCUMENTED, and each half is proved rather
+     * than asserted from prose.
+     *
+     * <p>"Read" is established by submitting the argument and observing that the resulting intent
+     * differs -- so a parser that stopped consuming it fails here instead of silently discarding a
+     * caller's request. "Documented" is the other direction: an argument the parser honours and the
+     * description never names is one a model cannot use without reading our source, which is how
+     * {@code hitX/hitY/hitZ} shipped unusable.
+     */
+    @Test
+    public void everyLookArgumentIsBothReadAndDocumented() {
+        String desc = tools.actSet().tool().description();
+
+        // Read: track changes the aim mode.
+        call(tools.actSet(), Map.of("look", Map.of("mode", "look_at", "entityId", 1)));
+        LookIntent plain = (LookIntent) runtime.record(ActSlot.LOOK).intent();
+        call(tools.actSet(),
+                Map.of("look", Map.of("mode", "look_at", "entityId", 1, "track", true)));
+        LookIntent tracked = (LookIntent) runtime.record(ActSlot.LOOK).intent();
+        assertEquals("precondition: 'track' is consumed by the parser",
+                LookIntent.AimMode.ONCE, plain.aim());
+        assertEquals(LookIntent.AimMode.KEEP, tracked.aim());
+
+        // Read: durationTicks reaches the intent.
+        call(tools.actSet(), Map.of("look", Map.of("mode", "look_at", "entityId", 1,
+                "track", true, "durationTicks", 7)));
+        assertEquals("precondition: 'durationTicks' is consumed by the parser", 7,
+                ((LookIntent) runtime.record(ActSlot.LOOK).intent()).durationTicks());
+
+        for (String arg : List.of("track", "durationTicks")) {
+            assertTrue("look reads '" + arg + "' but act_set's description never names it",
+                    desc.contains(arg));
+        }
+    }
+
+    /**
+     * The description must state the DEFAULT that surprises a caller, not merely offer the flag.
+     *
+     * <p>An aim ending the instant it lands is correct and is what most callers want, but it is also
+     * why aiming at a mob leaves the crosshair where the mob used to be one tick later. A caller who
+     * does not know that writes a look, reads COMPLETE, attacks, and misses -- and every field it
+     * could have checked says success. Offering 'track' without saying what happens without it makes
+     * the flag findable only by someone who already knew to look for it.
+     */
+    @Test
+    public void theActSetDescriptionSaysAnAimStopsCorrectingOnceItLands() {
+        String desc = tools.actSet().tool().description();
+        assertTrue("the description must state that a default aim ends on arrival: " + desc,
+                desc.contains("ENDS THE MOMENT IT LANDS"));
+        assertTrue("and must name the consequence a caller would otherwise hit",
+                desc.contains("walks leaves you pointed where it USED to be"));
+        assertTrue("a track's endings must be enumerated, since arrival is deliberately not one",
+                desc.contains("does NOT stop on arrival"));
+        assertTrue("and the failure that must not be read as success must be stated",
+                desc.contains("never means 'aimed' unless it says so"));
     }
 
     /**
