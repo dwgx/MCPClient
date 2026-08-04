@@ -10,12 +10,13 @@ import java.util.Map;
  *
  * <ul>
  *   <li><b>R_MINUS_1 (HYPERVISOR)</b> — run/redefine arbitrary code inside the
- *       game JVM (eval_java, redefine_class). Ultimate power; can rewrite the
- *       running game.</li>
+ *       game JVM (eval_java, redefine_class, <b>send_raw_packet</b>). Ultimate
+ *       power; can rewrite the running game.</li>
  *   <li><b>R0 (KERNEL)</b> — modify the agent's own tool set (create_tool,
  *       rollback_tool). Self-modification.</li>
- *   <li><b>R1 (SYSTEM)</b> — outward effects on the game/network (send_raw_packet,
- *       send_chat). Changes shared/server-visible state.</li>
+ *   <li><b>R1 (SYSTEM)</b> — outward effects on the game/network (send_chat, the
+ *       typed {@code do_*} senders, act_set). Changes shared/server-visible
+ *       state.</li>
  *   <li><b>R2 (OBSERVE)</b> — reads live game/GL state on the game thread
  *       (scan_surroundings, capture_screen, read_player_state). Can stall the game
  *       thread. AI-authored tools default here.</li>
