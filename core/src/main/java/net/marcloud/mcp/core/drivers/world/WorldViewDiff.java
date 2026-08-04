@@ -86,7 +86,14 @@ public final class WorldViewDiff {
         if (a.food() != b.food()) m.put("food", b.food());
         if (a.xpLevel() != b.xpLevel()) m.put("xpLevel", b.xpLevel());
         if (a.armor() != b.armor()) m.put("armor", b.armor());
-        if (a.air() != b.air()) m.put("air", b.air());
+        // eq(), not !=: air is boxed (null = unreadable, see SelfView#air) and Integer identity
+        // only coincides with equality inside the -128..127 cache, so != would have reported a
+        // change on every poll at full air (300) while suppressing none of the real ones.
+        //
+        // An explicit null goes on the wire when air BECOMES unreadable. Omitting it is not
+        // available here the way it is in the full projection: in diff mode a missing key already
+        // means "unchanged", so silence would claim the last known number still holds.
+        if (!eq(a.air(), b.air())) m.put("air", b.air());
         if (!eq(a.gamemode(), b.gamemode())) m.put("gamemode", b.gamemode());
         if (a.onGround() != b.onGround()) m.put("onGround", b.onGround());
         if (a.sneaking() != b.sneaking()) m.put("sneaking", b.sneaking());

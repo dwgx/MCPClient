@@ -44,7 +44,12 @@ public final class WorldViewJson {
         m.put("saturation", s.saturation());
         m.put("xpLevel", s.xpLevel());
         m.put("armor", s.armor());
-        m.put("air", s.air());
+        // Omitted, not sentinelled, when the read failed. Every integer that would read as
+        // "unknown" is one vanilla itself ticks through on the way to drowning (300 -> 0 -> -19,
+        // reset at -20), so a sentinel would have told the model "air unknown" and "19 ticks from
+        // 2 HP of drown damage" with the same number. Absence is the payload's existing word for
+        // "no value" -- surfaceDy and drop already use it.
+        if (s.air() != null) m.put("air", s.air());
         m.put("gamemode", s.gamemode());
         m.put("onGround", s.onGround());
         m.put("sneaking", s.sneaking());

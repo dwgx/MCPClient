@@ -98,7 +98,7 @@ public final class WorldViewCapture {
                 p.rotationYaw, p.rotationPitch,
                 safeHealth(p), food, sat,
                 safeInt(() -> p.experienceLevel), safeFloat(() -> p.experience),
-                safeInt(p::getTotalArmorValue), safeInt(p::getAir),
+                safeInt(p::getTotalArmorValue), boxedInt(p::getAir),
                 gamemode, p.isSneaking(), p.isSprinting(), p.onGround,
                 effects);
     }
@@ -284,7 +284,7 @@ public final class WorldViewCapture {
         }
     }
 
-    private interface IntSup {
+    interface IntSup {
         int get();
     }
 
@@ -292,11 +292,58 @@ public final class WorldViewCapture {
         float get();
     }
 
+    /**
+     * Read failure as {@code -1}, for the fields where vanilla cannot produce {@code -1}.
+     *
+     * <p>Audited one field at a time against vanilla rather than kept on the assumption that
+     * negatives are impossible, because the assumption was false for exactly one of them
+     * (air, now on {@link #boxedInt}). The rest are in-band-safe, and each for its own reason,
+     * so the reason is recorded rather than the conclusion:
+     * <ul>
+     *   <li>{@code health} — every client-side write goes through
+     *       {@code EntityLivingBase.setHealth}, which clamps to {@code [0, maxHealth]}
+     *       ({@code :857}); the only other writer, {@code EntityPlayerSP.setPlayerSPHealth}
+     *       ({@code :346-372}), calls it. Floor is {@code 0}, i.e. dead.</li>
+     *   <li>{@code food}/{@code saturation} — {@code FoodStats} arithmetic is
+     *       {@code Math.max(x-1, 0)} and {@code Math.min(x, 20)} ({@code :29-30, :51-56}), so
+     *       both floor at {@code 0}.</li>
+     *   <li>{@code xpLevel}/{@code xpProgress} — {@code EntityPlayer.addExperienceLevel}
+     *       resets a negative level to {@code 0} and zeroes progress with it
+     *       ({@code :2040-2045}).</li>
+     *   <li>{@code armor} — a sum of {@code ItemArmor.damageReduceAmount}, all non-negative.</li>
+     * </ul>
+     *
+     * <p>Deliberately NOT boxed alongside air just to make the five look alike: a representation
+     * that is already unambiguous costs a reader nothing, while four more nullable fields would
+     * put a null check in front of every consumer to buy no new information.
+     */
     private static int safeInt(IntSup s) {
         try {
             return s.get();
         } catch (Throwable t) {
             return -1;
+        }
+    }
+
+    /**
+     * Read failure as {@code null}, for air, whose whole negative range is in-band.
+     *
+     * <p>Absence rather than a fresh sentinel because there is no free integer to pick: air is
+     * a short that vanilla walks from 300 down past 0 into the negatives (see
+     * {@link SelfView#air}). Absence is also already the payload's word for "no value" --
+     * {@code surfaceDy} and {@code drop} both use it, and the grid legend documents absence as
+     * load-bearing -- so this reuses the existing convention instead of adding a second one the
+     * description would have to teach separately.
+     *
+     * <p>Package-private, the same reason {@link #nearestWithinCap} is: the failure branch has to
+     * be reachable without a live player. The real trigger is a {@code DataWatcher} with no entry
+     * for air, which is what a test can hand it verbatim rather than approximate.
+     */
+    static Integer boxedInt(IntSup s) {
+        try {
+            return s.get();
+        } catch (Throwable t) {
+            return null;
         }
     }
 
