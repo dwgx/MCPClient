@@ -460,6 +460,108 @@ public class ActToolsTest {
                 interactClause.contains("mode"));
     }
 
+    /**
+     * act_set volunteers {@code perSlot.<slot>} = the slot's phase, read at SUBMIT time from the
+     * record {@link net.marcloud.mcp.core.drivers.act.SlotRecord#submitted} just built -- which
+     * hard-codes IDLE on every path, correctly, since the intent has not run yet. So perSlot is a
+     * constant on success, and act_set's OWN description names that same constant as the symptom of
+     * a dead tick seam ("sits at IDLE forever"). A healthy submit was therefore indistinguishable
+     * from a broken seam using the very field the reply hands over unasked.
+     *
+     * <p>Not a phase bug -- IDLE is the honest phase at submit time -- so the fix is the legend: say
+     * perSlot is pre-run and constant, and point at the field that DOES carry seam health.
+     *
+     * <p>The phase name is DERIVED from the production factory rather than typed in, so changing
+     * what a submit reports without touching the legend fails here instead of quietly making the
+     * legend a lie. Scoped to the text from 'perSlot' onward, because asserting "the description
+     * contains IDLE" passes on the OLD text -- the dead-seam warning above says IDLE too. That is
+     * the hollow shape this repo has caught in itself repeatedly.
+     */
+    @Test
+    public void theActSetDescriptionSaysPerSlotIsAlwaysIdleAtSubmitTime() {
+        String submitPhase = net.marcloud.mcp.core.drivers.act.SlotRecord
+                .submitted(net.marcloud.mcp.core.drivers.act.LookIntent.set(0f, 0f, 0f), 1L, 2L, "m")
+                .phase().name();
+
+        String desc = tools.actSet().tool().description();
+        int start = desc.indexOf("perSlot");
+        assertTrue("act_set emits 'perSlot' but its description never names the key", start >= 0);
+        String legend = desc.substring(start);
+
+        assertTrue("the legend must state that perSlot is ALWAYS " + submitPhase + " on a successful "
+                        + "submit, since that is what makes it useless as a health check: " + legend,
+                legend.contains("ALWAYS " + submitPhase));
+        assertTrue("and must say WHY -- it is read before the intent runs", legend.contains("BEFORE"));
+        assertTrue("and must disclaim that it carries health information, or a reader still weighs "
+                + "it against the dead-seam warning above", legend.contains("NOTHING about"));
+        assertTrue("and must point at where the answer actually is", legend.contains("act_status"));
+    }
+
+    /**
+     * The half above is text; this is the wording it must mirror. tickNow -- which act_set already
+     * returns -- is the dead-seam signal, and that convention is published by clock_now for this same
+     * clock. Lifted OUT of clock_now's live description rather than retyped, so a reword there fails
+     * here instead of leaving act_set quietly holding a second, divergent phrasing of one rule.
+     */
+    @Test
+    public void theActSetDescriptionMirrorsClockNowsOwnDeadSeamWording() {
+        String clockNow = clockNowDescription();
+        int open = clockNow.indexOf("(monotonic,");
+        assertTrue("clock_now must still publish the tickId convention parenthetically", open >= 0);
+        String convention = clockNow.substring(open, clockNow.indexOf(')', open) + 1);
+        assertTrue("the extracted convention must be the seam clause: " + convention,
+                convention.contains("tick seam is not armed"));
+
+        assertTrue("act_set returns tickNow, so it must carry clock_now's OWN wording for what a "
+                        + "frozen one means rather than inventing a second phrasing: " + convention,
+                tools.actSet().tool().description().contains(convention));
+    }
+
+    /** clock_now's live description, via the registry ObserveTools publishes it into. */
+    private String clockNowDescription() {
+        var registry = new net.marcloud.mcp.core.io.IoManager(
+                new net.marcloud.mcp.core.io.IoSupervisor(2, 2000L),
+                new net.marcloud.mcp.core.se.SeLocalMonitor(
+                        new net.marcloud.mcp.core.se.SeClearancePolicy(
+                                net.marcloud.mcp.core.se.Ring.R_MINUS_1, "tok")));
+        // Timeline null is supported (timeline_tail then reports empty, honestly) -- clock_now is
+        // the only description read here.
+        new net.marcloud.mcp.core.drivers.observe.ObserveTools(clock, null).registerAll(registry);
+        var cap = registry.get("clock_now");
+        assertNotNull("clock_now must be registered for its wording to be the shared source", cap);
+        return cap.description();
+    }
+
+    /**
+     * The behaviour the legend claims, pinned so text and code cannot drift apart in silence: on a
+     * runtime PROVEN alive -- clock advancing, an applier really reaching ACTIVE -- a fresh submit
+     * still reports {@code perSlot} IDLE. The expected value is the literal enum here, not
+     * {@code submitted(...).phase()}: deriving it from the code under test would make this assertion
+     * agree with any mutation of it, which is exactly the hollow shape. A description-only test
+     * would go green the moment submit started reporting something else.
+     */
+    @Test
+    public void aSubmitOnALiveRuntimeStillReportsIdleSoTheLegendHolds() {
+        runtime.registerApplier(ActSlot.MOVE, r -> r.markActive(r.lastAppliedTick(), "stepping"));
+        var loop = new net.marcloud.mcp.core.drivers.act.ActTickLoop(runtime);
+
+        clock.advance(); // tick 1
+        call(tools.actSet(), Map.of("move", Map.of("forward", 1.0)));
+        loop.onTick(new net.marcloud.mcp.core.ke.event.events.TickEvent(clock.advance())); // tick 2
+        assertEquals("the runtime must be demonstrably ALIVE, or reporting IDLE proves nothing",
+                ActPhase.ACTIVE, runtime.status().slots().get(ActSlot.MOVE.ordinal()).phase());
+
+        clock.advance(); // tick 3
+        Map<String, Object> out = parseJson(text(call(tools.actSet(),
+                Map.of("move", Map.of("forward", 1.0)))));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> perSlot = (Map<String, Object>) out.get("perSlot");
+        assertEquals("a submit reports the phase BEFORE the intent runs, so even here it is IDLE",
+                ActPhase.IDLE.name(), perSlot.get("move"));
+        assertTrue("while tickNow -- the field the legend points at -- is the one that moved",
+                ((Number) out.get("tickNow")).longValue() > 0L);
+    }
+
     @Test
     public void registerAllRegistersThreeToolsAsBuiltins() {
         var exec = new net.marcloud.mcp.core.io.IoSupervisor(2, 2000L);

@@ -203,8 +203,15 @@ public final class ActTools {
                         + "the two endings. While a use is held vanilla also scales walking to 0.2x (unless riding), "
                         + "so a MOVE running at the same time will travel far less than its own "
                         + "report suggests. "
-                        + "Returns per-slot effectiveTick "
-                        + "and phase. Read act_status to see how each intent progresses.")
+                        + "Returns accepted, tickNow, per-slot effectiveTick, and per-slot phase "
+                        + "under 'perSlot'. perSlot is the phase BEFORE the intent has run -- it is "
+                        + "read at SUBMIT time, so on a successful submit it is ALWAYS IDLE and says "
+                        + "NOTHING about the seam's health or the intent's fate. The seam signal is "
+                        + "the 'tickNow' in this same reply: the one game clock, the same value "
+                        + "clock_now reports (monotonic, 0 before the first tick / if the tick seam "
+                        + "is not armed), so a tickNow of 0, or one that does not grow between two "
+                        + "calls, is a dead seam rather than a wrong intent. For the outcome read "
+                        + "act_status one or more ticks later; its phase is the one that moves.")
                 .inputSchema(objectSchema(Map.of(
                         "move", Map.of("type", "object",
                                 "description", "either to:[x,y,z] (+ optional timeoutTicks) to walk "
