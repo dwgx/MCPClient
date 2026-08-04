@@ -114,6 +114,9 @@ public enum Ring {
             Map.entry("scan_surroundings", R2),
             Map.entry("world_view", R2),
             Map.entry("find_block", R2),
+            // craft_plan reads the static recipe table plus the live inventory and mutates
+            // nothing, so it sits with the other observers rather than with the actuators.
+            Map.entry("craft_plan", R2),
             Map.entry("act_set", R1),
             Map.entry("act_cancel", R1),
             Map.entry("act_status", R3),

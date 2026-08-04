@@ -5,6 +5,7 @@ import net.marcloud.mcp.core.flt.FltManager;
 import net.marcloud.mcp.core.flt.HookBridge;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -56,6 +57,7 @@ public final class ToolRegistry {
         tools.add(scanSurroundings());
         tools.add(worldView());
         tools.add(findBlock());
+        tools.add(craftPlan());
         tools.add(captureScreen());
         // Typed send_* tools (packet-exposure W6): build a specific C-packet and
         // dispatch it via the same veto-guarded ActionManager.sendRawPacket path.
@@ -692,6 +694,138 @@ public final class ToolRegistry {
                 return error("find_block failed: " + e.getMessage());
             }
         });
+    }
+
+    /**
+     * How to make a thing, and what you are short of -- read-only.
+     *
+     * <p>Registered at R2 with CAP_WORLD_READ and no L4 privilege, exactly as {@code world_view} and
+     * {@code find_block} are, because it changes nothing: the recipe table is a static list built at
+     * client startup and the only live read is the player's inventory. The privilege that gates
+     * actually PERFORMING a craft is a separate question and belongs to whatever tool eventually
+     * does it -- see the note below on why that tool does not exist yet. Putting a write privilege on
+     * a read would be the mirror of the defect this repo keeps finding: a gate that describes
+     * something other than what the code does.
+     */
+    private SyncToolSpecification craftPlan() {
+        Tool tool = Tool.builder()
+                .name("craft_plan")
+                .title("How to craft an item, and what is missing")
+                .description("[requires: in-world] HOW to make an item and whether you can right now. "
+                        + "Read-only: it changes nothing, crafts nothing, and moves no items. "
+                        + "'item' is a registry name, namespace optional ('stick' or "
+                        + "'minecraft:stick'), so a name read out of world_view or find_block can be "
+                        + "fed straight in. Returns, per recipe, the grid as (row,col) cells with "
+                        + "(0,0) at the top-left of the RECIPE's own bounding box — NOT a slot index, "
+                        + "because the slot for a cell is row*containerWidth+col and the width depends "
+                        + "on which window is open (2 for your own inventory grid, 3 for a crafting "
+                        + "table), which this tool cannot see. A 'shapeless' recipe's cells are ONE "
+                        + "valid arrangement rather than a required one. When you cannot craft it, "
+                        + "every candidate recipe comes back with a bill naming each missing "
+                        + "ingredient with held/needed counts — go fetch what it names rather than "
+                        + "retrying. Recipes are listed in VANILLA's order, which matters because the "
+                        + "game resolves a filled grid by taking the FIRST match in that same order. "
+                        + "'unsupported' lists recipes that exist but have no fixed grid (armour "
+                        + "dyeing, map and book cloning, repair, banners, fireworks): if 'unsupported' "
+                        + "is non-empty while no recipes are listed, the game CAN make the item and "
+                        + "this tool cannot tell you how — a different answer from there being no "
+                        + "recipe. NOTE there is no tool that performs a craft yet: the multi-tick "
+                        + "controller exists and is tested, but driving it needs a live handle on the "
+                        + "open container window, which is not built. This tool plans; it does not act.")
+                .annotations(ToolAnnotations.builder()
+                        .title("How to craft an item, and what is missing")
+                        .readOnlyHint(true)
+                        .destructiveHint(false)
+                        .idempotentHint(true)
+                        .openWorldHint(false)
+                        .build())
+                .inputSchema(objectSchema(Map.of(
+                        "item", Map.of("type", "string",
+                                "description", "registry name of the OUTPUT, namespace optional")),
+                        List.of("item")))
+                .build();
+
+        return new SyncToolSpecification(tool, (exchange, request) -> {
+            Map<String, Object> args = request.arguments() == null ? Map.of() : request.arguments();
+            String item = str(args.get("item"));
+            if (item == null || item.isBlank()) {
+                return error("craft_plan needs 'item', e.g. \"stick\" or \"minecraft:wooden_pickaxe\"");
+            }
+            try {
+                // Only the inventory section: asking for the default would sample the block grid too,
+                // which at explore radius is tens of thousands of characters this answer never uses.
+                net.marcloud.mcp.core.drivers.world.WorldView v =
+                        net.marcloud.mcp.core.GameBridge.onGameThread(() ->
+                                net.marcloud.mcp.core.drivers.world.WorldViewCapture.capture(
+                                        ctx.game(),
+                                        net.marcloud.mcp.core.drivers.world.ObserveProfile.SPARSE,
+                                        1, List.of("inventory")));
+                if (!v.present()) {
+                    return ok("not in world");
+                }
+                var inv = net.marcloud.mcp.core.drivers.craft.CraftInventory.from(v.inventory());
+                var plan = net.marcloud.mcp.core.drivers.craft.Craft.plan(item, inv);
+                return ok(net.marcloud.mcp.core.io.http.Json.write(craftPlanMap(item, plan)));
+            } catch (Exception e) {
+                return error("craft_plan failed: " + e.getMessage());
+            }
+        });
+    }
+
+    /** Reference-free projection: only Maps, Lists and scalars cross to the model. */
+    private static Map<String, Object> craftPlanMap(
+            String asked, net.marcloud.mcp.core.drivers.craft.Craft.Plan plan) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("item", asked);
+        m.put("canCraft", plan.canCraft());
+        if (plan.craftable() != null) {
+            m.put("craftable", recipeMap(plan.craftable()));
+        }
+        if (!plan.blocked().isEmpty()) {
+            List<Object> blocked = new ArrayList<>();
+            for (var s : plan.blocked()) {
+                Map<String, Object> b = new LinkedHashMap<>();
+                b.put("recipe", recipeMap(s.recipe()));
+                List<Object> missing = new ArrayList<>();
+                for (var miss : s.missing()) {
+                    Map<String, Object> mm = new LinkedHashMap<>();
+                    mm.put("item", miss.item());
+                    if (miss.anyMeta()) {
+                        mm.put("anyMeta", true);
+                    } else {
+                        mm.put("meta", miss.meta());
+                    }
+                    mm.put("held", miss.available());
+                    mm.put("need", miss.need());
+                    missing.add(mm);
+                }
+                b.put("missing", missing);
+                blocked.add(b);
+            }
+            m.put("blocked", blocked);
+        }
+        if (!plan.unsupported().isEmpty()) {
+            m.put("unsupported", plan.unsupported());
+        }
+        return m;
+    }
+
+    private static Map<String, Object> recipeMap(
+            net.marcloud.mcp.core.drivers.craft.RecipeView v) {
+        Map<String, Object> r = new LinkedHashMap<>();
+        r.put("index", v.index());
+        r.put("output", v.output());
+        r.put("outputMeta", v.outputMeta());
+        r.put("outputCount", v.outputCount());
+        r.put("shapeless", v.shapeless());
+        r.put("width", v.width());
+        r.put("height", v.height());
+        List<Object> cells = new ArrayList<>();
+        for (var c : v.cells()) {
+            cells.add(List.of(c.row(), c.col(), c.item(), c.anyMeta() ? -1 : c.meta()));
+        }
+        r.put("cells", cells);
+        return r;
     }
 
     private static String str(Object o) {

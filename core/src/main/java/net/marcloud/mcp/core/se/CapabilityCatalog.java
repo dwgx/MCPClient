@@ -32,6 +32,7 @@ public final class CapabilityCatalog {
             Map.entry("scan_surroundings", Set.of(CAP_WORLD_READ)),
             Map.entry("world_view", Set.of(CAP_WORLD_READ)),
             Map.entry("find_block", Set.of(CAP_WORLD_READ)),
+            Map.entry("craft_plan", Set.of(CAP_WORLD_READ)),
             Map.entry("capture_screen", Set.of(CAP_SCREEN_CAP)),
             Map.entry("gui_snapshot_image", Set.of(CAP_SCREEN_CAP)),
             Map.entry("recent_packets", Set.of(CAP_NETWORK_RECV_TAP)),
