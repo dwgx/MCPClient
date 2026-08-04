@@ -10,6 +10,13 @@ import java.util.Map;
  * game thread); emits only changed sections (a section unchanged is omitted, a
  * token saver). {@code prev == null} falls back to a full projection. Numeric
  * self/entity motion uses a dead-band so idle jitter does not spam the diff.
+ *
+ * <p>Omission is load-bearing here, which makes a field this class forgets to compare worse than
+ * one it compares badly: absence says "unchanged" in the encoding above, so an unexamined field
+ * reports healthy while meaning "never looked". Every self field {@link WorldViewJson#selfMap}
+ * ships must therefore be compared by {@code selfDiff}, and
+ * {@code DiffLeftMeansUnsampledNotGoneTest} derives that check from the record rather than
+ * trusting this sentence.
  */
 public final class WorldViewDiff {
 
@@ -18,6 +25,28 @@ public final class WorldViewDiff {
 
     private static final double POS_BAND = 0.1;
     private static final double YAW_BAND = 1.0;
+
+    /**
+     * Velocity dead-band, wider than a standing player's own gravity oscillation.
+     *
+     * <p>A player on the floor is not at rest: {@code EntityLivingBase:1677-1680} subtracts 0.08
+     * from motionY and damps it by 0.98 every tick, and {@code Block.onLanded} zeroes it again on
+     * the collision, so vy alternates between 0 and -0.0784 for as long as the player does
+     * nothing. Comparing exactly would put a "vel" key in every single poll of an idle player.
+     * 0.1 sits above that 0.0784 and well below everything worth reporting -- a jump is 0.42
+     * ({@code getJumpUpwardsMotion}), a walk settles near 0.216 (base speed 0.1 against 0.546
+     * ground friction), a fall passes 0.1 within two ticks.
+     */
+    private static final double VEL_BAND = 0.1;
+
+    /**
+     * Below this many ticks left, an effect is reported as expiring -- once, on the crossing.
+     *
+     * <p>Vanilla's own threshold for the same signal: {@code EntityRenderer:1063-1066} starts
+     * fading night vision below 200 ticks, so the diff warns at the moment a human player would
+     * see the screen begin to flicker rather than at a number invented here.
+     */
+    private static final int EXPIRY_WARN_TICKS = 200;
 
     public static Map<String, Object> diff(WorldView prev, WorldView cur) {
         if (cur == null || !cur.present()) {
@@ -78,12 +107,33 @@ public final class WorldViewDiff {
                 || Math.abs(a.z() - b.z()) > POS_BAND) {
             m.put("pos", List.of(r(b.x()), r(b.y()), r(b.z())));
         }
+        // Velocity, whole, when any component leaves the band.
+        //
+        // It was never examined at all, which is the defect this section was rewritten for: the
+        // full payload ships "vel", so a caller polling mode=diff reads its absence as "unchanged"
+        // under this payload's own convention, when it actually meant "never looked". Falling,
+        // being knocked back and boat/minecart motion all leave pos within a tick's dead-band
+        // while vel is the only field that says what is happening.
+        //
+        // Emitted as a triple like pos rather than per-axis, because a single component is not
+        // actionable on its own -- a caller asking "am I falling or being pushed" needs all three
+        // from the same tick, and splitting them would invite comparing a fresh vy against a
+        // remembered vx.
+        if (Math.abs(a.vx() - b.vx()) > VEL_BAND || Math.abs(a.vy() - b.vy()) > VEL_BAND
+                || Math.abs(a.vz() - b.vz()) > VEL_BAND) {
+            m.put("vel", List.of(r(b.vx()), r(b.vy()), r(b.vz())));
+        }
         if (Math.abs(a.yaw() - b.yaw()) > YAW_BAND || Math.abs(a.pitch() - b.pitch()) > YAW_BAND) {
             m.put("yaw", r(b.yaw()));
             m.put("pitch", r(b.pitch()));
         }
         if (a.health() != b.health()) m.put("health", b.health());
         if (a.food() != b.food()) m.put("food", b.food());
+        // Saturation, exactly, no dead-band. Vanilla moves it in whole units: FoodStats:47-51
+        // drops it by 1.0 only once exhaustion passes 4.0, and addStats raises it on eating. So an
+        // exact compare fires on the events a caller acts on and is silent between them -- a band
+        // here would only hide the 1.0 steps it exists to report.
+        if (a.saturation() != b.saturation()) m.put("saturation", b.saturation());
         if (a.xpLevel() != b.xpLevel()) m.put("xpLevel", b.xpLevel());
         if (a.armor() != b.armor()) m.put("armor", b.armor());
         // eq(), not !=: air is boxed (null = unreadable, see SelfView#air) and Integer identity
@@ -98,6 +148,88 @@ public final class WorldViewDiff {
         if (a.onGround() != b.onGround()) m.put("onGround", b.onGround());
         if (a.sneaking() != b.sneaking()) m.put("sneaking", b.sneaking());
         if (a.sprinting() != b.sprinting()) m.put("sprinting", b.sprinting());
+        Map<String, Object> fx = effectsDiff(a.effects(), b.effects());
+        if (!fx.isEmpty()) m.put("effects", fx);
+        return m;
+    }
+
+    /**
+     * Effects: gained / lost / expiring. The one self field whose contents move on their own.
+     *
+     * <p>THE RULE, and why it is this one. Three things are reportable -- an effect appears, an
+     * effect is gone, an effect is about to run out -- and a duration merely ticking down is NOT a
+     * change. {@code PotionEffect.deincrementDuration} runs once per tick per effect, so comparing
+     * the lists by equality (or comparing durationTicks at all) would make the self section
+     * non-empty on EVERY poll for as long as anything is active. That is indistinguishable from
+     * not diffing: a caller cannot spot its fire resistance ending in a stream that always says
+     * something changed, which is the failure this method exists to avoid, not a cosmetic one.
+     *
+     * <p>Also rejected: treating a duration INCREASE as a re-application. Decay can only lower it,
+     * so the inference is sound, but {@code TileEntityBeacon:57,89} hands every player in range a
+     * fresh 180-tick effect every 80 ticks -- the rule would emit a gain three times a second for
+     * anyone near a beacon and put the section straight back to always-non-empty. A caller knows
+     * what it drank; what it cannot see without help is the effect ending.
+     *
+     * <p>Keyed by potion id, with an amplifier change reported as a gain rather than a lost+gained
+     * pair: {@code PotionEffect.combine} raises the amplifier in place on the SAME effect, so
+     * "lost" there would read as the effect ending at the moment it got stronger. Compared with
+     * {@code !=} rather than {@code >} so a lower amplifier (the old effect expired and a weaker
+     * one was applied between two polls) is reported honestly instead of silently.
+     *
+     * <p>Not distinguished, deliberately: an empty list because the player has no effects versus
+     * an empty list because {@code WorldViewCapture:80-94} swallowed a Throwable off
+     * getActivePotionEffects(). Both arrive here as {@code List.of()} and every active effect would
+     * report lost. Same shape as the entities.left caveat below and the same answer -- the capture
+     * would have to say whether it managed to read, and inventing that here would be a guess
+     * dressed as data.
+     */
+    private static Map<String, Object> effectsDiff(List<SelfView.Effect> pa,
+                                                   List<SelfView.Effect> pb) {
+        Map<Integer, SelfView.Effect> a = byPotionId(pa);
+        Map<Integer, SelfView.Effect> b = byPotionId(pb);
+        List<Object> gained = new ArrayList<>();
+        List<Object> lost = new ArrayList<>();
+        List<Object> expiring = new ArrayList<>();
+        for (Map.Entry<Integer, SelfView.Effect> e : b.entrySet()) {
+            SelfView.Effect prev = a.get(e.getKey());
+            SelfView.Effect cur = e.getValue();
+            if (prev == null || prev.amplifier() != cur.amplifier()) {
+                gained.add(effectMap(cur, true));
+            } else if (prev.durationTicks() > EXPIRY_WARN_TICKS
+                    && cur.durationTicks() <= EXPIRY_WARN_TICKS) {
+                // The crossing only, so it is said once instead of on every poll of the last ten
+                // seconds. A caller that polls too coarsely to catch the edge still got the
+                // duration when the effect was gained.
+                expiring.add(effectMap(cur, true));
+            }
+        }
+        for (Map.Entry<Integer, SelfView.Effect> e : a.entrySet()) {
+            if (!b.containsKey(e.getKey())) lost.add(effectMap(e.getValue(), false));
+        }
+        Map<String, Object> m = new LinkedHashMap<>();
+        if (!gained.isEmpty()) m.put("gained", gained);
+        if (!lost.isEmpty()) m.put("lost", lost);
+        if (!expiring.isEmpty()) m.put("expiring", expiring);
+        return m;
+    }
+
+    private static Map<Integer, SelfView.Effect> byPotionId(List<SelfView.Effect> es) {
+        Map<Integer, SelfView.Effect> m = new LinkedHashMap<>();
+        if (es != null) {
+            for (SelfView.Effect e : es) m.put(e.id(), e);
+        }
+        return m;
+    }
+
+    /** Named as well as numbered: the id alone is not something a caller can reason about. */
+    private static Map<String, Object> effectMap(SelfView.Effect e, boolean withDuration) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("id", e.id());
+        m.put("name", e.name());
+        m.put("amplifier", e.amplifier());
+        // Omitted on "lost": the last duration seen is not how long it has been gone, and a number
+        // there would be read as time remaining on an effect that no longer exists.
+        if (withDuration) m.put("durationTicks", e.durationTicks());
         return m;
     }
 

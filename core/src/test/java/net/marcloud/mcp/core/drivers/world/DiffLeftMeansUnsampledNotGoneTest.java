@@ -3,6 +3,8 @@ package net.marcloud.mcp.core.drivers.world;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
+import java.lang.reflect.RecordComponent;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -187,5 +189,97 @@ public class DiffLeftMeansUnsampledNotGoneTest {
                 .mapToInt(p -> p.maxEntities).distinct().count();
         assertEquals("distinct caps per profile keep the assertion above meaningful",
                 ObserveProfile.values().length, distinct);
+    }
+
+    // ---- The same "absence means unchanged" convention, applied to the self section.
+    // ---- selfDiff compared eleven fields and never looked at vx/vy/vz, saturation or effects,
+    // ---- so those read as unchanged forever. Below: the rule, derived, not hand-listed.
+
+    private static final SelfView IDLE = new SelfView(10, 64, 0, 0, 0, 0, 0f, 0f, 20f, 20, 5f,
+            3, 0.5f, 0, 300, "SURVIVAL", false, false, true, List.of());
+
+    private static WorldView selfOnly(long tick, SelfView self) {
+        return new WorldView(true, tick, "explore", self, null, List.of(), null, null, null);
+    }
+
+    /** A value of the right type, far enough from the original to clear every dead-band. */
+    private static Object mutate(Class<?> type, Object old) {
+        if (type == double.class) return (Double) old + 5.0;
+        if (type == float.class) return (Float) old + 5.0f;
+        if (type == int.class) return (Integer) old + 5;
+        if (type == boolean.class) return !(Boolean) old;
+        if (type == String.class) return old + "_MUTATED";
+        if (type == List.class) {
+            return List.of(new SelfView.Effect(12, "potion.fireResistance", 0, 6000));
+        }
+        throw new AssertionError("no mutation rule for " + type + "; add one rather than "
+                + "skipping the component, or this test goes quietly hollow");
+    }
+
+    private static SelfView copyWithOneFieldChanged(int componentIndex) throws Exception {
+        RecordComponent[] rcs = SelfView.class.getRecordComponents();
+        Class<?>[] types = new Class<?>[rcs.length];
+        Object[] args = new Object[rcs.length];
+        for (int i = 0; i < rcs.length; i++) {
+            types[i] = rcs[i].getType();
+            args[i] = rcs[i].getAccessor().invoke(IDLE);
+        }
+        args[componentIndex] = mutate(types[componentIndex], args[componentIndex]);
+        return SelfView.class.getDeclaredConstructor(types).newInstance(args);
+    }
+
+    /**
+     * Every self field that mode=full SHIPS must be observable in mode=diff.
+     *
+     * <p>The rule is derived twice over: the fields come from {@link SelfView}'s record
+     * components, and whether full mode ships one is decided by asking
+     * {@link WorldViewJson#selfMap} whether the projection moved. A hand-written list of field
+     * names would have been the hollow shape this repo keeps catching in itself -- it would pass
+     * unchanged the day someone adds a field to SelfView, which is precisely when it needs to
+     * fail.
+     *
+     * <p>Collects every violation instead of failing on the first, because the point of the run
+     * is the SET of unexamined fields; on the code this was written against it named all five
+     * (vx, vy, vz, saturation, effects) in one message.
+     */
+    @Test
+    public void everySelfFieldTheFullPayloadShipsIsObservableInDiffMode() throws Exception {
+        RecordComponent[] rcs = SelfView.class.getRecordComponents();
+        List<String> unexamined = new ArrayList<>();
+        for (int i = 0; i < rcs.length; i++) {
+            SelfView mutated = copyWithOneFieldChanged(i);
+            boolean fullShipsIt = !WorldViewJson.selfMap(IDLE).equals(WorldViewJson.selfMap(mutated));
+            boolean diffSaysSo = WorldViewDiff.diff(selfOnly(1L, IDLE), selfOnly(2L, mutated))
+                    .containsKey("self");
+            if (fullShipsIt && !diffSaysSo) {
+                unexamined.add(rcs[i].getName());
+            }
+        }
+        assertTrue("mode=full ships these self fields but mode=diff never compares them, so a "
+                + "caller polling diff reads their absence as 'unchanged' when it means 'never "
+                + "looked': " + unexamined, unexamined.isEmpty());
+    }
+
+    /**
+     * Guards the derivation above from going hollow the other way.
+     *
+     * <p>The loop can only judge a field it can see on the wire, so a field mode=full does not
+     * emit is silently skipped -- and one is: {@code xpProgress} reaches
+     * {@link SelfView} from capture and is then dropped by {@code selfMap}. Pinning the skip set
+     * exactly means that gap cannot grow unnoticed, and that adding xpProgress to the full
+     * payload turns this red until the diff learns about it too.
+     */
+    @Test
+    public void theOnlySelfFieldInvisibleToThisRuleIsTheOneFullModeAlsoDrops() throws Exception {
+        RecordComponent[] rcs = SelfView.class.getRecordComponents();
+        List<String> notOnTheWire = new ArrayList<>();
+        for (int i = 0; i < rcs.length; i++) {
+            if (WorldViewJson.selfMap(IDLE).equals(WorldViewJson.selfMap(copyWithOneFieldChanged(i)))) {
+                notOnTheWire.add(rcs[i].getName());
+            }
+        }
+        assertEquals("if this set changes, the rule above started skipping fields (or stopped) "
+                + "and one of the two tests is now proving less than it claims",
+                List.of("xpProgress"), notOnTheWire);
     }
 }
