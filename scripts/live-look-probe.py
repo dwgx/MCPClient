@@ -799,7 +799,10 @@ def main():
         return EXIT_SETUP
 
     if not probe_in_world(mcp):
-        print("\nSETUP: not in a world. Load a world and re-run.")
+        # 两种原因都可能:没进世界,或者进了但死了。probe_in_world 上面已经分别报过,
+        # 所以这里不要断言是哪一种 —— 说错了会让读者去 load 一个已经加载好的世界。
+        print("\nSETUP: no live player (not in a world, or in one but DEAD -- see which "
+              "line above failed). Load a world, or respawn, and re-run.")
         return EXIT_SETUP
 
     if args.allow_unfocused:

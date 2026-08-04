@@ -40,6 +40,28 @@ class FakeActuator implements ActActuator {
     int pumpStallAt = 0;
     /** number of pumpDig calls after which the target block disappears (0 = never). */
     int breakAfterPumps = 0;
+    /**
+     * What replaces the block when it breaks, or null to break cleanly into air.
+     *
+     * <p>The state the old fake could not express at all. Measured live, {@code blockPresent} is
+     * true for every filler (water, lava, gravel, tall grass), so an emptiness-based completion test
+     * cannot conclude while the space is occupied. Note the timing was measured too and it does NOT
+     * favour the defect: water arrives 3 ticks after the break while the controller polls every tick,
+     * so vanilla water does not actually produce this state. The knob exists to pin the completion
+     * test's SEMANTICS rather than to reproduce an observed failure.
+     */
+    String fillsWith;
+    /**
+     * Make the pump that BREAKS the block report no damage applied.
+     *
+     * <p>{@code pumpDig} answers "was damage applied", and on the tick a block finishes there is
+     * nothing left to damage. The controller used to test for a stall before testing whether the
+     * block had gone, so this produces a "dig stalled" report for a completed dig -- the one defect
+     * in this family that does not depend on refill timing.
+     */
+    boolean stallOnTheBreakingPump;
+    /** Make {@link #blockAt} return null while presence still reads true (an unreadable target). */
+    boolean blockAtReturnsNull;
     boolean rightClickResult = true;
     boolean useInAirResult = true;
     boolean attackResult = true;
@@ -93,16 +115,50 @@ class FakeActuator implements ActActuator {
     Float lastPrevPitch;
     boolean lastSetWasSnap;
 
+    /**
+     * Registry name per present position, so a test can script a REPLACEMENT and not only a removal.
+     *
+     * <p>Needed because {@code presentBlocks} alone cannot express the case that broke the dig
+     * completion test on a live client: a block that breaks and is immediately replaced by water,
+     * lava or falling gravel. In that world the space is still occupied, so "is it empty" says the
+     * dig is unfinished, while the target really is gone. A fake that can only add and remove
+     * positions cannot produce that state at all -- which is why the defect was invisible headlessly
+     * and had to be found by asking the live client what {@code blockPresent} returns for water.
+     */
+    final java.util.Map<Long, String> blockNames = new java.util.HashMap<>();
+
+    /** What {@link #putBlock(int, int, int)} records when the caller does not name a block. */
+    static final String DEFAULT_BLOCK = "stone";
+
     static long key(int x, int y, int z) {
         return ((long) x & 0x1FFFFF) | (((long) y & 0x1FFFFF) << 21) | (((long) z & 0x1FFFFF) << 42);
     }
 
     void putBlock(int x, int y, int z) {
+        putBlock(x, y, z, DEFAULT_BLOCK);
+    }
+
+    /** Put a NAMED block, so an identity-based completion test has something to compare. */
+    void putBlock(int x, int y, int z, String name) {
         presentBlocks.add(key(x, y, z));
+        blockNames.put(key(x, y, z), name);
+    }
+
+    /**
+     * Break the block and leave {@code replacement} in its place -- water flowing in, gravel falling.
+     *
+     * <p>The state an emptiness test cannot tell from "still digging". Distinct from
+     * {@link #removeBlock} on purpose: that one models a clean break into air, which is the case
+     * that always worked.
+     */
+    void replaceBlock(int x, int y, int z, String replacement) {
+        presentBlocks.add(key(x, y, z));
+        blockNames.put(key(x, y, z), replacement);
     }
 
     void removeBlock(int x, int y, int z) {
         presentBlocks.remove(key(x, y, z));
+        blockNames.remove(key(x, y, z));
     }
 
     // ===== ActActuator =====
@@ -140,6 +196,20 @@ class FakeActuator implements ActActuator {
     @Override
     public boolean blockPresent(int x, int y, int z) {
         return presentBlocks.contains(key(x, y, z));
+    }
+
+    @Override
+    public String blockAt(int x, int y, int z) {
+        if (blockAtReturnsNull) {
+            // An unreadable target while presence still reads true: the live actuator returns null
+            // from its catch block, and a controller must not read that as "the block vanished".
+            return null;
+        }
+        // Null for an absent position, mirroring the live actuator's contract for air. Kept
+        // consistent with blockPresent by construction: both read the same set.
+        return presentBlocks.contains(key(x, y, z))
+                ? blockNames.getOrDefault(key(x, y, z), DEFAULT_BLOCK)
+                : null;
     }
 
     @Override
@@ -193,10 +263,19 @@ class FakeActuator implements ActActuator {
         if (pumpStallAt > 0 && pumpDigCalls >= pumpStallAt) {
             return false;
         }
-        if (breakAfterPumps > 0 && pumpDigCalls >= breakAfterPumps) {
-            removeBlock(x, y, z);
+        boolean breaking = breakAfterPumps > 0 && pumpDigCalls >= breakAfterPumps;
+        if (breaking) {
+            if (fillsWith == null) {
+                removeBlock(x, y, z);
+            } else {
+                // Broken, and the space immediately occupied by something else -- water flowing in,
+                // gravel falling. The target is gone; the position is not empty.
+                replaceBlock(x, y, z, fillsWith);
+            }
         }
-        return true;
+        // Reported AFTER the break is applied, so the caller sees the world as it is on the tick it
+        // reads the answer -- the ordering vanilla itself has.
+        return !(breaking && stallOnTheBreakingPump);
     }
 
     @Override

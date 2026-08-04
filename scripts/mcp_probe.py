@@ -195,10 +195,38 @@ PREAMBLE = """
 
 
 def probe_in_world(mcp):
+    """In a world AND ALIVE. The second half was missing and it cost a confusing round.
+
+    A dead player still satisfies `thePlayer != null`, so this returned PASS with the death screen
+    up -- and then every probe below failed for a reason that had nothing to do with the code. Seen
+    for real: the LOOK track never terminated, the hold could not eat ("using=true keyDown=false"),
+    the bow fired nothing, and nav scored 3/11. Three probes, eight failures, one cause, and none of
+    the messages pointed at it. That is exactly the false-FAIL this module's guards exist to prevent,
+    and it is worse than most because it looks like a regression in whatever was just changed.
+
+    Reported as its own line rather than folded into the world check, so the answer to "why did
+    everything break" is on screen instead of inferred. The caller treats a false return as SETUP,
+    the same as not being in a world at all -- because that is what it is: the player has to be
+    respawned before anything below measures anything.
+    """
     out = mcp.java("NavWhere", PREAMBLE + """
-        return "AT " + from + " onGround=" + p.onGround + " dim=" + w.provider.getDimensionId();
+        return "AT " + from + " onGround=" + p.onGround + " dim=" + w.provider.getDimensionId()
+             + " hp=" + p.getHealth()
+             + " screen=" + (mc.currentScreen == null ? "null" : mc.currentScreen.getClass().getSimpleName());
     """)
-    return record("the player is in a world", out.startswith("AT "), out.strip()[:200])
+    if not record("the player is in a world", out.startswith("AT "), out.strip()[:200]):
+        return False
+    # Parsed rather than pattern-matched on "hp=0.0": a float formats differently across paths, and
+    # the question is "is this player alive", which is a number comparison.
+    alive = True
+    try:
+        alive = float(out.split("hp=", 1)[1].split(" ", 1)[0]) > 0.0
+    except (IndexError, ValueError):
+        pass
+    return record("and ALIVE (a dead player satisfies every other precondition and fails "
+                  "everything below for reasons that are not about the code)", alive,
+                  "" if alive else "SETUP-DEAD: respawn first -- mc.thePlayer.respawnPlayer(), then "
+                                   "clear the screen. " + out.strip()[:160])
 
 
 def is_ticking(mcp):

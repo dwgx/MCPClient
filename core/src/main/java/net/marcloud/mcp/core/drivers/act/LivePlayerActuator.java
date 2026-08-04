@@ -98,6 +98,37 @@ public final class LivePlayerActuator implements ActActuator {
     }
 
     @Override
+    public String blockAt(int x, int y, int z) {
+        WorldClient w = game.world();
+        if (w == null) {
+            return null;
+        }
+        try {
+            BlockPos pos = new BlockPos(x, y, z);
+            if (w.isAirBlock(pos)) {
+                return null;
+            }
+            var loc = net.minecraft.block.Block.blockRegistry.getNameForObject(
+                    w.getBlockState(pos).getBlock());
+            if (loc == null) {
+                return null;
+            }
+            // Stripped of the namespace, matching what world_view and find_block already emit, so a
+            // name read out of either can be compared with one from here.
+            String s = loc.toString();
+            int colon = s.indexOf(':');
+            return colon >= 0 ? s.substring(colon + 1) : s;
+        } catch (Throwable t) {
+            // Null rather than a guess: this feeds a completion test, and inventing a name would
+            // make an unreadable position look like a block that is still there (or one that
+            // vanished, depending on the guess). Absence is the honest answer, and the caller
+            // (DigController) treats an unreadable target as "gone" only in combination with having
+            // started, exactly as it treats real air.
+            return null;
+        }
+    }
+
+    @Override
     public int heldSlot() {
         EntityPlayerSP p = game.player();
         return p == null ? -1 : p.inventory.currentItem;

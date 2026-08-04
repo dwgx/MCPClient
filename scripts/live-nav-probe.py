@@ -867,7 +867,10 @@ def main():
         return 3
 
     if not probe_in_world(mcp):
-        print("\nSETUP: not in a world. Load a world, stand somewhere open and disposable, re-run.")
+        # 两种原因都可能:没进世界,或者进了但死了 —— probe_in_world 上面已分别报过。
+        # 别在这里断言是哪一种:说错了会让读者去 load 一个已经加载好的世界。
+        print("\nSETUP: no live player (not in a world, or in one but DEAD -- see which line above "
+              "failed). Load a world and stand somewhere open and disposable, or respawn, re-run.")
         return 3
 
     # The window will not have focus while a script drives it, and an unfocused vanilla stops

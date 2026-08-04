@@ -42,6 +42,28 @@ public final class DigController {
     private int pumps;
     private boolean cancelRequested;
 
+    /**
+     * The registry name of the block this dig is actually breaking, sampled when the dig started.
+     *
+     * <p>The completion test compares against THIS rather than asking whether the space is empty.
+     * Measured on a live client, {@code blockPresent} is true for water, lava, gravel and tall grass
+     * -- everything but air -- so as a completion test it reports "still digging" for any position
+     * that has been refilled, when the block in fact broke.
+     *
+     * <p><b>Not a fix for an observed stall,</b> and the record of that correction belongs here: the
+     * predicted failure was that mining underwater would announce "dig stalled" about a broken block,
+     * and measured live it does not. Water reaches the emptied space 3 game ticks after the break
+     * (its {@code tickRate} is 5) while this controller polls once per tick, so the deciding poll
+     * still sees air. This is therefore correctness by construction -- the test now asks the
+     * caller's actual question regardless of refill timing -- while the defect that WAS reachable is
+     * the ordering one below, which does not depend on timing at all.
+     *
+     * <p>Sampled on the tick the dig STARTS, not at construction: those are different ticks, and in
+     * between the world can change. Null when the target could not be read, which the completion
+     * test treats the same way it treats air -- see {@link #targetGone}.
+     */
+    private String diggingBlock;
+
     public DigController(InteractIntent intent) {
         this(intent, DEFAULT_START_ATTEMPTS);
     }
@@ -78,12 +100,16 @@ public final class DigController {
         if (!act.inWorld()) {
             return ActOutcome.failed("not in world");
         }
-        if (!act.blockPresent(x, y, z)) {
-            // Nothing there. If we had already started, the block broke → success;
-            // otherwise there was never anything to dig → honest fail.
-            if (state == State.DIGGING) {
-                return ActOutcome.done("block (" + x + "," + y + "," + z + ") broken after " + pumps + " ticks");
+        if (state == State.DIGGING) {
+            // Once digging, the question is whether OUR block is gone -- not whether the space is
+            // empty. Something flowing or falling in leaves the space occupied while the target is
+            // broken, which an emptiness test reads as "still digging".
+            if (targetGone(act)) {
+                return ActOutcome.done(brokenMessage(act));
             }
+        } else if (!act.blockPresent(x, y, z)) {
+            // Not started yet and nothing there: there was never anything to dig. Emptiness IS the
+            // right question here -- the caller named a position expecting a block at it.
             return ActOutcome.failed("no block to dig at (" + x + "," + y + "," + z + ")");
         }
         if (outOfReach(act)) {
@@ -95,7 +121,13 @@ public final class DigController {
                 startAttempts++;
                 if (act.startDig(x, y, z, face)) {
                     state = State.DIGGING;
-                    return ActOutcome.running("started digging (" + x + "," + y + "," + z + ")");
+                    // Sampled HERE, on the tick the dig actually began, because that is the block
+                    // vanilla is now breaking. Sampling at construction would record whatever was
+                    // there when the intent was built, which can be several ticks earlier.
+                    diggingBlock = act.blockAt(x, y, z);
+                    return ActOutcome.running("started digging "
+                            + (diggingBlock == null ? "" : diggingBlock + " ")
+                            + "(" + x + "," + y + "," + z + ")");
                 }
                 if (startAttempts >= maxStartAttempts) {
                     return ActOutcome.failed("could not start digging after " + startAttempts + " attempts");
@@ -105,14 +137,51 @@ public final class DigController {
             default:
                 boolean progressed = act.pumpDig(x, y, z, face);
                 pumps++;
+                // The GONE test comes before the stall test, and the order is load-bearing. A pump
+                // reports whether damage was applied, so the tick that finishes a block can report
+                // false -- there is nothing left to damage. Checking the stall first announced
+                // "dig stalled" for the very block that had just broken, and with something flowing
+                // into the space the emptiness test that used to follow could not correct it either.
+                if (targetGone(act)) {
+                    return ActOutcome.done(brokenMessage(act));
+                }
                 if (!progressed) {
                     return ActOutcome.failed("dig stalled at (" + x + "," + y + "," + z + ")");
                 }
-                if (!act.blockPresent(x, y, z)) {
-                    return ActOutcome.done("block (" + x + "," + y + "," + z + ") broken after " + pumps + " ticks");
-                }
-                return ActOutcome.running("digging (" + x + "," + y + "," + z + "), " + pumps + " ticks");
+                return ActOutcome.running("digging " + (diggingBlock == null ? "" : diggingBlock + " ")
+                        + "(" + x + "," + y + "," + z + "), " + pumps + " ticks");
         }
+    }
+
+    /**
+     * Whether the block this dig started on is no longer at the target.
+     *
+     * <p>The completion test, and it asks about the TARGET rather than about the space. Air, a
+     * different block, or an unreadable position all mean our block is gone; water or gravel filling
+     * the space is a DIFFERENT block, which is precisely the case an emptiness test got wrong.
+     *
+     * <p>Falls back to the emptiness test only when the start sample could not be read
+     * ({@code diggingBlock == null}). That keeps a broken {@code blockAt} from making every dig
+     * complete instantly: with no baseline to compare, the old question is the only one available,
+     * and it is wrong in the safe direction (it under-reports completion rather than over-reporting
+     * it).
+     */
+    private boolean targetGone(ActActuator act) {
+        if (diggingBlock == null) {
+            return !act.blockPresent(x, y, z);
+        }
+        return !diggingBlock.equals(act.blockAt(x, y, z));
+    }
+
+    /** The COMPLETE message, naming what replaced the block when something did. */
+    private String brokenMessage(ActActuator act) {
+        String now = act.blockAt(x, y, z);
+        String what = diggingBlock == null ? "block" : diggingBlock;
+        // The replacement is named because it changes what the caller should do next: a hole it can
+        // walk into is not the same as one that just filled with lava, and "broken" alone reads as
+        // the former. Silent when the space is empty, which is the ordinary case.
+        String filled = now == null ? "" : ", now " + now;
+        return what + " (" + x + "," + y + "," + z + ") broken after " + pumps + " ticks" + filled;
     }
 
     private boolean outOfReach(ActActuator act) {

@@ -37,8 +37,56 @@ public interface ActActuator {
     /** What the player is currently looking at (crosshair ray), never null. */
     Target mouseOver();
 
-    /** True if a (non-air) block is present at the given coords. */
+    /**
+     * True if a (non-air) block is present at the given coords.
+     *
+     * <p>Answers "is there anything here", which is the right question for deciding whether a dig
+     * has something to start on. It is NOT the right question for deciding whether a dig FINISHED --
+     * see {@link #blockAt} for that, and for the defect that distinction was drawn from.
+     */
     boolean blockPresent(int x, int y, int z);
+
+    /**
+     * The registry name of the block at the given coords ({@code "stone"}, {@code "iron_ore"}), or
+     * {@code null} for air, out of range, or no world.
+     *
+     * <p><b>Why a name and not a boolean.</b> {@link #blockPresent} is
+     * {@code getMaterial() != Material.air}, so it answers "is this air" -- and a dig is finished
+     * when the TARGETED BLOCK is gone. Measured on a live client, {@code blockPresent} returns true
+     * for water, flowing water, lava, gravel, tall grass and a torch: everything except air. So as a
+     * completion test it reports "still digging" for any position that has been refilled, when the
+     * honest answer is that the block broke.
+     *
+     * <p><b>What was NOT measured, stated because the first version of this javadoc claimed it.</b>
+     * The predicted consequence was that mining stone underwater would report "dig stalled" about a
+     * broken block. It does not, and the reason is a race this comment originally got wrong:
+     * measured live, water reaches the emptied space <b>3 game ticks</b> after the break
+     * (t=362045 to t=362048, water's {@code tickRate} is 5), while {@link DigController} polls once
+     * per tick -- so the deciding poll happens while the space is still air and the old emptiness
+     * test completed correctly. Lava is slower still ({@code tickRate} 30), and falling gravel
+     * becomes an entity rather than a block, so it does not fill the space on the breaking tick
+     * either.
+     *
+     * <p>So this accessor is <b>correctness by construction rather than a fix for an observed
+     * failure</b>: it makes the completion test ask the caller's actual question, which holds
+     * whatever the refill timing turns out to be on a server with different fluid rates, a modded
+     * block that replaces itself instantly, or another player filling the hole. The reachable defect
+     * that came with it is the ORDERING one -- {@link DigController} tested the stall before the
+     * gone -- which does not depend on refill timing at all.
+     *
+     * <p>A name rather than an opaque handle because this interface holds no {@code net.minecraft}
+     * type by design -- it is the seam that makes the controllers headlessly testable -- and because
+     * the same registry names already cross the boundary in {@code world_view} and
+     * {@code find_block}, so a caller comparing the two is comparing like with like.
+     *
+     * <p><b>The one case it cannot separate,</b> stated rather than papered over: digging gravel with
+     * more gravel above it. The replacement has the same name as the target, so the identity test
+     * reads "still there" and the controller keeps digging the block that fell in. Vanilla offers
+     * nothing to distinguish them either -- a block has no per-instance identity -- and the
+     * behaviour that results (keep digging until the column is clear) is what a caller asking to dig
+     * gravel most likely wants.
+     */
+    String blockAt(int x, int y, int z);
 
     /** The current hotbar slot (0-8). */
     int heldSlot();
