@@ -21,9 +21,11 @@
 | `gui_snapshot` / `gui_click_element` | vanilla GUI 自动化 | 无 | **看不到 dwm 控件**(§5) |
 | `scripts/live-dwm-probe.py` | 30 项真机回归 | 客户端在跑 | 它自己也会有 bug(§6) |
 | `scripts/nav-astar-probe.py` | 内核侧:寻路/移动/感知 | 客户端在跑 | 见 §10 |
-| `scripts/live-hold-probe.py` | 内核侧:INTERACT hold 通道 7 项 | 客户端在跑 | 见 §10 |
-| `scripts/live-nav-probe.py` | 内核侧:四方向/**对角线**/1 格台阶 | 客户端在跑 | **尚未跑过**,见 §10 |
+| `scripts/live-hold-probe.py` | 内核侧:INTERACT hold 通道 13 项 | 客户端在跑 | 自己布置前提(会改世界),见 §10 |
+| `scripts/live-nav-probe.py` | 内核侧:四方向/**对角线**/1 格台阶 | 客户端在跑 | 会铺平场地,见 §10 |
+| `scripts/live-look-probe.py` | 内核侧:LOOK 追踪(KEEP)11 项 | 客户端在跑 | 会生成/移动实体,见 §10 |
 | `scripts/mcp_probe.py` | 以上探针共用的客户端与守卫(不是探针本身) | 无 | 见 §10 |
+| `scripts/mutate.py` | 注入变异证明断言不是空转(不是探针) | 无 | 见交接 08-06 §2④ |
 
 ---
 
@@ -275,7 +277,7 @@ GL_ALPHA_TEST            -> GREATER ref=0.1 => 25.5         ⇒ 命中,8/8 数�
 
 ---
 
-## 10. 内核侧真机验证:四条会让你误诊自己代码的规则
+## 10. 内核侧真机验证:七条会让你误诊自己代码的规则
 
 前九节都是 dwm/渲染侧。内核侧(act / world_view / hold)的真机验证走**另一条路** ——
 MCP socket + `eval_java`,而不是 JUnit。原因写在 `LiveGameGate` 里:`GameAccess` 读
@@ -297,7 +299,11 @@ record/report 与 0/1/2/3 退出码约定。三个探针都 `import mcp_probe`,*
 > 子类,实测验过。
 
 范例:`scripts/nav-astar-probe.py`(寻路/感知)、`scripts/live-hold-probe.py`(hold 通道,
-真机 7/7 两次)、`scripts/live-nav-probe.py`(导航三条断言,**尚未跑过**)。
+13/13)、`scripts/live-nav-probe.py`(导航三条,11/11,**对角线在 2026-08-06 第一次到达**)、
+`scripts/live-look-probe.py`(LOOK 追踪,11/11)。
+
+> **2026-08-06 补了 ⑤⑥⑦ 三条,都是这一轮真机踩出来的。** 完整证据链在
+> `agency/handoff-2026-08-06.md` §3 —— 那一节记着四个缺陷,其中一个是当轮作者自己的误诊。
 
 ### ① 一次 `eval_java` 提交 = 一个游戏 tick。循环 tick 只会饿死它自己
 
@@ -357,3 +363,49 @@ survival 玩家**捡了回去**,消耗 1 又捡回 1,净变化 0。
   **内部**,所以即使箭实体已经消失,耐久 +1 也证明代码路径跑到了那里。
 
 **"没观测到效果"和"效果发生过又被撤销了"是两件事**,而这个仓库反复栽在把后者当前者。
+
+### ⑤ headless 全绿之后,第一次真机全绿是最不该相信的结果
+
+**真机上也要做变异。** 改生产侧、重新 `./mvnw -q -pl core -am package -DskipTests`、
+重启客户端、重跑探针。实测:把 LOOK 的 `AimMode.KEEP` 改回"到位即终止"(即复现原缺陷),
+**11 条里 6 条转红** —— 只有这一步之后,那 11/11 才是证据而不是巧合。
+
+同一条纪律的另一半:**探针的消息字面量是手抄自 Java 的**,所以自检可以 27/27 全绿而每一条
+真机断言都因为对不上而失败 —— 两半互相同意,谁也不同意生产代码。
+`scripts/test_probe_framing.py` 的 `ProbeMessageLiteralsMatchProductionTest` 把它们钉在
+`LookController.java` 的字符串字面量上(Java 会把长消息拆成多行 `+` 拼接,所以先按序拼回
+一个 blob 再找)。实测改一句 wording,两条测试红。
+
+### ⑥ `isFullCube()` 不能用来判断"这里有没有地板"
+
+`Block.isFullCube()` **无条件 `return true`**(`Block.java:366`),而 `BlockAir`
+**不覆盖它** —— 只覆盖 `isOpaqueCube`。所以 **`air.isFullCube()` 是 `true`**,
+用它写的地板检查**从构造上不可能失败**。
+
+真机实测:
+
+| block | `isFullCube` | `isBlockNormalCube` |
+|---|---|---|
+| air | **true** | false |
+| stone / grass | true | true |
+| water / tallgrass / lava | false | false |
+
+判"实心可站"用 **`isBlockNormalCube()`**(= `blocksMovement() && isFullCube()`)。
+这个坑让 nav 探针的 flatten **从不填坑**、`verify_arena` 在一个真实的坑上报 `bad=0`,
+而失败表现为 controller 报"stuck against a wall" —— **报告是诚实的,场地是坏的**。
+`core` 里零使用,但那是查出来的不是保证的。
+
+### ⑦ 探针改了世界要自己拆干净,而且要**断言**拆掉了
+
+nav 探针的 step 墙拆除只被 `print` 从未被断言,加上 ⑥ 那个坑把空气数成实心,于是"建墙"
+和"拆墙"打印出**完全相同的** `serverSolid=11`。留下的墙污染**下一次运行**的 +X 腿 ——
+失败跨运行延迟出现且没有可见来由,**这是探针能留下的最坏的东西**。
+
+同族的另一条:**前提只能 skip 的探针,skip 在 tally 里和 pass 长得一样。** hold 探针的第一个
+吃饭检查会把自己的前提吃掉(填满饥饿),于是后两条 skip;实测一次 4/6 带两条
+`SKIPPED-NOT-MEASURED`,而输出里没有任何东西说这个通道没被验证。**探针应当自己布置前提**
+(hold 探针现在在服务端塞食物/弓/箭并压低饥饿,并在两条吃饭检查之间补回)。
+
+**重启客户端要等端口真的释放。** `pkill` 之后立刻起新的会撞
+`BindException: Address already in use`,而新客户端会**没有 transport 地跑起来** ——
+看起来像探针连不上,实际上是两个进程抢 25599。踩过一次。
