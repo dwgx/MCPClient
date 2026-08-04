@@ -250,18 +250,35 @@ def probe_exactly_one_item_is_consumed(mcp):
                   f"consumed={consumed} ({before} -> {after}) | {result.get('phase')}")
 
 
-def probe_screen_gates_vanillas_stop(mcp):
-    """The claim now in the tool description, and the one this session got backwards first.
+def probe_screen_gates_vanillas_stop(mcp, focus):
+    """The claim in the tool description -- and it is CONDITIONAL, which this probe first missed.
 
     Minecraft.java:2118-2122 ends a held use, but the whole block sits inside
     "currentScreen == null || currentScreen.allowUserInput" at Minecraft.java:1829, and
     allowUserInput defaults false with only GuiInventory/GuiContainerCreative setting it. So a
-    screen both clears the key AND gates off the code that would end the use: the item keeps
-    being used with nobody driving it. Read from source; never observed. This observes it.
+    screen gates off the code that would end the use: the item keeps being used with nobody
+    driving it.
+
+    THE KEY-CLEARING HALF IS GATED ON FOCUS, and asserting it unconditionally is what made this
+    probe report a false failure. KeyBinding.unPressAllKeys runs inside setIngameNotInFocus, which
+    is guarded by "if (this.inGameHasFocus)" (Minecraft.java:1467-1469). Measured both ways on a
+    live client: with in-game focus, opening chat cleared the key; WITHOUT it, the key survived.
+    A script-driven client is normally unfocused, so the probe was asserting the branch it was
+    least likely to be in -- and the resulting FAIL looked like a defect in the hold channel.
+
+    So the condition is now ESTABLISHED rather than assumed, and the probe runs BOTH ways: the
+    caller passes the focus state it wants and the expectation follows from it. A probe that can
+    only make its assertion true by luck is not measuring anything.
     """
+    prefix = "focused" if focus else "unfocused"
     out = mcp.java("HoldScreen", PREAMBLE + ACT + """
         net.minecraft.item.ItemStack held = p.getHeldItem();
         if (held == null) return "SETUP-EMPTY-HAND";
+        // Establish the focus state this run is about, so the expectation below is not a guess.
+        java.lang.reflect.Field ff =
+            net.minecraft.client.Minecraft.class.getDeclaredField("inGameHasFocus");
+        ff.setAccessible(true);
+        ff.setBoolean(mc, %s);
 
         // Start a use the way vanilla does, then assert the key so it is sustained.
         act.holdUseKey();
@@ -269,20 +286,40 @@ def probe_screen_gates_vanillas_stop(mcp):
         if (!p.isUsingItem()) { act.releaseUseKey(); return "SETUP-USE-DID-NOT-START started=" + started; }
 
         int countAtOpen = act.itemInUseCount();
-        // A chat screen: it does NOT set allowUserInput, so it should gate vanilla's stop branch.
+        // Read BEFORE opening, because displayGuiScreen -> setIngameNotInFocus SETS IT FALSE
+        // (Minecraft.java:1470) as part of the very branch under test. Reading it afterwards
+        // reports false on both runs, so the field would prove nothing about which branch ran --
+        // the focused case passed with "focus=false" printed beside it until this was fixed, which
+        // is a probe agreeing with itself rather than measuring.
+        boolean focusBeforeOpen = ff.getBoolean(mc);
+        // Chat: it does NOT set allowUserInput, so it gates vanilla's stop branch -- and its
+        // doesGuiPauseGame() is false, so it does NOT pause the world. Both halves matter.
         mc.displayGuiScreen(new net.minecraft.client.gui.GuiChat());
         String screen = mc.currentScreen == null ? "null" : mc.currentScreen.getClass().getSimpleName();
         boolean allowsInput = mc.currentScreen != null && mc.currentScreen.allowUserInput;
         boolean keyAfterOpen = act.useKeyHeld();
-        return "screen=" + screen + " allowUserInput=" + allowsInput
+        return "focusBeforeOpen=" + focusBeforeOpen + " focusAfterOpen=" + ff.getBoolean(mc)
+             + " screen=" + screen + " allowUserInput=" + allowsInput
+             + " pausesGame=" + mc.currentScreen.doesGuiPauseGame()
              + " keyAfterOpen=" + keyAfterOpen + " usingAtOpen=" + p.isUsingItem()
              + " countAtOpen=" + countAtOpen;
-    """)
+    """ % ("true" if focus else "false"))
     if out.startswith("SETUP"):
-        return record("a screen clears the key without ending the use", False,
+        return record(f"[{prefix}] a screen gates vanilla's stop branch", False,
                       "SKIPPED-NOT-MEASURED: " + out.strip())
-    opened = record("opening chat clears the use key (unPressAllKeys via displayGuiScreen)",
-                    "keyAfterOpen=false" in out and "allowUserInput=false" in out, out.strip())
+
+    # The expectation FOLLOWS from the focus state rather than being fixed: cleared when the game
+    # had in-game focus, survived when it did not. Either outcome is correct for its own branch, and
+    # asserting the pair is what pins the gate itself rather than one accident of it.
+    want_cleared = "keyAfterOpen=false" if focus else "keyAfterOpen=true"
+    # The precondition is ASSERTED, not assumed: if the focus state this run is named for was not
+    # actually in force when the screen opened, the run measured the other branch and saying so is
+    # the only honest outcome.
+    want_focus = "focusBeforeOpen=true" if focus else "focusBeforeOpen=false"
+    opened = record(
+        f"[{prefix}] opening chat {'clears' if focus else 'does NOT clear'} the use key "
+        f"(unPressAllKeys is gated on inGameHasFocus, Minecraft.java:1467-1469)",
+        want_focus in out and want_cleared in out and "allowUserInput=false" in out, out.strip())
 
     # Second eval, so real game ticks pass in between: the whole question is what vanilla does
     # on the ticks AFTER the screen opened. Reading it in the same submission would only show
@@ -291,13 +328,110 @@ def probe_screen_gates_vanillas_stop(mcp):
         boolean using = p.isUsingItem();
         int count = p.getItemInUseCount();
         String screen = mc.currentScreen == null ? "null" : mc.currentScreen.getClass().getSimpleName();
+        boolean paused = mc.isGamePaused();
         mc.displayGuiScreen(null);
-        return "screen=" + screen + " stillUsing=" + using + " count=" + count;
+        net.minecraft.client.settings.KeyBinding.unPressAllKeys();
+        return "screen=" + screen + " stillUsing=" + using + " count=" + count
+             + " isGamePaused=" + paused;
     """)
     still = "stillUsing=true" in out2
-    record("and vanilla does NOT end the use while that screen is open -- the claim in the "
-           "act_set description", still, out2.strip())
+    record(f"[{prefix}] and vanilla does NOT end the use while that screen is open -- the claim in "
+           "the act_set description", still, out2.strip())
+    # Chat must NOT pause the world, which is the half the first version of this session's fix got
+    # backwards: it listed chat among the screens that freeze a use. Measured, chat lets a meal
+    # finish. Asserted here so a future change cannot quietly reintroduce that claim.
+    record(f"[{prefix}] and chat does NOT pause the game, so the use keeps counting down",
+           "isGamePaused=false" in out2,
+           "GuiChat.doesGuiPauseGame() is false -- the one override that returns false, so unlike "
+           "the pause menu or a chest it does not stop theWorld.updateEntities: " + out2.strip())
     return opened and still
+
+
+def probe_a_pausing_screen_freezes_the_use(mcp):
+    """A PAUSING screen freezes the use, and the deadline must blame the client rather than the server.
+
+    The defect this found on a live client: the deadline said "the server never sent the finish
+    (status id 9)" while the game was simply paused. In single player isGamePaused is true for any
+    screen whose doesGuiPauseGame() is true -- GuiScreen's DEFAULT, so the pause menu, a chest, a
+    furnace -- and that gate stops theWorld.updateEntities (Minecraft.java:2195-2202), so nothing
+    counts down and the integrated server is not running either. A caller told to check its
+    connection would be looking in the wrong place entirely.
+
+    Reachable only on an unfocused client, because a focused one has its key cleared by the same
+    screen and ends on the key-lost branch instead. So this probe establishes that state explicitly.
+    """
+    import json as _json
+    import time as _time
+
+    setup = mcp.java("PauseSetup", PREAMBLE + """
+        net.minecraft.server.integrated.IntegratedServer srv = mc.getIntegratedServer();
+        if (srv == null || srv.getConfigurationManager().getPlayerList().isEmpty())
+            return "SETUP-NO-SERVER-PLAYER";
+        net.minecraft.entity.player.EntityPlayerMP sp =
+            srv.getConfigurationManager().getPlayerList().get(0);
+        net.minecraft.item.ItemStack sheld = sp.getHeldItem();
+        if (sheld == null || !(sheld.getItem() instanceof net.minecraft.item.ItemFood))
+            return "SETUP-SERVER-NO-FOOD held=" + (sheld == null ? "empty" : sheld.getDisplayName());
+        if (!sp.canEat(false)) return "SETUP-SERVER-NOT-HUNGRY food=" + sp.getFoodStats().getFoodLevel();
+        if (mc.currentScreen != null) mc.displayGuiScreen(null);
+        net.minecraft.client.settings.KeyBinding.unPressAllKeys();
+        // Unfocused: this is the state in which the key SURVIVES a screen, which is what makes the
+        // deadline reachable at all.
+        java.lang.reflect.Field ff =
+            net.minecraft.client.Minecraft.class.getDeclaredField("inGameHasFocus");
+        ff.setAccessible(true); ff.setBoolean(mc, false);
+        return "food=" + sp.getFoodStats().getFoodLevel() + " focus=" + ff.getBoolean(mc);
+    """).strip()
+    if setup.startswith("SETUP"):
+        return record("a pausing screen freezes the use, and the deadline blames the client", False,
+                      "SKIPPED-NOT-MEASURED: " + setup)
+
+    mcp.call("act_set", {"interact": {"kind": "hold"}})
+    _time.sleep(0.7)
+
+    def interact():
+        try:
+            st = _json.loads(mcp.call("act_status", {}).get("text", "{}"))
+        except ValueError:
+            return {}
+        return next((s for s in st.get("slots", []) if s.get("slot") == "interact"), {})
+
+    if interact().get("phase") != "ACTIVE":
+        return record("a pausing screen freezes the use, and the deadline blames the client", False,
+                      "SKIPPED-NOT-MEASURED: the hold did not start: "
+                      + str(interact().get("message"))[:160])
+
+    opened = mcp.java("OpenPause", PREAMBLE + """
+        mc.displayGuiScreen(new net.minecraft.client.gui.GuiIngameMenu());
+        return "screen=" + mc.currentScreen.getClass().getSimpleName()
+             + " pausesGame=" + mc.currentScreen.doesGuiPauseGame();
+    """).strip()
+
+    # The deadline is initialCount + SERVER_FINISH_SLACK_TICKS, i.e. about 72 ticks for food, so a
+    # ~12s bound is generous while still failing rather than hanging if it never terminates.
+    last = {}
+    deadline = _time.time() + 14.0
+    while _time.time() < deadline:
+        _time.sleep(0.6)
+        last = interact()
+        if last.get("phase") in ("COMPLETE", "FAILED", "CANCELLED"):
+            break
+
+    mcp.java("ClosePause", PREAMBLE + """
+        mc.displayGuiScreen(null);
+        net.minecraft.client.settings.KeyBinding.unPressAllKeys();
+        return "closed";
+    """)
+    mcp.call("act_cancel", {"slots": ["interact"]})
+
+    msg = str(last.get("message", ""))
+    ok = (last.get("phase") == "FAILED"
+          and "the count has not moved for" in msg
+          and "isGamePaused" in msg
+          and "the server never sent the finish" not in msg)
+    return record("a pausing screen freezes the use, and the deadline blames the CLIENT rather "
+                  "than the server", ok, f"{opened} | {last.get('phase')} after "
+                  f"{last.get('ticksActive')} ticks: {msg[:400]}")
 
 
 def probe_bow_fires_on_release(mcp):
@@ -375,6 +509,80 @@ def probe_bow_fires_on_release(mcp):
                   f"{result.get('phase')}: {msg[:150]}")
 
 
+def stage_preconditions(mcp):
+    """Put food, a bow and arrows in hand and make the player hungry, on the SERVER.
+
+    Every probe below has a precondition it can only SKIP on, and a run of skips is indistinguishable
+    from a run of passes in the tally -- worse, the first eat probe SATISFIES its own precondition
+    away by filling the hunger bar, so the second and third then skip. Measured: a first run gave
+    4/6 with two SKIPPED-NOT-MEASURED, and nothing about that output said the channel was unverified.
+
+    Staged on the integrated server because the server is the authority on whether a use completes
+    (debugging.md section 10 rule 2): a client-only stack leaves the server with an empty hand, it
+    never starts eating, status id 9 never arrives, and the controller's honest "this is not
+    progressing" reads as a defect. sendContainerToPlayer pushes the change back so the two agree.
+
+    It MUTATES the world, deliberately and loudly: this probe is for a throwaway world, the same
+    assumption live-nav-probe.py makes when it flattens an arena.
+    """
+    out = mcp.java("HoldStage", PREAMBLE + """
+        net.minecraft.server.integrated.IntegratedServer srv = mc.getIntegratedServer();
+        if (srv == null || srv.getConfigurationManager().getPlayerList().isEmpty())
+            return "SETUP-NO-SERVER-PLAYER";
+        net.minecraft.entity.player.EntityPlayerMP sp =
+            srv.getConfigurationManager().getPlayerList().get(0);
+        // Survival, because EntityPlayer.canEat also requires !capabilities.disableDamage
+        // (EntityPlayer.java:2088) and creative sets it -- a creative player cannot eat at all.
+        if (sp.theItemInWorldManager.getGameType()
+                != net.minecraft.world.WorldSettings.GameType.SURVIVAL) {
+            sp.setGameType(net.minecraft.world.WorldSettings.GameType.SURVIVAL);
+        }
+        sp.inventory.mainInventory[0] =
+            new net.minecraft.item.ItemStack(net.minecraft.init.Items.bread, 16);
+        sp.inventory.mainInventory[1] =
+            new net.minecraft.item.ItemStack(net.minecraft.init.Items.bow, 1);
+        sp.inventory.mainInventory[2] =
+            new net.minecraft.item.ItemStack(net.minecraft.init.Items.arrow, 64);
+        sp.inventory.markDirty();
+        sp.sendContainerToPlayer(sp.inventoryContainer);
+        // Hungry enough that canEat passes for every eat probe, not just the first.
+        sp.getFoodStats().setFoodLevel(6);
+        return "gamemode=" + sp.theItemInWorldManager.getGameType()
+             + " serverFood=" + sp.getFoodStats().getFoodLevel()
+             + " slot0=" + sp.inventory.mainInventory[0].getDisplayName()
+             + " slot1=" + sp.inventory.mainInventory[1].getDisplayName();
+    """).strip()
+    return record("the preconditions are staged on the SERVER (food, bow, arrows, hunger)",
+                  not out.startswith(("SETUP", "THREW", "PROBE-ERROR")), out[:220])
+
+
+def refresh_hunger(mcp):
+    """Make the player hungry again between eat probes.
+
+    The first eat probe fills the bar to 20, which is exactly the precondition the next one needs
+    absent. Without this the second and third eat checks skip, and a skip in the tally looks like a
+    measurement that happened.
+    """
+    return mcp.java("Rehunger", PREAMBLE + """
+        net.minecraft.server.integrated.IntegratedServer srv = mc.getIntegratedServer();
+        if (srv == null || srv.getConfigurationManager().getPlayerList().isEmpty())
+            return "NO-SERVER-PLAYER";
+        net.minecraft.entity.player.EntityPlayerMP sp =
+            srv.getConfigurationManager().getPlayerList().get(0);
+        sp.getFoodStats().setFoodLevel(6);
+        if (sp.inventory.mainInventory[0] == null
+                || sp.inventory.mainInventory[0].stackSize < 4) {
+            sp.inventory.mainInventory[0] =
+                new net.minecraft.item.ItemStack(net.minecraft.init.Items.bread, 16);
+            sp.inventory.markDirty();
+            sp.sendContainerToPlayer(sp.inventoryContainer);
+        }
+        return "serverFood=" + sp.getFoodStats().getFoodLevel()
+             + " bread=" + (sp.inventory.mainInventory[0] == null ? 0
+                            : sp.inventory.mainInventory[0].stackSize);
+    """).strip()
+
+
 def main():
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 25599
     mcp = Mcp(port, client_name="live-hold-probe")
@@ -398,15 +606,27 @@ def main():
         print("\nSETUP: world not ticking; nothing below would measure the code.")
         return EXIT_SETUP
 
+    print("\n-- staging (mutates the world; use a throwaway one)")
+    stage_preconditions(mcp)
+
     print("\n-- the seam itself")
     probe_seam_writes_and_reads_back(mcp)
 
-    print("\n-- eating (hold a food item to exercise these)")
+    print("\n-- eating")
     probe_eating_completes_and_food_rises(mcp)
+    print(f"     (rehunger: {refresh_hunger(mcp)})")
     probe_exactly_one_item_is_consumed(mcp)
+    print(f"     (rehunger: {refresh_hunger(mcp)})")
 
-    print("\n-- a screen gates vanilla's stop branch")
-    probe_screen_gates_vanillas_stop(mcp)
+    # BOTH focus states, because the key-clearing half is gated on inGameHasFocus and asserting one
+    # branch unconditionally is what made this probe report a false failure. See the docstring.
+    print("\n-- a screen gates vanilla's stop branch (focused: the key IS cleared)")
+    probe_screen_gates_vanillas_stop(mcp, focus=True)
+    print("\n-- the same screen unfocused (the key SURVIVES -- the branch a script actually hits)")
+    probe_screen_gates_vanillas_stop(mcp, focus=False)
+
+    print("\n-- a PAUSING screen freezes the use (hold food to exercise this)")
+    probe_a_pausing_screen_freezes_the_use(mcp)
 
     print("\n-- a bow fires on release (hold a bow to exercise this)")
     probe_bow_fires_on_release(mcp)
