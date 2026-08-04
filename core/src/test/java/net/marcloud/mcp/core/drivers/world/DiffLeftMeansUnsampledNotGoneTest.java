@@ -296,4 +296,101 @@ public class DiffLeftMeansUnsampledNotGoneTest {
                 + "and one of the two tests is now proving less than it claims",
                 List.of("xpProgress"), notOnTheWire);
     }
+
+    // ---- the numbers the description quotes, recovered from BEHAVIOUR rather than copied ----
+    //
+    // Both thresholds live in private constants, so a test cannot read them and widening them for a
+    // test's convenience would be the wrong trade. Bisecting the real diff instead makes these
+    // assertions stronger than a field read would be: they fail if the CONSTANT changes, and also if
+    // the comparison around it changes while the constant stays put. Copying the number into the
+    // assertion is what this file is here to avoid -- a hand-copied 0.1 agrees with a description
+    // that says 0.1 forever, including after the code stops meaning it.
+
+    /** Smallest single-axis velocity delta the diff will actually report, to two decimals. */
+    private static double measuredVelDeadBand() {
+        for (int hundredths = 1; hundredths <= 100; hundredths++) {
+            double d = hundredths / 100.0;
+            SelfView moved = new SelfView(IDLE.x(), IDLE.y(), IDLE.z(), IDLE.vx() + d, IDLE.vy(),
+                    IDLE.vz(), IDLE.yaw(), IDLE.pitch(), IDLE.health(), IDLE.food(),
+                    IDLE.saturation(), IDLE.xpLevel(), IDLE.xpProgress(), IDLE.armor(), IDLE.air(),
+                    IDLE.gamemode(), IDLE.sneaking(), IDLE.sprinting(), IDLE.onGround(),
+                    IDLE.effects());
+            if (selfKeys(IDLE, moved).contains("vel")) {
+                return d;
+            }
+        }
+        throw new AssertionError("no single-axis velocity delta up to 1.0 was ever reported; the "
+                + "dead-band is either absent or larger than any plausible movement");
+    }
+
+    @SuppressWarnings("unchecked")
+    private static java.util.Set<String> selfKeys(SelfView before, SelfView after) {
+        Map<String, Object> d = WorldViewDiff.diff(selfOnly(1, before), selfOnly(2, after));
+        Object self = d.get("self");
+        return self == null ? java.util.Set.of() : ((Map<String, Object>) self).keySet();
+    }
+
+    /**
+     * The velocity dead-band the description quotes must be the one the code applies.
+     *
+     * <p>Not cosmetic. A caller reading "reported only past a 0.1 dead-band" sizes its polling and
+     * its own idle-detection around that figure; if the code moved to 0.05 the diff would start
+     * reporting gravity jitter as movement and the stated reason for the band -- that idle jitter
+     * stays below it -- would be false while the sentence still read as true.
+     */
+    @Test
+    public void theVelocityDeadBandInTheDescriptionIsTheOneTheCodeApplies() {
+        double band = measuredVelDeadBand();
+        String quoted = String.format(java.util.Locale.ROOT, "%.1f", band);
+        assertTrue("the diff reports velocity past " + quoted + " but world_view's description does "
+                        + "not quote that number; a description naming a different dead-band is "
+                        + "worse than one naming none, because a caller sizes its polling on it",
+                worldViewDescription().contains(quoted + " dead-band"));
+    }
+
+    /**
+     * The expiring edge the description quotes must be the crossing the code actually uses.
+     *
+     * <p>The number matters more than most: "fires once, on crossing N" is the whole contract, and a
+     * caller that polls more coarsely than N can miss the only notification it will ever get. A
+     * stated N that no longer matches the code turns that from a known limitation into a silent one.
+     */
+    @Test
+    public void theExpiringEdgeInTheDescriptionIsTheOneTheCodeApplies() {
+        int edge = measuredExpiryEdge();
+        assertTrue("the diff warns on crossing " + edge + " ticks remaining, but the description "
+                        + "does not quote that number",
+                worldViewDescription().contains(edge + " ticks remaining"));
+    }
+
+    /** Largest remaining duration that still triggers 'expiring' when crossed into. */
+    private static int measuredExpiryEdge() {
+        for (int ticks = 1; ticks <= 2000; ticks++) {
+            SelfView before = withEffect(ticks + 1);
+            SelfView after = withEffect(ticks);
+            if (effectsKeys(before, after).contains("expiring")) {
+                return ticks;
+            }
+        }
+        throw new AssertionError("no crossing up to 2000 ticks produced an 'expiring' report");
+    }
+
+    private static SelfView withEffect(int durationTicks) {
+        return new SelfView(IDLE.x(), IDLE.y(), IDLE.z(), IDLE.vx(), IDLE.vy(), IDLE.vz(),
+                IDLE.yaw(), IDLE.pitch(), IDLE.health(), IDLE.food(), IDLE.saturation(),
+                IDLE.xpLevel(), IDLE.xpProgress(), IDLE.armor(), IDLE.air(), IDLE.gamemode(),
+                IDLE.sneaking(), IDLE.sprinting(), IDLE.onGround(),
+                List.of(new SelfView.Effect(12, "potion.fireResistance", 0, durationTicks)));
+    }
+
+    @SuppressWarnings("unchecked")
+    private static java.util.Set<String> effectsKeys(SelfView before, SelfView after) {
+        Map<String, Object> d = WorldViewDiff.diff(selfOnly(1, before), selfOnly(2, after));
+        Object self = d.get("self");
+        if (self == null) {
+            return java.util.Set.of();
+        }
+        Object fx = ((Map<String, Object>) self).get("effects");
+        return fx == null ? java.util.Set.of() : ((Map<String, Object>) fx).keySet();
+    }
 }

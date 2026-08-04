@@ -550,7 +550,28 @@ public final class ToolRegistry {
                         + "or 'profile' between the two calls, which moves the range and the cap "
                         + "under you. A whole-set left, or a left arriving with an entered, is the "
                         + "signature of resampling rather than of anything dying. Re-observe with the "
-                        + "same profile and radius before you believe a threat is gone.")
+                        + "same profile and radius before you believe a threat is gone. "
+                        + "DIFF MODE, self: a field is present only when it CHANGED, so absence "
+                        + "means unchanged — with three fields whose notion of 'changed' is not "
+                        + "plain inequality, because the plain version would make the self section "
+                        + "non-empty on every single poll and so tell you nothing. 'vel' is reported "
+                        + "only past a 0.1 dead-band per axis, which is above the idle jitter of "
+                        + "gravity against ground friction, and a real fall clears it within two "
+                        + "ticks. 'air' is the ONE self key whose absence is ambiguous by design: "
+                        + "normally absent means unchanged, but an explicit null means it just became "
+                        + "unreadable — and note air is a countdown that goes NEGATIVE while "
+                        + "drowning, so -1 is a real value and not an error code. 'effects' is an "
+                        + "object of 'gained' / 'lost' / 'expiring' keyed by potion, and a duration "
+                        + "merely TICKING DOWN is deliberately NOT a change: you already know what "
+                        + "you drank, so what the diff gives you is the part you cannot see. "
+                        + "'expiring' fires ONCE, on crossing 200 ticks remaining (vanilla's own "
+                        + "threshold, where night vision starts to flicker), so a poll coarser than "
+                        + "that edge can miss it — the duration you got when the effect was gained is "
+                        + "the fallback. A stronger effect replacing a weaker one reports as GAINED "
+                        + "rather than lost+gained, because vanilla raises the amplifier on the same "
+                        + "effect. And an empty effects list cannot distinguish 'no effects' from "
+                        + "'could not read them', in which case every active effect reports lost — "
+                        + "same caveat as entities.left above.")
                 .annotations(ToolAnnotations.builder()
                         .title("World view (structured observation)")
                         .readOnlyHint(true)
