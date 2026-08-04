@@ -303,7 +303,7 @@ record/report 与 0/1/2/3 退出码约定。三个探针都 `import mcp_probe`,*
 `scripts/live-look-probe.py`(LOOK 追踪,11/11)。
 
 > **2026-08-06 补了 ⑤⑥⑦ 三条,都是这一轮真机踩出来的。** 完整证据链在
-> `agency/handoff-2026-08-06.md` §3 —— 那一节记着四个缺陷,其中一个是当轮作者自己的误诊。
+> `agency/handoff-2026-08-06.md` §3 —— 那一节记着六个缺陷,其中两个是当轮作者自己的误诊。
 
 ### ① 一次 `eval_java` 提交 = 一个游戏 tick。循环 tick 只会饿死它自己
 
