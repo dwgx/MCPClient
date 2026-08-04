@@ -3,6 +3,10 @@ package net.marcloud.mcp.core.drivers.act;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Set;
+import java.util.TreeSet;
 import org.junit.Test;
 
 /**
@@ -65,16 +69,60 @@ public class NavControllerTest {
         // The real assertion about steer(): the axes are computed relative to the CURRENT yaw, so a
         // player facing the wrong way must still close distance without the camera being turned.
         // A sign error in the inversion passes at yaw 0 and fails here.
-        for (float yaw : new float[] {0f, 45f, 90f, 135f, 180f, -90f, -135f, 270f}) {
+        //
+        // Ordered by heading rather than by literal, because the previous order hid a hole: it read
+        // {0, 45, 90, 135, 180, -90, -135, 270} -- eight literals but seven headings, since -90 and
+        // 270 are the same direction, and 315 was covered by neither. Written in heading order the
+        // duplicate sits next to its twin where you cannot miss it. 270 is kept alongside -90
+        // deliberately: callers pass yaw straight through from the client, which reports both forms,
+        // and steer() converts to radians without normalising, so both literals are worth walking.
+        //
+        // What the non-cardinal headings actually buy, measured by mutating steer() and keeping this
+        // test: negating strafe, and swapping the forward/strafe assignments, each turn ALL eight
+        // headings red -- neither error has a heading where it cancels. Two subtler ones do. Flipping
+        // only the sin sign, i.e. steering as if yaw were negated, leaves 0 and 180 GREEN because sin
+        // is 0 there; swapping cos for sin leaves 45 and 225 green because cos equals sin there. Both
+        // are invisible to itArrivesWalkingStraightAhead, which is why that test is not enough on its
+        // own and why the sweep must include headings off the axes.
+        //
+        // 315 itself was green from birth under all four mutations, and that is expected rather than
+        // disappointing: the error these mutations introduce is a linear form in (cos yaw, sin yaw),
+        // which vanishes on at most one line through the origin, so any two headings off that line
+        // already catch it and no single heading can ever be the sole witness. It is here to keep the
+        // sweep from shrinking, not because it caught anything.
+        float[] yaws = {0f, 45f, 90f, 135f, 180f, -135f, -90f, 270f, -45f};
+
+        Set<Integer> octants = new TreeSet<>();
+        List<String> failed = new ArrayList<>();
+        for (float yaw : yaws) {
+            octants.add(Math.floorMod((int) yaw, 360));
+
             FakeActuator act = new FakeActuator();
             act.setPosition(0, 64, 0);
             act.yaw = yaw;
             NavController nav = new NavController(8, 64, -6, 300);
 
             ActOutcome out = walk(nav, act, 300, 0.2);
-            assertTrue("must arrive from yaw " + yaw + ": " + out.message(), out.ok());
+            // Collected rather than asserted per-iteration so one run names EVERY heading that
+            // failed, and a fail-fast loop reports only the first. WHICH headings break is the
+            // diagnosis: all of them means the inversion is wrong at every yaw, while a green pair
+            // names the term, since the surviving headings are exactly where that error cancels
+            // (0/180 for a sin sign, 45/225 for cos read as sin).
+            if (!out.ok()) {
+                failed.add(yaw + " (" + out.message() + ")");
+            }
             assertEquals("camera must not have been turned; nav owns walking, LOOK owns aim",
                 null, act.lastSetYaw);
+        }
+
+        assertEquals("must arrive from every heading; these did not: " + failed,
+            0, failed.size());
+        // Guards the hole above from coming back: any edit that drops a heading, or picks two
+        // literals that normalise to one direction, fails here instead of silently shrinking the
+        // sweep to seven eighths of the circle while still looking like eight cases.
+        for (int octant = 0; octant < 360; octant += 45) {
+            assertTrue("sweep must cover heading " + octant + ", covered: " + octants,
+                octants.contains(octant));
         }
     }
 
