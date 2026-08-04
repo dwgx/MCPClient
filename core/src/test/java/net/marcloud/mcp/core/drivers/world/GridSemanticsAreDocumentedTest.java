@@ -88,6 +88,33 @@ public class GridSemanticsAreDocumentedTest {
                 desc.contains("NOT walkable"));
     }
 
+    /**
+     * The same distinction must be documented for the block-name fields, which used to violate it.
+     *
+     * <p>{@code surface}/{@code feet}/{@code head} answered {@code "unknown"} on a failed read --
+     * a lowercase word indistinguishable from a registry name -- and that answer was tallied into
+     * {@code blockCounts} as a phantom block type. The encoding is fixed; this pins the legend,
+     * because a sentinel the description never mentions is exactly as opaque as the word it replaced.
+     *
+     * <p>Asserted on the PROSE rather than on {@code contains("?")}: the description already contains
+     * "?" for {@code walk}, so a substring test for the token alone would pass with the block-name
+     * legend entirely absent -- the same hollow shape as the {@code contains("24")} assertion that
+     * matched an unrelated {@code -4} elsewhere in this very string.
+     */
+    @Test
+    public void theWorldViewDescriptionGivesTheBlockNameSentinelALegend() {
+        String desc = description("world_view");
+        assertTrue("the description must say a block name can be the unreadable sentinel "
+                + LocalGrid.NAME_UNREADABLE + ", or the model reads it as a block with that name",
+                desc.contains("surface/feet/head can be \"" + LocalGrid.NAME_UNREADABLE + "\""));
+        assertTrue("and must deny that it is a block so named, which is the misreading it invites",
+                desc.contains("NOT a block named"));
+        assertTrue("and must say it is kept out of blockCounts, since a phantom histogram key is "
+                + "the part that survives every attempt to act on it",
+                desc.contains("excluded from")
+                        && desc.contains("'blockCounts'"));
+    }
+
     @Test
     public void aClearWalkAndZeroDropAreOmittedAsTheLegendClaims() {
         LocalGrid.Column plain = new LocalGrid.Column(0, 0, 0, "grass", "air", "air",

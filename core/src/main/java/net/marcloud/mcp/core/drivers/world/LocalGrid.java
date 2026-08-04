@@ -36,6 +36,64 @@ public record LocalGrid(int radius, String mode, int originX, int originY, int o
     /** {@code walk} value when vanilla's verdict could not be obtained. */
     public static final int WALK_UNKNOWN = Integer.MIN_VALUE;
 
+    /**
+     * Block name emitted when the registry could not be read at a position.
+     *
+     * <p><b>Why not {@code "unknown"}, which is what this used to be.</b> Every name on the wire is a
+     * registry name the caller is invited to feed back to {@code find_block} or {@code act_set dig},
+     * so a failed reading spelled as a lowercase word is indistinguishable from a block called
+     * unknown -- and it was worse than inert: an unreadable column merged into {@code blockCounts}
+     * under that key, so the histogram grew a phantom block type that no {@code find_block} could
+     * ever locate. Measured against the booted registries, every one of the 198 block and 337 item
+     * names draws from {@code [a-z_2]} only, so {@code "?"} cannot collide with a real name while
+     * {@code "unknown"} reads exactly like one.
+     *
+     * <p>{@code "?"} rather than a fourth spelling because {@code walk} already means "could not be
+     * obtained" with it, and {@code WorldViewJson} already states the rule this violated: "we could
+     * not ask" and a real answer must not collapse into the same token. Same lesson as
+     * {@code self.air}, {@code effects} and {@code entities.left}: a failed reading must not be
+     * spellable as a successful one.
+     *
+     * <p>Note {@link #standable} has always handled the same failure in the safe direction, thirty
+     * lines away, and said so in its comment -- the two policies disagreed inside one file.
+     */
+    public static final String NAME_UNREADABLE = "?";
+
+    /**
+     * Whether a sampled block name belongs in a census of block types.
+     *
+     * <p>Excludes air (never interesting, and it is most of the volume) and {@link #NAME_UNREADABLE}
+     * (a failed reading is not a block type). A predicate rather than an inline condition at each
+     * merge site so that "what counts" is one testable claim instead of two copies -- the second copy
+     * lives in {@code WorldScanner}, and the phantom-key defect was present in both.
+     */
+    static boolean countable(String name) {
+        return name != null && !"air".equals(name) && !NAME_UNREADABLE.equals(name);
+    }
+
+    /**
+     * The wire spelling of an already-resolved registry name: namespace stripped, or
+     * {@link #NAME_UNREADABLE} when the registry had no name for the object.
+     *
+     * <p>Taking the RESOLVED object rather than a world and a position is what makes this testable at
+     * all. The callers must hold a {@code WorldClient} to read a block, so with the rule inline every
+     * branch of it was unreachable from a unit test -- and that is not a hypothetical: mutating the
+     * registry-miss answer and the failure answer inside those callers left the entire 947-test suite
+     * green. Same seam trick as {@link #dropDepthOf} and {@code BlockFinder.search}: move the decision
+     * off the live object so the decision can be driven.
+     *
+     * <p>Namespace stripped with the FIRST colon so a name is reduced exactly once; the returned form
+     * is what {@code find_block} accepts back, and what {@code world_view} promises is interchangeable.
+     */
+    static String wireName(Object registryName) {
+        if (registryName == null) {
+            return NAME_UNREADABLE;
+        }
+        String s = registryName.toString();
+        int colon = s.indexOf(':');
+        return colon >= 0 ? s.substring(colon + 1) : s;
+    }
+
     /** Vanilla's "clear" verdict, i.e. the boring case worth omitting from the wire. */
     public static final int WALK_CLEAR = 1;
 
@@ -95,7 +153,6 @@ public record LocalGrid(int radius, String mode, int originX, int originY, int o
         int vLo = -prof.vBelow;
         int vHi = prof.vAbove;
         List<Column> cols = new ArrayList<>();
-        Map<String, Integer> counts = new TreeMap<>();
 
         for (int dx = -r; dx <= r; dx++) {
             for (int dz = -r; dz <= r; dz++) {
@@ -122,14 +179,34 @@ public record LocalGrid(int radius, String mode, int originX, int originY, int o
                 int walk = walkVerdict(w, origin, dx, dz, of);
                 cols.add(new Column(dx, dz, surfaceDy, surface, feet, head, profile,
                         dropDepth, walk));
-
-                if (surface != null && !"air".equals(surface)) {
-                    counts.merge(surface, 1, Integer::sum);
-                }
             }
         }
         return new LocalGrid(r, prof.emitProfile ? "column" : "surface",
-                origin.getX(), origin.getY(), origin.getZ(), cols, counts);
+                origin.getX(), origin.getY(), origin.getZ(), cols, census(cols));
+    }
+
+    /**
+     * The surface histogram, derived from the columns rather than accumulated beside them.
+     *
+     * <p>Owns its own loop on purpose. When the merge sat inline in {@link #sampleColumnar} the
+     * {@link #countable} guard could be replaced with the older inline condition and nothing went red
+     * -- the predicate had a test, the only call site did not, and a call site that skips the
+     * predicate is exactly how the phantom-key defect existed in the first place. With the loop here
+     * there is no path to a count that does not pass through the predicate, which is the same lesson
+     * {@code BlockFinder} records for its name test: one predicate, reached from every path.
+     *
+     * <p>Deriving from the columns also makes the description's claim structurally true -- "a
+     * histogram of each column's SURFACE block only" -- instead of true by inspection of two loops
+     * that happened to agree.
+     */
+    static Map<String, Integer> census(List<Column> columns) {
+        Map<String, Integer> counts = new TreeMap<>();
+        for (Column c : columns) {
+            if (countable(c.surface())) {
+                counts.merge(c.surface(), 1, Integer::sum);
+            }
+        }
+        return counts;
     }
 
     /**
@@ -276,19 +353,29 @@ public record LocalGrid(int radius, String mode, int originX, int originY, int o
         return out;
     }
 
-    /** Block registry name (namespace stripped), or "unknown" on error — reuses WorldScanner logic. */
+    /**
+     * Block registry name (namespace stripped), or {@link #NAME_UNREADABLE} when it could not be
+     * read.
+     *
+     * <p>Non-null on every path on purpose: {@link #runs} compares {@code cur.equals(n)} against the
+     * previous name, so a null here would NPE the profile encoder rather than degrade it.
+     *
+     * <p><b>What actually reaches the catch, since the comment here used to be wrong.</b> Not an
+     * unloaded chunk and not an out-of-range position: {@code World.getBlockState} returns air for
+     * anything failing {@code isValid} ({@code World.java:850-861,240-243}) and an unloaded chunk
+     * resolves to {@code blankChunk}, an {@code EmptyChunk} whose inherited lookup finds null storage
+     * and answers air ({@code ChunkProviderClient.java:86}). What can arrive is a
+     * {@code ReportedException}: {@code Chunk.getBlockState} wraps ANY throwable from corrupt storage
+     * into one and rethrows ({@code Chunk.java:606-635}). So this is a rare hard fault, not the
+     * routine edge three comments in this package claimed -- which matters, because "routine" is what
+     * made swallowing it into a plausible-looking name feel free.
+     */
     private static String idName(WorldClient w, BlockPos pos) {
         try {
             Block b = w.getBlockState(pos).getBlock();
-            var loc = Block.blockRegistry.getNameForObject(b);
-            if (loc == null) {
-                return "unknown";
-            }
-            String s = loc.toString();
-            int colon = s.indexOf(':');
-            return colon >= 0 ? s.substring(colon + 1) : s;
+            return wireName(Block.blockRegistry.getNameForObject(b));
         } catch (Throwable t) {
-            return "unknown";
+            return NAME_UNREADABLE;
         }
     }
 }

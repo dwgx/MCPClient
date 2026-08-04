@@ -43,19 +43,10 @@ public final class WorldScanner {
         String legs = blockName(w, base);
         String head = blockName(w, base.up());
 
-        // Nearby block-type counts (dedup by name, sampled cube). Skip air.
-        Map<String, Integer> blocks = new TreeMap<>();
-        for (int dx = -r; dx <= r; dx++) {
-            for (int dy = -r; dy <= r; dy++) {
-                for (int dz = -r; dz <= r; dz++) {
-                    BlockPos pos = base.add(dx, dy, dz);
-                    String name = blockName(w, pos);
-                    if (name != null && !"air".equals(name)) {
-                        blocks.merge(name, 1, Integer::sum);
-                    }
-                }
-            }
-        }
+        // Nearby block-type counts (dedup by name, sampled cube). Air and unreadable positions are
+        // excluded by the shared predicate, which census() owns -- see its javadoc for why the guard
+        // is not written inline here.
+        Map<String, Integer> blocks = census((dx, dy, dz) -> blockName(w, base.add(dx, dy, dz)), r);
 
         // Nearby entities, sorted by distance, excluding self.
         List<Surroundings.NearbyEntity> entities = new ArrayList<>();
@@ -93,19 +84,51 @@ public final class WorldScanner {
         return capture(game, DEFAULT_RADIUS);
     }
 
+    /** Names the block at an offset from the scan origin, or null when there is nothing to report. */
+    interface Sampler {
+        String at(int dx, int dy, int dz);
+    }
+
+    /**
+     * Block-type census of the sampled cube, over an abstract sampler so it is testable without a
+     * world.
+     *
+     * <p>Owns the loop and the {@link LocalGrid#countable} guard together. Written this way after the
+     * inline version was mutated: replacing the guard with the older {@code !"air".equals(name)}
+     * condition -- which is how a failed reading came to be tallied as a block type called
+     * {@code unknown} -- left all 947 tests green, because the only path into the histogram was
+     * unreachable from a unit test. Same seam as {@code BlockFinder.search}.
+     */
+    static Map<String, Integer> census(Sampler sampler, int r) {
+        Map<String, Integer> blocks = new TreeMap<>();
+        for (int dx = -r; dx <= r; dx++) {
+            for (int dy = -r; dy <= r; dy++) {
+                for (int dz = -r; dz <= r; dz++) {
+                    String name = sampler.at(dx, dy, dz);
+                    if (LocalGrid.countable(name)) {
+                        blocks.merge(name, 1, Integer::sum);
+                    }
+                }
+            }
+        }
+        return blocks;
+    }
+
+    /**
+     * Block registry name with the namespace stripped, or {@link LocalGrid#NAME_UNREADABLE} when the
+     * registry could not be read.
+     *
+     * <p>The two failures used to answer differently -- {@code "unknown"} for a registry miss, null
+     * for a throw -- and the first spelling let an unreadable position merge into the census as a
+     * phantom block type. Both now answer with the sentinel, which {@link LocalGrid#countable}
+     * excludes from the census while the column fields still show it.
+     */
     private static String blockName(WorldClient w, BlockPos pos) {
         try {
             Block b = w.getBlockState(pos).getBlock();
-            var loc = Block.blockRegistry.getNameForObject(b);
-            if (loc == null) {
-                return "unknown";
-            }
-            String s = loc.toString();
-            // strip the "minecraft:" namespace for brevity
-            int colon = s.indexOf(':');
-            return colon >= 0 ? s.substring(colon + 1) : s;
+            return LocalGrid.wireName(Block.blockRegistry.getNameForObject(b));
         } catch (Throwable t) {
-            return null;
+            return LocalGrid.NAME_UNREADABLE;
         }
     }
 
