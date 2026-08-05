@@ -274,11 +274,20 @@ public final class RouteExecutor {
         }
 
         if (placeAttempts >= PLACE_RETRIES) {
+            // Both causes are named and NEITHER is ranked. An earlier version said "most likely"
+            // the reach -- and the first live run to hit this path had an empty inventory, so the
+            // ranking pointed at the wrong one. This controller cannot tell them apart:
+            // ActActuator exposes heldSlot() but not the stack, so it does not know whether
+            // anything placeable is held. Guessing an order is the same defect as a deadline that
+            // blamed the server for a pause the client caused -- a plausible cause, named
+            // confidently, sending the reader to the wrong place.
             return finish(act, ActOutcome.failed("the placement at " + cellOf(cell) + " was refused "
-                    + placeAttempts + " times and the block never appeared. A refusal that repeats is "
-                    + "not transient -- most likely the cell is outside the server's 8-block reach "
-                    + "from where the player actually is (" + where(act) + "), or the held item is "
-                    + "not placeable. No block was counted as spent for it"));
+                    + placeAttempts + " times and the block never appeared. A refusal that repeats "
+                    + "is not transient, and there are exactly two causes this controller cannot "
+                    + "distinguish: either nothing placeable is in hand, or the cell is outside the "
+                    + "server's 8-block reach from where the player actually is (" + where(act)
+                    + "). Check the held stack first, it is the cheaper of the two to rule out. No "
+                    + "block was counted as spent"));
         }
         placeAttempts++;
 

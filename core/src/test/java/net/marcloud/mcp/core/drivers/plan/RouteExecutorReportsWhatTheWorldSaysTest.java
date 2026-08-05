@@ -118,8 +118,14 @@ public class RouteExecutorReportsWhatTheWorldSaysTest {
         assertEquals("no block may be counted for a placement that never landed", 0, ex.blocksSpent());
         assertTrue("and it must have actually retried rather than giving up on the first refusal",
                 act.rightClickCalls >= RouteExecutor.PLACE_RETRIES);
-        assertTrue("the message must name the reach as the likely cause, because that is the one the "
-                + "caller can act on: " + out.message(), out.message().contains("reach"));
+        assertTrue("the message must name BOTH causes it cannot distinguish -- nothing in hand, or "
+                + "out of reach. Ranking them was wrong: the first live run to hit this path had an "
+                + "empty inventory while the message pointed at the reach: " + out.message(),
+                out.message().contains("nothing placeable is in hand")
+                        && out.message().contains("reach"));
+        assertFalse("and it must not rank them, because it cannot tell: ActActuator exposes "
+                + "heldSlot() but not the stack: " + out.message(),
+                out.message().contains("most likely"));
     }
 
     @Test
