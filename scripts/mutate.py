@@ -2,16 +2,24 @@
 """Apply one source mutation, run a test selection, restore the file, report red/green.
 
 Verification scaffold, not a build tool. An assertion that stays GREEN with the production
-side broken is proving nothing, and this repo has caught seven such assertions in itself --
+side broken is proving nothing, and this repo keeps finding such assertions in itself --
 several written by the same hand that wrote the code. So each claim below is checked by
-breaking the thing it claims to guard.
+breaking the thing it claims to guard. (The running count is not pinned here on purpose: it
+has been wrong every time it was written down. Count it from the `fixed` markers in
+docs/agency/mutation-candidates-2026-08-05.json.)
 
 Usage:
   mutate.py <file> <old> <new> <-Dtest selection> [label] [module]
 
 Module is inferred from the file path (core/board/dwm/...) and defaults to core.
 
-Exits 0 if the mutation was CAUGHT (tests went red), 1 if it SURVIVED.
+Exit codes -- only 0 means "this assertion has teeth":
+  0  CAUGHT     tests went red under the mutation
+  1  SURVIVED   tests stayed green: the assertions do not cover this behaviour
+  2  refused    bad usage, non-unique anchor, or a mutant that did not COMPILE
+  3  TIMEOUT    the run exceeded its bound, so NO verdict was reached
+Treat 2 and 3 as "nothing was verified", NOT as survivors and NOT as catches. A caller that
+buckets every non-zero exit as SURVIVED will report coverage gaps that were never measured.
 """
 import subprocess
 import sys
