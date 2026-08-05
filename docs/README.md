@@ -18,7 +18,11 @@
 
 按顺序读这四份,别的按需:
 
-0. **任务是内核/游戏行动能力?先读 `agency/handoff-2026-08-11.md`**(最新交接 ——
+0. **任务是内核/游戏行动能力?先读 `agency/handoff-2026-08-12.md`**(最新交接 ——
+   **AI 自己算路并执行已经能做到并真机验过**(`drivers/plan/`:搭桥是搜索算出来的一步,
+   不是硬编码的手法);**§0③ 是最要紧的一条:那三次真机都是手敲脚本驱动的,模型碰不到**;
+   §1 记着一个被下游继承了好几轮的**编造前提**;§4 是写完但未提交、且最后一公里没验通的装配),
+   再读 `agency/handoff-2026-08-11.md`(
    变异账本**已结清**(70 SURVIVED → 70 CAUGHT,0 条待修);**§4 是一条纪律:变异跑完提交前
    必须 `git diff` 核生产侧**,被杀的 `mutate.py` 走不到 `finally`;§1 是 fan-out 的分工),
    **下一步是 `agency/telly-test-plan.md` 的 Phase 0**,没有别的东西挡着它。
@@ -86,7 +90,8 @@
 
 | 文档 | 内容 | 状态 |
 |---|---|---|
-| `agency/handoff-2026-08-11.md` | **最新交接** —— **那 59 条 survivors 全部关闭,账本 0 条待修**(累计 70 SURVIVED → 70 CAUGHT);唯一行为缺陷 `includeNoise` 两个方向都反,已修;**§4 变异跑完必须 `git diff`** —— 被杀的进程走不到 `finally`,本轮差一步把变异提交出去;§1 fan-out 的分工;§5 我自己两个错 | **接手先读这份** |
+| `agency/handoff-2026-08-12.md` | **最新交接** —— **AI 自己算路并执行**(`Planner` / `RouteExecutor` / `BlockProbe`,真机走路 5/5、搭桥 4/4、含真机变异);**§0③ 那三次真机都是手敲脚本驱动的,模型碰不到**;§1 一个被继承了好几轮的编造前提;§4 装配写完未提交且最后一公里没验通(`moveActive` 的类型白名单让路由静默失效) | **接手先读这份** |
+| `agency/handoff-2026-08-11.md` | 上一份交接,**全部有效** —— **那 59 条 survivors 全部关闭,账本 0 条待修**(累计 70 SURVIVED → 70 CAUGHT);唯一行为缺陷 `includeNoise` 两个方向都反,已修;**§4 变异跑完必须 `git diff`** —— 被杀的进程走不到 `finally`,本轮差一步把变异提交出去;§1 fan-out 的分工;§5 我自己两个错 | **接手先读这份** |
 | `agency/handoff-2026-08-10.md` | 上一份交接,**全部有效** —— **59 条候选 59 条全部 SURVIVED**(11 个子系统全 100% 空转,累计 70/70);**唯一安全类那条已修**(§9.1:守卫是源码文本断言 —— **第四种判据形状**;而它那句「从外部驱动不了」是假的);`mutate.py` 两处缺口已修;§9.2 五处漂移;telly 计划的拆分 | **接手先读这份** |
 | `agency/telly-test-plan.md` | **搭桥测试计划** —— 核心是一次重构:**几何是位置的函数,相位才是时间的函数**,所以「探针打不中一个 tick」只挡相位、不挡几何。Phase 0(放置包络)**不需要 owner 输入** | telly 动手前必读 |
 | `agency/handoff-2026-08-09.md` | 上一份交接,**全部有效** —— `eval_java` 的实际边界:**九个探针九个到达、零个被拦**(起进程/任意文件读写/socket/环境),而**门本身按值钉住、三次变异全 CAUGHT**;`SE_CREATE_TOOL` 是唯一开关且**全有全无**;§4「控制电脑要不要做成能力」现在带测量 | 当前 |
@@ -119,7 +124,9 @@
 | **「控制电脑」要不要做成被设计的能力** | `agency/handoff-2026-08-09.md` §4 —— **owner 待决,测量已齐** |
 | **搭桥(telly / god / ninja)现在到哪了** | `agency/handoff-2026-08-08.md` §1(测量)§2(为什么 controller 必须在 core)§3(**三个技术的几何未定,这是拦路的**)§5(MANEUVER) |
 | **为什么 Bash 会突然全部静默** | `agency/handoff-2026-08-08.md` §4① —— **是 heredoc,不是环境毛病**。CLAUDE.md 那一节两半都要读 |
-| **下一轮做什么最划算** | `agency/handoff-2026-08-11.md` §6 —— **telly Phase 0**,现在没有别的东西挡着它了(变异账本清空、漂移修完) |
+| **下一轮做什么最划算** | `agency/handoff-2026-08-12.md` §5 第 1 项 —— **起客户端跑一次 `act_set` 的 `route`**。那一条命令就是未提交那批装配成不成的全部判据 |
+| **AI 自己算路是怎么实现的、代码在哪** | `agency/handoff-2026-08-12.md` §2;`core/src/main/java/net/marcloud/mcp/core/drivers/plan/`(`Planner` / `NeighborGen` / `RouteExecutor` / `BlockView`)+ `core/util/BlockProbe` |
+| **为什么「读不到」必须和「是空气」分开** | `agency/handoff-2026-08-12.md` §2;`core/util/BlockProbe`(**七个文件读方块、没一个问过区块加载**) |
 | **变异跑完为什么必须 `git diff` 核生产侧** | `agency/handoff-2026-08-11.md` §4 —— 被杀的 `mutate.py` 走不到 `finally`,变异留在磁盘上 |
 | **fan-out 怎么派才不 stall** | `agency/handoff-2026-08-11.md` §1 + `branch-topology.md` §4.1 §4.2 |
 | **怎么给一条「从外部驱动不了」的分支写行为测试** | `agency/handoff-2026-08-10.md` §9.1 + `ABrokenRootChainDisarmsTheProductionCompositionTest`(重定义类 + 隐藏资源的加载器) |
