@@ -14,13 +14,13 @@ import org.junit.Test;
  *
  * <p>This is the difference the owner asked for on 2026-08-05. The earlier framing -- implement
  * telly / god / ninja and let the owner pick one -- was built on a requirement nobody stated (see
- * the correction banner atop docs/agency/telly-test-plan.md). What is wanted is an AI that works out
+ * docs/agency/HANDOFF.md section 0, last subsection). What is wanted is an AI that works out
  * what it needs and does it. So the assertions below never mention a technique: they build terrain
  * with a hole in it, ask for a route, and require that a bridge appears in the answer because the
  * search chose it.
  *
  * <p>The live measurement supports that framing rather than merely permitting it: the jump in those
- * techniques buys no reach at all (telly-test-plan section 7.5 -- every cell gained at the apex is in
+ * techniques buys no reach at all (HANDOFF.md section 3 -- every cell gained at the apex is in
  * the body's own layer, and the 8-block reach sphere is eye-centred so raising it moves reach AWAY
  * from where a bridge goes). Those shapes exist to beat a human click-rate ceiling that a 20Hz code
  * loop does not have.

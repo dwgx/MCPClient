@@ -50,7 +50,7 @@ public interface BlockView {
     /**
      * Whether a block can legally be PLACED into this cell -- world legality only.
      *
-     * <p>Measured on the live client (2026-08-05, see docs/agency/telly-test-plan.md section 7.5):
+     * <p>Measured on the live client (2026-08-05, see docs/agency/HANDOFF.md section 3):
      * this is reach plus emptiness plus not intersecting the player, and it does NOT require a
      * neighbouring face. A floating stone is legal as far as the world is concerned -- vanilla's
      * {@code canBlockBePlaced} accepted one at (5,0,0) with no neighbour at all.
@@ -66,7 +66,7 @@ public interface BlockView {
     /**
      * How many placeable blocks the planner may spend. A bridge is not free, and a search that
      * treats it as free returns plans that strand the player mid-air -- the failure mode
-     * docs/agency/handoff-2026-08-08.md section 5 lists as "中途没方块 = FAILED 并带位置".
+     * docs/agency/HANDOFF.md section 2 lists as "中途没方块 = FAILED 并带位置".
      */
     int blockBudget();
 }

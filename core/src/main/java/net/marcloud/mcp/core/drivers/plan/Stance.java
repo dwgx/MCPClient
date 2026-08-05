@@ -63,7 +63,7 @@ public record Stance(int x, int y, int z) {
      * Whether a block can be placed under {@code target}'s feet, given what exists now.
      *
      * <p>Two gates, and they are separate because they live in separate places (measured
-     * 2026-08-05, docs/agency/telly-test-plan.md section 7.5):
+     * 2026-08-05, docs/agency/HANDOFF.md section 3):
      *
      * <ul>
      *   <li>the WORLD must accept a block there -- {@link BlockView#canPlaceAt};</li>

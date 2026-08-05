@@ -10,7 +10,7 @@ import org.junit.Test;
  *
  * <p>The gate is the server's, measured rather than assumed:
  * {@code getDistanceSq(block centre) < 64.0} in {@code NetHandlerPlayServer:599}. Live confirmation
- * on 2026-08-05 (docs/agency/telly-test-plan.md section 7.5): of eight blocks placed outward, the six
+ * on 2026-08-05 (docs/agency/HANDOFF.md section 3): of eight blocks placed outward, the six
  * within 7.6 blocks stood and the two at 8.6 and 9.6 were reverted with the items returned to the
  * inventory. The client's own {@code getBlockReachDistance()} is 4.5 -- a different, smaller number
  * that would make the planner refuse placements the server accepts.

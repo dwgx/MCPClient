@@ -168,7 +168,7 @@ core/board/pg 只在 `mcp-core` 那一侧)。
 
 **只读调研/审计放心派;要编译的改动自己做,或在主树里串行。** 而在主树里跑过 agent 之后,
 提交一律逐个指定文件 —— `git add -A` 会把它没还原的变异一起发出去,这件事已经发生过一次
-(见 `agency/handoff-2026-08-04.md` §4④)。
+(见 `agency/HANDOFF.md` §4)。
 
 **私钥那条最要紧:丢了没有恢复路径**,必须重走两层仪式并重签所有 compat 补丁。
 `~/.mcp-keys/{kernel,root}-ed25519.key.b64`。流程见 `dwm/key-ceremony.md`。
