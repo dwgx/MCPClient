@@ -292,7 +292,16 @@ public final class ToolRegistry {
                         + "marshal onto the game thread, e.g.: "
                         + "net.marcloud.mcp.core.GameBridge.onGameThread(() -> { "
                         + "return net.marcloud.mcp.core.GameBridge.game().player().posX; }). "
-                        + "Touching game state directly off-thread can crash the game.")
+                        + "Touching game state directly off-thread can crash the game. "
+                        + "SCOPE: this is NOT a sandbox, and the reach is the whole machine, "
+                        + "not the game. Measured reachable from submitted code: spawn "
+                        + "processes (ProcessBuilder, Runtime.exec), read and write any file "
+                        + "the user can, enumerate the home directory, bind and connect "
+                        + "sockets, and read the process environment. The ring and privilege "
+                        + "gates decide whether you may CALL this tool; they do not constrain "
+                        + "what the code does once it is running. The only kill switch is "
+                        + "disable_privilege(SE_CREATE_TOOL), and it is all-or-nothing -- it "
+                        + "also shuts off send_raw_packet and create_tool.")
                 .annotations(ToolAnnotations.builder()
                         .title("Evaluate Java (live REPL)")
                         .readOnlyHint(false)
