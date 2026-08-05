@@ -7,7 +7,9 @@ several written by the same hand that wrote the code. So each claim below is che
 breaking the thing it claims to guard.
 
 Usage:
-  mutate.py <file> <old> <new> <-Dtest selection> [label]
+  mutate.py <file> <old> <new> <-Dtest selection> [label] [module]
+
+Module is inferred from the file path (core/board/dwm/...) and defaults to core.
 
 Exits 0 if the mutation was CAUGHT (tests went red), 1 if it SURVIVED.
 """
@@ -21,6 +23,14 @@ def main():
         return 2
     path, old, new, tests = sys.argv[1:5]
     label = sys.argv[5] if len(sys.argv) > 5 else old[:60]
+    # Module defaults to core because that is where the kernel lives, but -pl was
+    # hardcoded until a board candidate needed it: running a board mutation under
+    # -pl core compiles the mutated file and then runs NO board test, which prints
+    # SURVIVED. A survivor that was never tested is the one result this tool must
+    # never produce. Derive it from the path so a caller cannot silently mismatch.
+    module = sys.argv[6] if len(sys.argv) > 6 else (
+        path.split("/")[0] if path.split("/")[0] in ("core", "board", "dwm", "client",
+                                                     "lwjgl2-shim") else "core")
 
     with open(path, encoding="utf-8") as f:
         original = f.read()
@@ -34,12 +44,21 @@ def main():
         with open(path, "w", encoding="utf-8") as f:
             f.write(original.replace(old, new))
         proc = subprocess.run(
-            ["./mvnw", "-B", "-ntp", "-pl", "core", "test", f"-Dtest={tests}"],
+            ["./mvnw", "-B", "-ntp", "-pl", module, "test", f"-Dtest={tests}"],
             capture_output=True, text=True, env=env,
         )
     finally:
         with open(path, "w", encoding="utf-8") as f:
             f.write(original)
+        # Restoring the SOURCE is not enough: target/classes still holds the mutated
+        # bytecode until something recompiles, and the next thing to read it may not
+        # be a test. `package` would put a mutated class in a jar; codegraph builds
+        # its index from target/classes and would map mutated code. This is the
+        # bytecode twin of the unreverted-mutation-in-a-commit incident
+        # (handoff-2026-08-04 section 4(4)), and it is silent in exactly the same way.
+        subprocess.run(["./mvnw", "-B", "-ntp", "-q", "-pl", module,
+                        "-DskipTests", "compile"],
+                       capture_output=True, text=True, env=env)
 
     out = proc.stdout
     ran_tests = "Tests run:" in out
