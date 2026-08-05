@@ -51,7 +51,12 @@ core  board  dwm  client  lwjgl2-shim  pg/{pg-api,pg-engine,pg-maven-plugin}
 ```
 
 **扩之前 `core` 一个类都不在索引里** —— 而 core 就是这个项目的本体,内核侧的活全在那儿。
-现在:**2993 个类 / 119,563 条唯一边**(扩之前 2534 / 104,092)。
+那次扩容本身的量级:**2534 → 2993 个类、104,092 → 119,563 条唯一边**。
+
+> **这两个"之后"的数不要当现值读,它们已经漂过一次**(2026-08-05 实测 3018 / 120,588)。
+> 保留的是**扩容前后的对比**,因为那个差值有信息(它说明 core 进来了多少);
+> 现值一律 `python3 tools/codegraph/build_codegraph.py` 现场看它自己打印。
+> 同 `branch-topology.md` §0.1:这个仓库钉过的每个数都在钉下之后没几轮作废。
 
 只索引 `target/classes`,**不含 `target/test-classes`**。所以 `SecurityKernelTest`
 这类默认包里的测试查不到,找测试用 Grep。

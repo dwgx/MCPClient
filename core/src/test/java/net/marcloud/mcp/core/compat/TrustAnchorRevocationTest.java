@@ -164,10 +164,23 @@ public final class TrustAnchorRevocationTest {
     /**
      * Keeps the hand-applied composition above honest: the fallback must stay gone.
      *
-     * <p>This is the assertion that fails if anyone reintroduces the fallback, which is the signal
-     * that matters — without it the tests above would keep passing against their own copy of a rule
-     * the product no longer follows. It pins shape rather than behaviour, because the shipped
-     * resources derive successfully and so cannot exercise the empty branch from outside.
+     * <p>This is the assertion that fails if anyone reintroduces the fallback <i>by that name</i>,
+     * which is the signal that matters for the historical defect — without it the tests above would
+     * keep passing against their own copy of a rule the product no longer follows.
+     *
+     * <p><b>But it pins SHAPE, not behaviour, and that has a measured hole.</b> This method greps
+     * for one literal and against another, so a body that calls {@code RootTrust.effectiveAnchors()},
+     * finds it empty, and then recovers targets keys straight out of {@code root-metadata.json}
+     * with no root-signature verification satisfies BOTH assertions while restoring the defect in a
+     * worse form. That mutation SURVIVED this whole file on 2026-08-05.
+     *
+     * <p>The original claim here was that the empty branch "cannot be exercised from outside"
+     * because the shipped resources derive successfully. <b>That is not true</b> — hiding one
+     * resource from a classloader that re-defines {@code Compat} and {@code RootTrust} drives every
+     * fail-closed branch with the real production composition. See
+     * {@link ABrokenRootChainDisarmsTheProductionCompositionTest}, which catches both that mutation
+     * and this fallback. Keep this shape assertion anyway: it names the specific historical
+     * regression, and it is the one that fires when the fallback returns verbatim.
      */
     @Test
     public void defaultTrustAnchorsHasNoFallbackBranch() throws Exception {
