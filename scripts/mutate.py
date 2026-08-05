@@ -40,13 +40,26 @@ def main():
 
     env = dict(os.environ)
     env["JAVA_HOME"] = os.path.expanduser("~/.jdks/jdk-25.0.3+9/Contents/Home")
+    timed_out = False
     try:
         with open(path, "w", encoding="utf-8") as f:
             f.write(original.replace(old, new))
-        proc = subprocess.run(
-            ["./mvnw", "-B", "-ntp", "-pl", module, "test", f"-Dtest={tests}"],
-            capture_output=True, text=True, env=env,
-        )
+        try:
+            # Bounded, because a mutant can make a test WAIT rather than fail: dropping
+            # CraftController.SETTLE_TICKS from 4 to 2 confirms before the round trip can
+            # land, and the run sat for 15 minutes with no output. Unbounded, that costs
+            # more than the campaign it is part of -- and it is worse than slow, because
+            # a run killed by hand does not reach the restore below, so the mutation
+            # stays on disk. That is the same leak as handoff-2026-08-04 section 4(4),
+            # arriving from the other direction. Measured: the slowest healthy mutation
+            # in this repo is well under two minutes, so 8 is generous, not tight.
+            proc = subprocess.run(
+                ["./mvnw", "-B", "-ntp", "-pl", module, "test", f"-Dtest={tests}"],
+                capture_output=True, text=True, env=env, timeout=480,
+            )
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            proc = None
     finally:
         with open(path, "w", encoding="utf-8") as f:
             f.write(original)
@@ -59,6 +72,18 @@ def main():
         subprocess.run(["./mvnw", "-B", "-ntp", "-q", "-pl", module,
                         "-DskipTests", "compile"],
                        capture_output=True, text=True, env=env)
+
+    # A timeout is NOT a caught mutation, and must never be reported as one: the tests
+    # never returned a verdict, so nothing was verified. It is also not a survivor. Say
+    # what happened and let the caller decide -- a hang is usually real information about
+    # the mutant (this one made the controller wait for a round trip that cannot arrive).
+    if timed_out:
+        print(f"TIMEOUT   {label}")
+        print("    the run exceeded its bound, so NO verdict was reached -- this is neither")
+        print("    CAUGHT nor SURVIVED. The source and bytecode have been restored. A mutant")
+        print("    that hangs rather than fails usually means it removed a deadline the test")
+        print("    depends on; drive it with a bounded fake instead of the real wait.")
+        return 3
 
     out = proc.stdout
     ran_tests = "Tests run:" in out

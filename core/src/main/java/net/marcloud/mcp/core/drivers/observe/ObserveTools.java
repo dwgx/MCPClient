@@ -212,9 +212,14 @@ public final class ObserveTools {
         }
         List<String> include = asStringList(args.get("include"));
         List<String> exclude = asStringList(args.get("exclude"));
-        // default noise-drop only when the caller didn't narrow with an explicit include
+        // Default noise-drop only when the caller didn't narrow with an explicit include.
+        // The test is TRUE-equals, not negated FALSE-equals: the contract is "dropped unless you
+        // set includeNoise=true" (the description below at the packets_tail schema), so only an
+        // explicit true may keep noise. Negating FALSE-equals inverted BOTH answers -- it dropped
+        // for includeNoise=true and kept for includeNoise=false -- so the one flag the description
+        // documents did the opposite of what it says, in both positions.
         boolean dropNoise = include.isEmpty()
-                && !Boolean.FALSE.equals(args.get("includeNoise"));
+                && !Boolean.TRUE.equals(args.get("includeNoise"));
         return PacketFilter.of(dir, include, exclude, dropNoise);
     }
 
