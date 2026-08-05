@@ -16,7 +16,12 @@ import java.util.Set;
  * vanilla's own use lifecycle, because a hold that is never contradicted is not a hold. See its
  * javadoc for which lines of {@code Minecraft}/{@code EntityPlayer} each rule comes from.
  */
-class FakeActuator implements ActActuator {
+// Public, not package-private, so tests outside this package reuse this ONE fake instead of writing
+// their own. The repo has the scar for the alternative: three probes each held a private copy of the
+// socket client, and a message-framing bug survived a whole round because the fix landed in one copy
+// and not the other. A second ActActuator fake would fork the same way -- silently, and in whichever
+// copy is not the one being read.
+public class FakeActuator implements ActActuator {
 
     // ---- programmable world ----
     boolean inWorld = true;
@@ -30,7 +35,7 @@ class FakeActuator implements ActActuator {
     int heldSlot = 0;
     /** Feet position, mutable so a test can script movement between controller ticks. */
     final double[] pos = {0, 0, 0};
-    boolean onGround = true;
+    public boolean onGround = true;
     boolean collidedHorizontally = false;
 
     // ---- programmable results ----
@@ -62,7 +67,18 @@ class FakeActuator implements ActActuator {
     boolean stallOnTheBreakingPump;
     /** Make {@link #blockAt} return null while presence still reads true (an unreadable target). */
     boolean blockAtReturnsNull;
-    boolean rightClickResult = true;
+    public boolean rightClickResult = true;
+
+    /**
+     * Whether a successful right-click actually PUTS a block in the world. Opt-in, default false.
+     *
+     * <p>Default false only to keep every pre-existing test's world unchanged -- not because false is
+     * the honest model. On a real client a placement changes the world, so a fake that reports success
+     * without it cannot be used to test the difference between "the click was issued" and "the block
+     * is there", and that difference is exactly what a route executor must not conflate. Any test
+     * about placement OUTCOMES should turn this on; leaving it off tests only that a click happened.
+     */
+    public boolean rightClickPlacesBlock;
     boolean useInAirResult = true;
     boolean attackResult = true;
     boolean instantBreakResult = true;
@@ -99,13 +115,13 @@ class FakeActuator implements ActActuator {
     int autoStarts;
 
     // ---- recorded calls ----
-    final List<String> calls = new ArrayList<>();
+    public final List<String> calls = new ArrayList<>();
     int startDigCalls;
     int pumpDigCalls;
     int cancelDigCalls;
     int swingCalls;
     int attackCalls;
-    int rightClickCalls;
+    public int rightClickCalls;
     int useInAirCalls;
     int holdUseKeyCalls;
     int releaseUseKeyCalls;
@@ -134,12 +150,12 @@ class FakeActuator implements ActActuator {
         return ((long) x & 0x1FFFFF) | (((long) y & 0x1FFFFF) << 21) | (((long) z & 0x1FFFFF) << 42);
     }
 
-    void putBlock(int x, int y, int z) {
+    public void putBlock(int x, int y, int z) {
         putBlock(x, y, z, DEFAULT_BLOCK);
     }
 
     /** Put a NAMED block, so an identity-based completion test has something to compare. */
-    void putBlock(int x, int y, int z, String name) {
+    public void putBlock(int x, int y, int z, String name) {
         presentBlocks.add(key(x, y, z));
         blockNames.put(key(x, y, z), name);
     }
@@ -156,7 +172,7 @@ class FakeActuator implements ActActuator {
         blockNames.put(key(x, y, z), replacement);
     }
 
-    void removeBlock(int x, int y, int z) {
+    public void removeBlock(int x, int y, int z) {
         presentBlocks.remove(key(x, y, z));
         blockNames.remove(key(x, y, z));
     }
@@ -297,7 +313,25 @@ class FakeActuator implements ActActuator {
     public boolean rightClickBlock(int x, int y, int z, Face face, double hx, double hy, double hz) {
         rightClickCalls++;
         calls.add("rightClickBlock(" + x + "," + y + "," + z + "," + face + ")");
+        if (rightClickPlacesBlock && rightClickResult) {
+            // The cell that gets the block is the one OFF the clicked face, not the clicked cell --
+            // the same relationship vanilla derives from the hit vector. Modelling it the other way
+            // would let a caller pass a wrong face and still see its block appear.
+            putBlock(x + placeOffsetX(face), y + placeOffsetY(face), z + placeOffsetZ(face));
+        }
         return rightClickResult;
+    }
+
+    private static int placeOffsetX(Face f) {
+        return f == Face.EAST ? 1 : f == Face.WEST ? -1 : 0;
+    }
+
+    private static int placeOffsetY(Face f) {
+        return f == Face.UP ? 1 : f == Face.DOWN ? -1 : 0;
+    }
+
+    private static int placeOffsetZ(Face f) {
+        return f == Face.SOUTH ? 1 : f == Face.NORTH ? -1 : 0;
     }
 
     @Override
@@ -523,7 +557,7 @@ class FakeActuator implements ActActuator {
      * <p>Present so a nav test can advance the world between ticks without reaching into the
      * field, which is what {@code putBlock}/{@code removeBlock} already do for digging.
      */
-    void setPosition(double x, double y, double z) {
+    public void setPosition(double x, double y, double z) {
         pos[0] = x;
         pos[1] = y;
         pos[2] = z;
