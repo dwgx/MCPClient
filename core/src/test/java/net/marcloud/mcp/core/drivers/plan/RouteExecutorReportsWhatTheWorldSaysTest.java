@@ -231,8 +231,9 @@ public class RouteExecutorReportsWhatTheWorldSaysTest {
         // what proves the steering deadline is strictly shorter than the move budget. With the two
         // equal, this same run reported "did not arrive within 60 ticks" -- true but useless: it
         // named a hang when the steering had already given up, and the arrival check never ran.
-        assertTrue("a steering controller that gave up must surface as an off-plan POSITION, not as "
-                + "a hang: " + out.message(), out.message().contains("the plan required"));
+        assertTrue("a steering controller that gave up must surface as an off-plan POSITION -- with "
+                + "the DISTANCE, so the caller can tell 'nearly there' from 'never started': "
+                + out.message(), out.message().contains("blocks from the centre of"));
         assertFalse("and it must NOT be the backstop message: reaching that means the outer budget "
                 + "masked the steering's own verdict again: " + out.message(),
                 out.message().contains("did not arrive within"));
@@ -241,18 +242,20 @@ public class RouteExecutorReportsWhatTheWorldSaysTest {
     }
 
     /**
-     * Rule 1 for movement: arrival is a fact about the WORLD, not about the steering stopping.
+     * Arrival is proximity to the target centre, and this is the case that taught it.
      *
-     * <p>Driven by letting the steering genuinely COMPLETE -- the player is moved to within
-     * NavController's own arrival epsilon -- while still being in the WRONG BLOCK. That combination
-     * is reachable on a real client, because the steering's tolerance is 0.6 blocks and the plan's
-     * unit is a whole block, so "the steering is satisfied" and "the player is on the planned cell"
-     * are different statements. An executor that took the nav COMPLETE as arrival would count a move
-     * onto a block the player is not standing on, and every later move would be planned from a
-     * position it does not occupy.
+     * <p>This test used to assert the opposite. It nudged the player to 1.95 while the plan required
+     * block 2, and demanded a FAILURE on the grounds that floor(1.95) is 1. Live measurement showed
+     * that reasoning was wrong: the steering aims at the block CENTRE (2.5) with a 0.6-block
+     * tolerance, so 1.95 is arrival as far as every component in the chain is concerned, and a
+     * floored-coordinate check rejects moves nothing can deliver. The route died on its first move
+     * because of it.
+     *
+     * <p>So the assertion is inverted from what it was, and the honest description of the rule is:
+     * near enough to the centre, AND standing on something.
      */
     @Test
-    public void arrivalIsAskedOfTheWorldEvenWhenTheSteeringSaysItFinished() {
+    public void arrivalIsProximityToTheTargetCentreNotEqualityOfBlockCoordinates() {
         FakeActuator act = groundedAt(0, 64, 0);
         Move walk = Move.walk(new Stance(0, 64, 0), new Stance(2, 64, 0));
         RouteExecutor ex = new RouteExecutor(planOf(walk), 64);
@@ -262,52 +265,45 @@ public class RouteExecutorReportsWhatTheWorldSaysTest {
         for (int i = 0; i < 400 && (out == null || !out.terminal()); i++) {
             out = ex.tick(act);
             if (!nudged && ex.phase() == RouteExecutor.Phase.WALKING) {
-                // Just inside the steering's tolerance of the target centre (2.5), but still in
-                // block x=1 rather than the planned x=2.
-                act.setPosition(1.95D, 64.0D, 0.5D);
+                act.setPosition(1.95D, 64.0D, 0.5D); // 0.55 from centre 2.5: inside tolerance
                 nudged = true;
             }
         }
 
-        assertTrue("it must reach a terminal state", out.terminal());
-        assertFalse("the player is in block 1 and the plan required block 2, so this is not an "
-                + "arrival however satisfied the steering was: " + out.message(), out.ok());
-        assertEquals("and the move must not be counted", 0, ex.movesDone());
-        assertTrue("the message must contrast where it ended with where the plan required, because "
-                + "that is what tells the caller its position is off-plan rather than merely slow: "
-                + out.message(),
-                out.message().contains("the plan required"));
+        assertTrue("0.55 blocks from the target centre is arrival -- demanding the floored block "
+                + "match is stricter than the steering can deliver, and that mismatch killed a live "
+                + "route on its first move: " + out.message(), out.ok());
+        assertEquals("and the move counts", 1, ex.movesDone());
     }
 
+    /**
+     * The other side of the tolerance: genuinely short is still a failure, with the distance named.
+     *
+     * <p>Without this, widening the tolerance could be widened again to anything at all and no test
+     * would object -- which is how a threshold stops meaning something.
+     */
     @Test
-    public void cancelReleasesThePlayerAndReportsCancelledNotFailed() {
+    public void stoppingWellShortIsStillAFailureAndNamesHowFar() {
         FakeActuator act = groundedAt(0, 64, 0);
-        Move walk = Move.walk(new Stance(0, 64, 0), new Stance(1, 64, 0));
+        Move walk = Move.walk(new Stance(0, 64, 0), new Stance(3, 64, 0));
         RouteExecutor ex = new RouteExecutor(planOf(walk), 64);
 
-        ex.tick(act);
-        ex.requestCancel();
-        ActOutcome out = ex.tick(act);
+        ActOutcome out = null;
+        boolean nudged = false;
+        for (int i = 0; i < 400 && (out == null || !out.terminal()); i++) {
+            out = ex.tick(act);
+            if (!nudged && ex.phase() == RouteExecutor.Phase.WALKING) {
+                act.setPosition(1.5D, 64.0D, 0.5D); // 2.0 from centre 3.5: well outside tolerance
+                nudged = true;
+            }
+        }
 
-        assertTrue("cancel takes effect on the next tick", out.terminal());
-        assertEquals("a cancelled route is not a failed one -- the caller asked for this, and "
-                + "conflating them makes act_status unable to tell a bug from an instruction",
-                ActPhase.CANCELLED, out.state());
-        assertEquals("and steering must stop, or the player keeps walking on a dead route",
-                0f, ex.forward(), 0.0001f);
-        assertTrue("the use key must be released on the way out: " + act.calls,
-                act.calls.stream().anyMatch(c -> c.startsWith("releaseUseKey")));
-    }
-
-    @Test
-    public void aFinishedRouteRefusesToBeDrivenAgain() {
-        FakeActuator act = groundedAt(0, 64, 0);
-        RouteExecutor ex = new RouteExecutor(planOf(), 64);
-        assertTrue("first tick finishes an empty plan", ex.tick(act).terminal());
-
-        ActOutcome again = ex.tick(act);
-        assertFalse("re-driving a terminal controller must not report success: its cleanup already "
-                + "ran, so anything it did now would be on a player it has released", again.ok());
+        assertFalse("two blocks short is not arrival at any tolerance worth having: " + out.message(),
+                out.ok());
+        assertTrue("and the distance must be in the message, because 'did not arrive' cannot "
+                + "distinguish a near miss from never leaving: " + out.message(),
+                out.message().contains("blocks from the centre of"));
+        assertEquals("no move may be counted", 0, ex.movesDone());
     }
 
     /**

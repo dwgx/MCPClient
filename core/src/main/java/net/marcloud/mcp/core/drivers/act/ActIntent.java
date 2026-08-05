@@ -12,7 +12,7 @@ package net.marcloud.mcp.core.drivers.act;
  * understand; a new action family is a new permitted subtype plus its controller.
  */
 public sealed interface ActIntent
-        permits MoveIntent, NavIntent, LookIntent, InteractIntent {
+        permits MoveIntent, NavIntent, RouteIntent, LookIntent, InteractIntent {
 
     /** The slot this intent occupies. */
     ActSlot slot();

@@ -48,7 +48,8 @@ public final class MoveApplier implements ActApplier {
     private int stillTicks;
     private ActIntent boundTo;
 
-    private NavController nav;
+    /** The machine currently driving the MOVE slot: a NavController, a route executor, or none. */
+    private LocomotionController nav;
 
     /** Lifecycle only; the status line degrades to tick counting and nav is unavailable. */
     public MoveApplier() {
@@ -64,16 +65,41 @@ public final class MoveApplier implements ActApplier {
      *                input, so nav fails honestly rather than walking nowhere in silence
      */
     public MoveApplier(ActActuator actuator, ActRuntime runtime) {
+        this(actuator, runtime, null);
+    }
+
+    /**
+     * @param routeFactory builds the machine that executes a {@link RouteIntent}. Injected rather
+     *                     than constructed here because the planner package depends on this one, so
+     *                     naming its executor would close a package cycle -- {@code McpCore} sees
+     *                     both sides and supplies it. Null means routing is unavailable, and a
+     *                     RouteIntent then fails saying so instead of silently doing nothing.
+     */
+    public MoveApplier(ActActuator actuator, ActRuntime runtime,
+                       java.util.function.Function<RouteIntent, LocomotionController> routeFactory) {
         this.actuator = actuator;
         this.runtime = runtime;
+        this.routeFactory = routeFactory;
     }
 
     private final ActRuntime runtime;
+    private final java.util.function.Function<RouteIntent, LocomotionController> routeFactory;
 
     @Override
     public SlotRecord apply(SlotRecord current) {
         if (current.intent() instanceof NavIntent ni) {
-            return applyNav(current, ni);
+            return driveLocomotion(current, () -> new NavController(
+                    ni.targetX(), ni.targetY(), ni.targetZ(), ni.timeoutTicks()));
+        }
+        if (current.intent() instanceof RouteIntent ri) {
+            if (routeFactory == null) {
+                reset();
+                return current.withPhase(ActPhase.FAILED,
+                        "this applier was built without a route factory, so it cannot plan a route. "
+                        + "Accepting the intent and doing nothing would look like a route that never "
+                        + "moved, which is the harder failure to diagnose");
+            }
+            return driveLocomotion(current, () -> routeFactory.apply(ri));
         }
         if (!(current.intent() instanceof MoveIntent mi)) {
             reset();
@@ -148,16 +174,29 @@ public final class MoveApplier implements ActApplier {
      * axes are published every tick because they change every tick -- that is the whole difference
      * between stating a destination and stating an input.
      */
-    private SlotRecord applyNav(SlotRecord current, NavIntent ni) {
+    /**
+     * Drive any {@link LocomotionController} for one tick.
+     *
+     * <p>One body for both nav and routing, because the applier's part is identical: bind on a fresh
+     * intent, tick, publish the axes, funnel a terminal outcome into the slot. The alternative was a
+     * near-copy per machine, and a near-copy is how this repo's block-name rule reached six
+     * implementations with three different answers.
+     *
+     * <p>{@code make} is a supplier rather than an instance so construction happens only on a FRESH
+     * intent -- building one per tick would restart the machine every tick and it would never make
+     * progress, which is the same identity rule the look and hold channels already obey.
+     */
+    private SlotRecord driveLocomotion(SlotRecord current,
+                                       java.util.function.Supplier<LocomotionController> make) {
         if (actuator == null || runtime == null) {
             reset();
             return current.withPhase(ActPhase.FAILED,
-                    "navigation needs an actuator and a runtime to publish through; this applier "
+                    "locomotion needs an actuator and a runtime to publish through; this applier "
                     + "was built without them, and walking nowhere in silence would be worse");
         }
         if (boundTo != current.intent()) {
             boundTo = current.intent();
-            nav = new NavController(ni.targetX(), ni.targetY(), ni.targetZ(), ni.timeoutTicks());
+            nav = make.get();
         }
         if (current.cancelRequested()) {
             nav.requestCancel();
@@ -166,7 +205,7 @@ public final class MoveApplier implements ActApplier {
         ActOutcome out = nav.tick(actuator);
         if (out.terminal()) {
             publish(null);
-            NavController finished = nav;
+            LocomotionController finished = nav;
             reset();
             return current.markActive(current.lastAppliedTick(), out.message())
                     .withPhase(out.state(), out.message() + " (" + finished.ticks() + " ticks)");

@@ -18,6 +18,7 @@ import net.marcloud.mcp.core.drivers.act.InteractIntent;
 import net.marcloud.mcp.core.drivers.act.LookIntent;
 import net.marcloud.mcp.core.drivers.act.MoveIntent;
 import net.marcloud.mcp.core.drivers.act.NavIntent;
+import net.marcloud.mcp.core.drivers.act.RouteIntent;
 import net.marcloud.mcp.core.drivers.act.SlotRecord;
 import net.marcloud.mcp.core.io.IoManager;
 import net.marcloud.mcp.core.io.http.Json;
@@ -237,9 +238,21 @@ public final class ActTools {
                         + "act_status one or more ticks later; its phase is the one that moves.")
                 .inputSchema(objectSchema(Map.of(
                         "move", Map.of("type", "object",
-                                "description", "either to:[x,y,z] (+ optional timeoutTicks) to walk "
-                                        + "to a destination, or raw axes forward,strafe,jump,sneak,"
-                                        + "sprint,durationTicks"),
+                                "description", "ONE of three, cheapest first. "
+                                        + "route:[x,y,z] (+ optional blockBudget, default "
+                                        + RouteIntent.DEFAULT_BLOCK_BUDGET + ") = REACH that block: "
+                                        + "a path is computed around obstacles, and blocks are PLACED "
+                                        + "to cross gaps when walking round would be longer, so the "
+                                        + "caller does not need to know the terrain. It consumes "
+                                        + "placeable blocks from the held stack, up to blockBudget; "
+                                        + "pass 0 to forbid building. Fails naming where the player "
+                                        + "stopped rather than reporting a crossing it did not make. "
+                                        + "to:[x,y,z] (+ optional timeoutTicks) = walk STRAIGHT "
+                                        + "toward a point and give up if blocked; it never builds and "
+                                        + "never routes around anything. "
+                                        + "Or raw axes forward,strafe,jump,sneak,sprint,durationTicks "
+                                        + "for direct input. Giving both 'route' and 'to' is an error: "
+                                        + "the MOVE slot holds one intent"),
                         "look", Map.of("type", "object",
                                 "description", "camera aim: mode set|look_at, yaw,pitch,block,"
                                         + "entityId,slewDegPerTick, track (keep aiming after "
@@ -270,10 +283,33 @@ public final class ActTools {
                 // way, so a nav submit replaces a held key and vice versa, which is what a caller
                 // changing its mind expects.
                 double[] to = doublesArg(move, "to");
-                SlotRecord r = to != null
-                        ? runtime.submitNav(new NavIntent(to[0], to.length > 1 ? to[1] : 0,
-                                to.length > 2 ? to[2] : 0, intArg(move, "timeoutTicks", 0)))
-                        : runtime.submitMove(parseMove(move));
+                double[] route = doublesArg(move, "route");
+                if (route != null && to != null) {
+                    // Both would occupy the same slot, and guessing which the caller meant is how a
+                    // tool ends up doing something the caller did not ask for. Refuse and say so.
+                    return error("give either 'to' (walk straight toward a point) or 'route' (reach a "
+                            + "block, planning around obstacles and placing blocks if needed), not "
+                            + "both: they are two answers to the same question and the MOVE slot "
+                            + "holds one intent");
+                }
+                if (route != null && route.length < 3) {
+                    return error("'route' needs three block coordinates [x,y,z]; a route to a "
+                            + "half-specified block is not a request that can be honoured");
+                }
+                SlotRecord r;
+                if (route != null) {
+                    int budget = intArg(move, "blockBudget", RouteIntent.DEFAULT_BLOCK_BUDGET);
+                    if (budget < 0) {
+                        return error("'blockBudget' must not be negative: " + budget);
+                    }
+                    r = runtime.submit(new RouteIntent((int) Math.floor(route[0]),
+                            (int) Math.floor(route[1]), (int) Math.floor(route[2]), budget));
+                } else if (to != null) {
+                    r = runtime.submitNav(new NavIntent(to[0], to.length > 1 ? to[1] : 0,
+                            to.length > 2 ? to[2] : 0, intArg(move, "timeoutTicks", 0)));
+                } else {
+                    r = runtime.submitMove(parseMove(move));
+                }
                 effectiveTick.put("move", r.effectiveTick());
                 perSlot.put("move", r.phase().name());
                 accepted++;

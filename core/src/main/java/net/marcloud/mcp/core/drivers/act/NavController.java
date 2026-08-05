@@ -26,7 +26,7 @@ import java.util.Locale;
  * LOOK stays independently owned and a caller that wants the bot to face its destination submits a
  * look intent alongside. The slots are orthogonal by design and this respects that.
  */
-public final class NavController {
+public final class NavController implements LocomotionController {
 
     /**
      * Horizontal distance at which the target counts as reached, in blocks.

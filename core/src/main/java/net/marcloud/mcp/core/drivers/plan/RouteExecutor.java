@@ -47,7 +47,8 @@ import net.marcloud.mcp.core.drivers.act.NavController;
  * abandoned run leaves the player standing on half a bridge over a drop, so releasing keys and
  * dropping the steering is not optional cleanup, it is part of the outcome.
  */
-public final class RouteExecutor {
+public final class RouteExecutor
+        implements net.marcloud.mcp.core.drivers.act.LocomotionController {
 
     /** Where the machine is. Public so a status tool can report it without inference. */
     public enum Phase {
@@ -83,6 +84,21 @@ public final class RouteExecutor {
      * covering both.
      */
     public static final int NAV_TICK_BUDGET = MOVE_TICK_BUDGET - 10;
+
+    /**
+     * How far from a move's target centre still counts as arrived, in blocks.
+     *
+     * <p>Wider than {@code NavController.ARRIVE_EPSILON} (0.6) on purpose, and the gap is the whole
+     * point: the steering decides it has arrived at 0.6, so anything tighter here rejects moves the
+     * steering considers complete and the route dies on its first step. Measured live -- a player
+     * stopped 0.56 blocks from centre, which is arrival to the steering and a different BLOCK to a
+     * floored-coordinate test.
+     *
+     * <p>Kept small enough that error cannot accumulate into a wrong plan: each move re-targets an
+     * absolute block centre rather than an offset from wherever the last one ended, so a 0.7-block
+     * shortfall is corrected by the next move instead of being carried forward.
+     */
+    public static final double ARRIVE_TOLERANCE = 0.7D;
 
     /**
      * How many ticks a placement may be retried before the move fails.
@@ -343,15 +359,32 @@ public final class RouteExecutor {
                     + "is unreadable, and a route that reports progress on an unread position is "
                     + "reporting something it never observed"));
         }
-        int bx = (int) Math.floor(pos[0]);
+        // Arrival is proximity to the target CENTRE, not equality of floored block coordinates.
+        //
+        // Measured on a live client: the player stopped at x=63.94 heading for the centre of block
+        // 64 (x=64.5). NavController correctly reported arrival -- 0.56 is inside its 0.6-block
+        // tolerance -- while floor(63.94) is 63, so a block-equality check called it a failure and
+        // the route died on its first move. The equality test was stricter than the steering can
+        // deliver, which makes it wrong rather than strict: it demanded a guarantee no component in
+        // the chain offers.
+        //
+        // This is still a fact about the WORLD and not about the steering: the position is read from
+        // the actuator and the floor beneath it is confirmed. What changed is the tolerance, and it
+        // is deliberately a shade wider than NavController's so that a move the steering considers
+        // finished is never rejected by an epsilon this class chose.
         int by = (int) Math.floor(pos[1]);
-        int bz = (int) Math.floor(pos[2]);
-        if (bx != m.to().x() || bz != m.to().z()) {
+        double dx = (m.to().x() + 0.5D) - pos[0];
+        double dz = (m.to().z() + 0.5D) - pos[2];
+        double offBy = Math.sqrt(dx * dx + dz * dz);
+        boolean supported = act.blockPresent(
+                (int) Math.floor(pos[0]), by - 1, (int) Math.floor(pos[2]));
+        if (offBy > ARRIVE_TOLERANCE || !supported) {
             return finish(act, ActOutcome.failed(String.format(
-                    "move %d of %d ended at block (%d,%d,%d) but the plan required (%d,%d,%d). The "
-                    + "steering stopped, which is a fact about the steering; arriving is a fact about "
-                    + "the world, and it did not happen",
-                    index + 1, moves.size(), bx, by, bz, m.to().x(), m.to().y(), m.to().z())));
+                    "move %d of %d ended %.2f blocks from the centre of (%d,%d,%d)%s. The steering "
+                    + "stopped, which is a fact about the steering; arriving is a fact about the "
+                    + "world, and it did not happen",
+                    index + 1, moves.size(), offBy, m.to().x(), m.to().y(), m.to().z(),
+                    supported ? "" : " and there is no floor under the player")));
         }
         index++;
         nav = null;

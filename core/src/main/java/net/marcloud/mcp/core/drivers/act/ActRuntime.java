@@ -194,9 +194,15 @@ public final class ActRuntime implements MoveIntentView {
     @Override
     public boolean moveActive() {
         SlotRecord r = records.get(ActSlot.MOVE.ordinal());
-        // Any locomotion intent, not just a raw-axis one: a NavIntent drives the same input.
-        return r.phase() == ActPhase.ACTIVE
-                && (r.intent() instanceof MoveIntent || r.intent() instanceof NavIntent);
+        // EVERY intent that can occupy the MOVE slot drives this input -- the test is the slot, not a
+        // list of types. The list version cost a live session: RouteIntent was dispatched, planned,
+        // and ticked correctly for 50 ticks while this method answered false, so the override never
+        // engaged and the player never moved. Nothing reported an error, because every component was
+        // doing its job; the axes simply had no consumer. A whitelist here has to be updated by
+        // whoever adds a locomotion intent, and the failure for forgetting is silent, so it is the
+        // wrong shape for this question. If an intent is in the MOVE slot and ACTIVE, it moves.
+        return r.phase() == ActPhase.ACTIVE && r.intent() != null
+                && r.intent().slot() == ActSlot.MOVE;
     }
 
     @Override

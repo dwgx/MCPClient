@@ -254,8 +254,15 @@ public final class McpCore {
                 new net.marcloud.mcp.core.drivers.act.LivePlayerActuator(game);
         // MOVE takes the actuator too, so act_status can report distance travelled and call out a
         // jam instead of saying "moving" for a player pressed against a wall.
+        // The route factory is supplied HERE, not inside the applier: the planner package depends on
+        // drivers.act, so an applier naming the executor would close a package cycle. This is the one
+        // place that can see both, and it is also the only place that knows which world a plan should
+        // be built against -- the SERVER world, because it validates and reverts what the client
+        // predicts, so a plan built on the client's belief can be rubber-banded away.
         actRuntime.registerApplier(net.marcloud.mcp.core.drivers.act.ActSlot.MOVE,
-                new net.marcloud.mcp.core.drivers.act.MoveApplier(actuator, actRuntime));
+                new net.marcloud.mcp.core.drivers.act.MoveApplier(actuator, actRuntime,
+                        ri -> net.marcloud.mcp.core.drivers.plan.RoutePlanning.executorFor(
+                                game, ri.targetX(), ri.targetY(), ri.targetZ(), ri.blockBudget())));
         actRuntime.registerApplier(net.marcloud.mcp.core.drivers.act.ActSlot.LOOK,
                 new net.marcloud.mcp.core.drivers.act.LookApplier(actuator));
         actRuntime.registerApplier(net.marcloud.mcp.core.drivers.act.ActSlot.INTERACT,
