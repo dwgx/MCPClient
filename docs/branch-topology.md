@@ -178,8 +178,7 @@ core/board/pg 只在 `mcp-core` 那一侧)。
 **私钥那条最要紧:丢了没有恢复路径**,必须重走两层仪式并重签所有 compat 补丁。
 `~/.mcp-keys/{kernel,root}-ed25519.key.b64`。流程见 `dwm/key-ceremony.md`。
 
-CLAUDE.md 的模块表还列着 `dwm-compose/`,但**本仓库没有这个目录**(`pom.xml` 是
-shim/client/core/board/pg/dwm 六个)。改 CLAUDE.md 需 3 次确认,所以只在此 flag。
+CLAUDE.md 模块表已于 2026-08-20 与 pom 对齐:辅助是 `pg/` + `dwm/`(qml4j)。`dwm-compose/` 已拆除。
 
 ---
 

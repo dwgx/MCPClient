@@ -6,10 +6,10 @@ Central artifact (`io.github.timer-err:qml4j-core`); the pin is one property in
 `dwm/pom.xml`. It is **never vendored**. Following an upstream release is that one line.
 Changes needed inside qml4j go through the `dwgx/qml4j` topic stack and up to `TIMER-err`.
 
-Live: macOS Apple GL 2.1, and Windows NVIDIA GL 4.6 / GLFW 3.3 compat on qml4j **0.2.24**
-(overlay opened, world join, clean `Stopping!`). Headless tests cover **0.2.27**; a Windows
-overlay rerun on 0.2.27 is not yet a live fact. See `docs/macos/dwm-qml4j-plan.md` for the
-original rollout and `docs/dwm/dwm-architecture-comparison.md` for the NT DWM metaphor.
+Live: macOS Apple GL 2.1; Windows NVIDIA / GLFW 3.3 compat. Overlay on qml4j **0.2.27**
+opened `QmlGuiScreen` over the world (eval_java, REST `/v1/screen`, jar
+`qml4j-core-0.2.27`). See `docs/macos/dwm-qml4j-plan.md` for the original rollout and
+`docs/dwm/dwm-architecture-comparison.md` for the NT DWM metaphor.
 
 ## What it is
 
