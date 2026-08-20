@@ -5,8 +5,8 @@ Verification scaffold, not a build tool. An assertion that stays GREEN with the 
 side broken is proving nothing, and this repo keeps finding such assertions in itself --
 several written by the same hand that wrote the code. So each claim below is checked by
 breaking the thing it claims to guard. (The running count is not pinned here on purpose: it
-has been wrong every time it was written down. Count it from the `fixed` markers in
-docs/agency/mutation-candidates-2026-08-05.json.)
+has been wrong every time it was written down. Count CAUGHT/SURVIVED from this tool's own
+exit codes, not from a document.)
 
 Usage:
   mutate.py <file> <old> <new> <-Dtest selection> [label] [module]

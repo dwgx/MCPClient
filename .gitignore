@@ -44,6 +44,16 @@ core-jvmti.so
 #     never committed. See .ai-notes/README.md for the index. ---
 .ai-notes/
 
+# Session handoffs and one-off telly/route harnesses -- never re-add.
+docs/**/HANDOFF.md
+docs/**/handoff-*.md
+docs/**/session-*.md
+docs/**/telly-test-plan.md
+docs/**/mutation-candidates-*.json
+scripts/live-telly-*.py
+scripts/live-route-drive.py
+
+
 # CodeGraph local code-knowledge-graph index (tree-sitter -> SQLite). Machine-
 # local, rebuildable via `codegraph init`/`sync`; never committed.
 .codegraph/

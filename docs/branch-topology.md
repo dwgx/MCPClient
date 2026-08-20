@@ -168,7 +168,7 @@ core/board/pg 只在 `mcp-core` 那一侧)。
 
 **只读调研/审计放心派;要编译的改动自己做,或在主树里串行。** 而在主树里跑过 agent 之后,
 提交一律逐个指定文件 —— `git add -A` 会把它没还原的变异一起发出去,这件事已经发生过一次
-(见 `agency/HANDOFF.md` §4)。
+(见 `scripts/mutate.py`:被杀的进程走不到 `finally`)。
 
 **私钥那条最要紧:丢了没有恢复路径**,必须重走两层仪式并重签所有 compat 补丁。
 `~/.mcp-keys/{kernel,root}-ed25519.key.b64`。流程见 `dwm/key-ceremony.md`。
@@ -211,7 +211,7 @@ git diff --stat origin/mcp-core..HEAD -- client                # 只有 pom.xml
 > 依赖迁移适配。**不是本线引入的**,但"client 从未被改过"作为绝对陈述并不成立 ——
 > 本线的准确说法是"本线不碰 `client/src`"。
 
-`core/` 的改动**全部在 compat 层**,没有碰安全内核(7 层权限、能力包、P-SECURE)。
+compat 层仍在 core 里,但本线后来的主体是 agency(act / plan / world / craft),不是「core 只有 compat」。
 
 ---
 
@@ -222,9 +222,9 @@ git diff --stat origin/mcp-core..HEAD -- client                # 只有 pom.xml
 2. **决定 CI 策略**(§2)—— 至少让单测在这条线上跑。
 3. ~~卡片面在真机不可见~~ **已修复(2026-07-31)** —— 根因是 MC 的 `GL_ALPHA_TEST` 丢弃
    alpha ≤ 25 的片元(卡片面是 alpha 13)。`GlStateGuard` 现在为 Skia 禁用它。
-   见 `handoff-2026-07-29.md` §3、commit `5669a04`。已配真机断言 + 探针检查。
+   见 `debugging.md` §9、commit `5669a04`。已配真机断言 + 探针检查。
 4. ~~**`defaultTrustAnchors()` 的信任回退**~~ **已关闭(2026-07-31)** —— 撤销现在生效;
-   代价是任何 root 资源损坏即全部补丁失效。见 `dwm/handoff-2026-07-29.md` §7。
+   代价是任何 root 资源损坏即全部补丁失效。见 `dwm/key-ceremony.md`。
 
 **明确不做**:把这条线 rebase 到 main / 强推 / 合并 main 进来。三者都不需要 —— 见 §0,
 根本没有分叉。

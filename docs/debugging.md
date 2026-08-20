@@ -304,7 +304,7 @@ record/report 与 0/1/2/3 退出码约定。三个探针都 `import mcp_probe`,*
 `scripts/live-look-probe.py`(LOOK 追踪,11/11)。
 
 > **⑤⑥⑦ 三条是 2026-08-05 那轮真机踩出来的**(七条里有两个是当轮作者自己的误诊)。
-> 那一轮的测量与判据收进了 `agency/HANDOFF.md` §3 §4;逐条原文见 `git show 3f5829e:docs/agency/handoff-2026-08-06.md`。
+> 那一轮的测量写在下面八条里。会话原文不进 git。
 
 ### ① 一次 `eval_java` 提交 = 一个游戏 tick。循环 tick 只会饿死它自己
 
