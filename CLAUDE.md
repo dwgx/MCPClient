@@ -3,7 +3,7 @@ doc: root-entry
 title: MCPClient — AI 接手入口
 layer: entry
 status: authoritative
-updated: 2026-07-11
+updated: 2026-08-20
 parent: null
 next:
   - path: .ai-notes/README.md
@@ -33,7 +33,7 @@ MCPClient(the Kernel):把**活着的 Minecraft 1.8.9 客户端**(LWJGL3 / JDK25)
 | 设计骨架 | `core/` | 内核本体(the Kernel):MCP server、7 层安全内核、能力包、工具 |
 | 设计骨架 | `board/` | 客户端功能框架(PCB 隐喻),与 core 零硬依赖 |
 | 设计骨架 | `client/` | MC 1.8.9 客户端(**vanilla 映射**——反射/GUI 字段名以此为准) |
-| 可拆卸辅助 | `pg/` `dwm/` `dwm-compose/` | 挂骨架外,零安全权,删了 3 骨架照跑(见 LOCK §L0 辅助列表) |
+| 可拆卸辅助 | `pg/` `dwm/` | 挂骨架外,零安全权,删了 3 骨架照跑(见 LOCK §L0 辅助列表)。`dwm` 底层是 Maven Central **qml4j**(从不 vendor);活地图 `dwm/README.md`。`dwm-compose/` 已拆除,不要当活模块。 |
 
 ## 命令(稳定;易变数字不写在这,看 `.ai-notes/STATUS.md`)
 
@@ -41,6 +41,7 @@ MCPClient(the Kernel):把**活着的 Minecraft 1.8.9 客户端**(LWJGL3 / JDK25)
 ./mvnw -pl core test                          # 跑 core 测试
 ./mvnw -q -pl core -am package -DskipTests    # 打 fat agent jar
 scripts\run-mcp.bat                           # 启动游戏 + MCP Core(Windows;脚本+jvm-args 在 scripts/)
+scripts\run-mcp-overlay.bat                   # 同上,并武装 KI-11 DWM(RSHIFT)
 ```
 
 ## 铁律(违反会出事)
@@ -71,6 +72,7 @@ scripts\run-mcp.bat                           # 启动游戏 + MCP Core(Windows;
 | 文档模板(交接/会话总结/任务记录) | `.ai-notes/_templates/` |
 | 怎么高效干活(速通/技巧/提示策略/环境坑/skill 闭环) | `.ai-notes/docs/reference/cc-workflow-guide.md` |
 | 和 dwgx 对齐(指纹/标准) | `.ai-notes/docs/project/owner-profile.md` |
+| DWM 活架构(qml4j) | `dwm/README.md` |
 
 ## 工作方式(授权 + 思维方式,适用所有会话)
 
