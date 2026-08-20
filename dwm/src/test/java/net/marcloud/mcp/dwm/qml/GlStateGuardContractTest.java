@@ -32,6 +32,11 @@ public class GlStateGuardContractTest {
         assertTrue("leave() must bind sampler objects; Skia leaves one on unit 0 and "
                 + "glPushAttrib cannot save it",
                 s.contains("glBindSampler"));
+        assertTrue("must not call GL33.glBindSampler: a 3.2 context makes LWJGL "
+                + "jni_FatalError that no Java catch can stop",
+                !s.contains("GL33.glBindSampler"));
+        assertTrue("bind through ARBSamplerObjects so a 3.2+ARB context is enough",
+                s.contains("ARBSamplerObjects.glBindSampler"));
         assertTrue("enter() must read GL_SAMPLER_BINDING, not hardcode unbind-to-zero, "
                 + "matching the restore-what-was-there rule",
                 s.contains("GL_SAMPLER_BINDING"));

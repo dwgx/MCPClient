@@ -15,8 +15,8 @@ import org.lwjgl.opengl.GL;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL13;
 import org.lwjgl.opengl.GL15;
+import org.lwjgl.opengl.ARBSamplerObjects;
 import org.lwjgl.opengl.GL20;
-import org.lwjgl.opengl.GL33;
 
 /**
  * Asserts that a real qml4j frame leaves the GL state exactly as it found it.
@@ -273,7 +273,7 @@ public class GlStateGuardLiveIT {
         StringBuilder b = new StringBuilder("[");
         for (int u = 0; u < 4; u++) {
             GL13.glActiveTexture(GL13.GL_TEXTURE0 + u);
-            b.append(GL11.glGetInteger(GL33.GL_SAMPLER_BINDING)).append(',');
+            b.append(GL11.glGetInteger(ARBSamplerObjects.GL_SAMPLER_BINDING)).append(',');
         }
         GL13.glActiveTexture(saved);
         return b.append(']').toString();

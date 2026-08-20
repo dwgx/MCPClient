@@ -239,9 +239,12 @@ public final class Display {
         GLFW.glfwWindowHint(GLFW.GLFW_CLIENT_API, GLFW.GLFW_OPENGL_API);
         // MC 1.8.9 uses immediate-mode GL; it needs a compatibility profile.
         // macOS only exposes core profiles, so request the version/profile hints elsewhere.
+        // 3.3 (not 3.2): qml4j/Skia bind sampler objects and shaders that a 3.2
+        // context will reject. LWJGL then aborts with jni_FatalError — no Java
+        // catch, no crash-report — the moment the DWM screen opens.
         if (!isMac()) {
             GLFW.glfwWindowHint(GLFW.GLFW_CONTEXT_VERSION_MAJOR, 3);
-            GLFW.glfwWindowHint(GLFW.GLFW_CONTEXT_VERSION_MINOR, 2);
+            GLFW.glfwWindowHint(GLFW.GLFW_CONTEXT_VERSION_MINOR, 3);
             GLFW.glfwWindowHint(GLFW.GLFW_OPENGL_PROFILE, GLFW.GLFW_OPENGL_COMPAT_PROFILE);
         }
         GLFW.glfwWindowHint(GLFW.GLFW_DEPTH_BITS, pixelFormat.getDepthBits());

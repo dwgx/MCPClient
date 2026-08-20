@@ -5,13 +5,13 @@ import java.nio.FloatBuffer;
 import net.minecraft.client.renderer.GlStateManager;
 
 import org.lwjgl.BufferUtils;
+import org.lwjgl.opengl.ARBSamplerObjects;
 import org.lwjgl.opengl.GL;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL13;
 import org.lwjgl.opengl.GL15;
 import org.lwjgl.opengl.GL20;
 import org.lwjgl.opengl.GL30;
-import org.lwjgl.opengl.GL33;
 
 /**
  * Brackets a Skija frame so MC keeps rendering afterwards.
@@ -330,7 +330,7 @@ final class GlStateGuard {
         }
         for (int u = 0; u < SAMPLER_UNITS; u++) {
             GL13.glActiveTexture(GL13.GL_TEXTURE0 + u);
-            hadSampler[u] = GL11.glGetInteger(GL33.GL_SAMPLER_BINDING);
+            hadSampler[u] = GL11.glGetInteger(ARBSamplerObjects.GL_SAMPLER_BINDING);
         }
         GL13.glActiveTexture(hadActiveTexture);
     }
@@ -341,7 +341,7 @@ final class GlStateGuard {
         }
         for (int u = 0; u < SAMPLER_UNITS; u++) {
             GL13.glActiveTexture(GL13.GL_TEXTURE0 + u);
-            GL33.glBindSampler(u, hadSampler[u]);
+            ARBSamplerObjects.glBindSampler(u, hadSampler[u]);
         }
         GL13.glActiveTexture(hadActiveTexture);
     }
