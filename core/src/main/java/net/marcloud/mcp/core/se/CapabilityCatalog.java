@@ -65,6 +65,7 @@ public final class CapabilityCatalog {
             Map.entry("gui_click_element", Set.of(CapabilitySid.CAP_WORLD_WRITE)),
             Map.entry("gui_type_text", Set.of(CapabilitySid.CAP_WORLD_WRITE)),
             Map.entry("act_set", Set.of(CapabilitySid.CAP_WORLD_WRITE)),
+            Map.entry("act_plan", Set.of(CapabilitySid.CAP_WORLD_WRITE)),
             Map.entry("act_cancel", Set.of(CapabilitySid.CAP_WORLD_WRITE)),
             Map.entry("gui_press_key", Set.of(CapabilitySid.CAP_WORLD_WRITE)),
             // synthesize / redefine

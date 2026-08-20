@@ -42,6 +42,12 @@ public final class ActRuntime implements MoveIntentView {
     /** One applier per slot, registered at startup, read on the game thread. */
     private final AtomicReferenceArray<ActApplier> appliers;
 
+    /**
+     * Sidecar sequencer. Constructed here so {@code new ActRuntime(clock)} tests
+     * get a planner without {@code McpCore}.
+     */
+    private final ActPlanInterpreter interpreter;
+
     /** Uses the global {@link GameClock#INSTANCE}. */
     public ActRuntime() {
         this(GameClock.INSTANCE);
@@ -56,6 +62,38 @@ public final class ActRuntime implements MoveIntentView {
         for (int i = 0; i < n; i++) {
             records.set(i, SlotRecord.empty());
         }
+        this.interpreter = new ActPlanInterpreter(this);
+    }
+
+    /**
+     * Bind {@code plan}, replacing any previous one, and submit step 0.
+     *
+     * @return the sequencer snapshot after the first step is submitted
+     */
+    public ActPlanStatus submitPlan(ActPlan plan) {
+        if (plan == null) {
+            throw new IllegalArgumentException("plan must not be null");
+        }
+        interpreter.bind(plan);
+        return interpreter.status();
+    }
+
+    /** Cancel a running plan. Idle/terminal is a no-op. */
+    public void cancelPlan() {
+        interpreter.cancel();
+    }
+
+    /** Sequencer snapshot for {@code act_status.plan}. */
+    public ActPlanStatus planStatus() {
+        return interpreter.status();
+    }
+
+    /**
+     * Advance the sequencer after the slot loop has applied {@code tick}. No-op
+     * when no plan is running. The interpreter must not tick locomotion itself.
+     */
+    public void stepPlan(long tick) {
+        interpreter.step(tick);
     }
 
     // ===== registration =====

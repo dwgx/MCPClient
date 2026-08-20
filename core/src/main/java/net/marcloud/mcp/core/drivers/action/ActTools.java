@@ -11,13 +11,15 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import io.modelcontextprotocol.spec.McpSchema.ToolAnnotations;
 
+import net.marcloud.mcp.core.drivers.act.ActIntent;
+import net.marcloud.mcp.core.drivers.act.ActIntentParser;
+import net.marcloud.mcp.core.drivers.act.ActPlan;
+import net.marcloud.mcp.core.drivers.act.ActPlanStatus;
 import net.marcloud.mcp.core.drivers.act.ActRuntime;
 import net.marcloud.mcp.core.drivers.act.ActSlot;
 import net.marcloud.mcp.core.drivers.act.ActStatus;
 import net.marcloud.mcp.core.drivers.act.InteractIntent;
 import net.marcloud.mcp.core.drivers.act.LookIntent;
-import net.marcloud.mcp.core.drivers.act.MoveIntent;
-import net.marcloud.mcp.core.drivers.act.NavIntent;
 import net.marcloud.mcp.core.drivers.act.RouteIntent;
 import net.marcloud.mcp.core.drivers.act.SlotRecord;
 import net.marcloud.mcp.core.io.IoManager;
@@ -25,7 +27,7 @@ import net.marcloud.mcp.core.io.http.Json;
 import net.marcloud.mcp.core.se.Ring;
 
 /**
- * The PHASE A.7 MCP surface over the {@link ActRuntime} act layer: three tools that
+ * The PHASE A.7 MCP surface over the {@link ActRuntime} act layer: four tools that
  * let an AI drive the live player's three orthogonal actuation channels
  * ({@link ActSlot#MOVE}/{@link ActSlot#LOOK}/{@link ActSlot#INTERACT}) and read
  * back what each channel is doing.
@@ -34,9 +36,13 @@ import net.marcloud.mcp.core.se.Ring;
  *   <li>{@code act_set} (R1, write) — submit one intent per named slot; missing
  *       slots are left untouched. Each accepted intent becomes eligible at the
  *       next clean tick boundary ({@code effectiveTick = tickNow + 1}).</li>
- *   <li>{@code act_cancel} (R1, write) — cancel named slots, or all of them.</li>
+ *   <li>{@code act_plan} (R1, write) — sidecar sequencer: an ordered list of
+ *       {@code act_set}-shaped steps, advanced at 20Hz after the slot loop.
+ *       Not a fourth slot and not a {@code plan:} key on {@code act_set}.</li>
+ *   <li>{@code act_cancel} (R1, write) — cancel named slots, or all of them
+ *       (which also cancels a running plan).</li>
  *   <li>{@code act_status} (R3, read) — a reference-free snapshot of every slot's
- *       phase / activity for "what am I doing right now".</li>
+ *       phase / activity for "what am I doing right now", plus {@code plan}.</li>
  * </ul>
  *
  * <p><b>Reference-free by construction.</b> Every value returned is a primitive,
@@ -66,6 +72,7 @@ public final class ActTools {
     /** Register all act tools into the supervised registry with their true rings. */
     public void registerAll(IoManager registry) {
         register(registry, actSet(), Ring.R1);
+        register(registry, actPlan(), Ring.R1);
         register(registry, actCancel(), Ring.R1);
         register(registry, actStatus(), Ring.R3);
     }
@@ -92,71 +99,6 @@ public final class ActTools {
 
     private static Map<String, Object> prop(String type, String desc) {
         return Map.of("type", type, "description", desc);
-    }
-
-    /** The Map under key {@code k}, or null if absent / not a map. */
-    @SuppressWarnings("unchecked")
-    private static Map<String, Object> mapArg(Map<String, Object> a, String k) {
-        Object v = (a == null) ? null : a.get(k);
-        return (v instanceof Map<?, ?> m) ? (Map<String, Object>) m : null;
-    }
-
-    private static float floatArg(Map<String, Object> a, String k, float fallback) {
-        Object v = (a == null) ? null : a.get(k);
-        if (v instanceof Number n) {
-            return n.floatValue();
-        }
-        if (v != null) {
-            try {
-                return Float.parseFloat(v.toString());
-            } catch (NumberFormatException ignored) {
-                // fall through
-            }
-        }
-        return fallback;
-    }
-
-    private static int intArg(Map<String, Object> a, String k, int fallback) {
-        Object v = (a == null) ? null : a.get(k);
-        if (v instanceof Number n) {
-            return n.intValue();
-        }
-        if (v != null) {
-            try {
-                return Integer.parseInt(v.toString());
-            } catch (NumberFormatException ignored) {
-                // fall through
-            }
-        }
-        return fallback;
-    }
-
-    private static boolean boolArg(Map<String, Object> a, String k, boolean fallback) {
-        Object v = (a == null) ? null : a.get(k);
-        if (v instanceof Boolean b) {
-            return b;
-        }
-        return v == null ? fallback : Boolean.parseBoolean(v.toString());
-    }
-
-    private static String strArg(Map<String, Object> a, String k) {
-        Object v = (a == null) ? null : a.get(k);
-        return v == null ? null : v.toString();
-    }
-
-    /** Parse an int triple from a {@code [x,y,z]} list; null if absent/malformed. */
-    private static int[] intTriple(Object v) {
-        if (!(v instanceof List<?> l) || l.size() != 3) {
-            return null;
-        }
-        int[] out = new int[3];
-        for (int i = 0; i < 3; i++) {
-            if (!(l.get(i) instanceof Number n)) {
-                return null;
-            }
-            out[i] = n.intValue();
-        }
-        return out;
     }
 
     // ===== act_set =====
@@ -277,49 +219,25 @@ public final class ActTools {
             Map<String, Object> perSlot = new LinkedHashMap<>();
             int accepted = 0;
 
-            Map<String, Object> move = mapArg(args, "move");
+            Map<String, Object> move = ActIntentParser.mapArg(args, "move");
             if (move != null) {
-                // A destination means navigation; raw axes mean the old primitive. One slot either
-                // way, so a nav submit replaces a held key and vice versa, which is what a caller
-                // changing its mind expects.
-                double[] to = doublesArg(move, "to");
-                double[] route = doublesArg(move, "route");
-                if (route != null && to != null) {
-                    // Both would occupy the same slot, and guessing which the caller meant is how a
-                    // tool ends up doing something the caller did not ask for. Refuse and say so.
-                    return error("give either 'to' (walk straight toward a point) or 'route' (reach a "
-                            + "block, planning around obstacles and placing blocks if needed), not "
-                            + "both: they are two answers to the same question and the MOVE slot "
-                            + "holds one intent");
+                ActIntent intent;
+                try {
+                    intent = ActIntentParser.parseMoveSlot(move);
+                } catch (IllegalArgumentException e) {
+                    return error(e.getMessage());
                 }
-                if (route != null && route.length < 3) {
-                    return error("'route' needs three block coordinates [x,y,z]; a route to a "
-                            + "half-specified block is not a request that can be honoured");
-                }
-                SlotRecord r;
-                if (route != null) {
-                    int budget = intArg(move, "blockBudget", RouteIntent.DEFAULT_BLOCK_BUDGET);
-                    if (budget < 0) {
-                        return error("'blockBudget' must not be negative: " + budget);
-                    }
-                    r = runtime.submit(new RouteIntent((int) Math.floor(route[0]),
-                            (int) Math.floor(route[1]), (int) Math.floor(route[2]), budget));
-                } else if (to != null) {
-                    r = runtime.submitNav(new NavIntent(to[0], to.length > 1 ? to[1] : 0,
-                            to.length > 2 ? to[2] : 0, intArg(move, "timeoutTicks", 0)));
-                } else {
-                    r = runtime.submitMove(parseMove(move));
-                }
+                SlotRecord r = runtime.submit(intent);
                 effectiveTick.put("move", r.effectiveTick());
                 perSlot.put("move", r.phase().name());
                 accepted++;
             }
 
-            Map<String, Object> look = mapArg(args, "look");
+            Map<String, Object> look = ActIntentParser.mapArg(args, "look");
             if (look != null) {
                 LookIntent li;
                 try {
-                    li = parseLook(look);
+                    li = ActIntentParser.parseLook(look);
                 } catch (IllegalArgumentException e) {
                     return error(e.getMessage());
                 }
@@ -329,11 +247,11 @@ public final class ActTools {
                 accepted++;
             }
 
-            Map<String, Object> interact = mapArg(args, "interact");
+            Map<String, Object> interact = ActIntentParser.mapArg(args, "interact");
             if (interact != null) {
                 InteractIntent ii;
                 try {
-                    ii = parseInteract(interact);
+                    ii = ActIntentParser.parseInteract(interact);
                 } catch (IllegalArgumentException e) {
                     return error(e.getMessage());
                 }
@@ -356,142 +274,61 @@ public final class ActTools {
         });
     }
 
-    /** A numeric array argument, or null when absent or not a list of numbers. */
-    private static double[] doublesArg(Map<String, Object> m, String key) {
-        Object v = m == null ? null : m.get(key);
-        if (!(v instanceof java.util.List<?> l) || l.isEmpty()) {
-            return null;
-        }
-        double[] out = new double[l.size()];
-        for (int i = 0; i < l.size(); i++) {
-            if (!(l.get(i) instanceof Number n)) {
-                return null;
-            }
-            out[i] = n.doubleValue();
-        }
-        return out;
-    }
+    // ===== act_plan =====
 
-    private static MoveIntent parseMove(Map<String, Object> m) {
-        return new MoveIntent(
-                floatArg(m, "forward", 0f),
-                floatArg(m, "strafe", 0f),
-                boolArg(m, "jump", false),
-                boolArg(m, "sneak", false),
-                boolArg(m, "sprint", false),
-                intArg(m, "durationTicks", 0));
-    }
-
-    private static LookIntent parseLook(Map<String, Object> m) {
-        String modeStr = strArg(m, "mode");
-        String mode = modeStr == null ? "set" : modeStr.trim().toLowerCase(Locale.ROOT);
-        float slew = floatArg(m, "slewDegPerTick", 0f);
-        // An explicit flag rather than "durationTicks was supplied", which is how 'hold' picks its
-        // mode. The two are not the same shape: a hold's two endings need a tick count to tell them
-        // apart, while a track's most useful form is the UNBOUNDED one -- follow this mob until I say
-        // stop -- and inferring track from a count would make that form unrequestable.
-        boolean track = boolArg(m, "track", false);
-        int durationTicks = intArg(m, "durationTicks", 0);
-        if (durationTicks < 0) {
-            throw new IllegalArgumentException("act_set look 'durationTicks' must be >= 0 (0 = until "
-                    + "cancelled or replaced), got " + durationTicks);
-        }
-        if (durationTicks > 0 && !track) {
-            // Silently ignoring it would be the failure this repo keeps finding: the caller stated a
-            // duration, the reply says accepted, and the aim ends on the first tick it lands anyway.
-            throw new IllegalArgumentException("act_set look 'durationTicks' only applies with "
-                    + "'track':true -- without tracking the aim ends as soon as it reaches the "
-                    + "target, so a duration would be accepted and never used");
-        }
-        switch (mode) {
-            case "set":
-                return track
-                        ? LookIntent.holdSet(floatArg(m, "yaw", 0f), floatArg(m, "pitch", 0f), slew,
-                                durationTicks)
-                        : LookIntent.set(floatArg(m, "yaw", 0f), floatArg(m, "pitch", 0f), slew);
-            case "look_at": {
-                int[] block = intTriple(m.get("block"));
-                if (block != null) {
-                    return track
-                            ? LookIntent.trackBlock(block[0], block[1], block[2], slew, durationTicks)
-                            : LookIntent.lookAtBlock(block[0], block[1], block[2], slew);
-                }
-                int entityId = intArg(m, "entityId", -1);
-                if (entityId >= 0) {
-                    return track
-                            ? LookIntent.trackEntity(entityId, slew, durationTicks)
-                            : LookIntent.lookAtEntity(entityId, slew);
-                }
-                throw new IllegalArgumentException(
-                        "act_set look mode 'look_at' needs a 'block':[x,y,z] or a non-negative 'entityId'");
+    SyncToolSpecification actPlan() {
+        Tool tool = Tool.builder()
+                .name("act_plan")
+                .title("Run an actuation plan")
+                .description("[requires: in-world, -javaagent] Submit an ordered sequence of "
+                        + "act_set-shaped steps that the runtime advances on the tick seam. This is "
+                        + "NOT a fourth slot and NOT a 'plan' key on act_set: each step is a "
+                        + "non-empty subset of move/look/interact with the same inner keys as "
+                        + "act_set, turned into 1-3 intents on the existing channels. The next step "
+                        + "is submitted only when every slot that step touched is COMPLETE with the "
+                        + "same intent identity; FAILED fails the plan and does not submit the next; "
+                        + "CANCELLED or a racing act_set (identity mismatch) aborts naming "
+                        + "supersession. A new act_plan replaces the previous. "
+                        + "Refuse empty steps, a step with no move/look/interact, unknown keys "
+                        + "(wait/eval/craft/skill), route+to together, raw axes with "
+                        + "durationTicks<=0, and look track with durationTicks<=0 (KEEP that never "
+                        + "completes). look.durationTicks without track is rejected as on act_set. "
+                        + "Confirm act_status.tickNow is advancing; watch progress on "
+                        + "act_status.plan {phase (IDLE|RUNNING|COMPLETE|FAILED|CANCELLED), index "
+                        + "(0-based current step), size, waitingOn, message}.")
+                .inputSchema(objectSchema(Map.of(
+                        "steps", Map.of("type", "array",
+                                "description", "ordered act_set argument objects; each supplies any "
+                                        + "of move, look, interact",
+                                "items", Map.of("type", "object"))),
+                        List.of("steps")))
+                .annotations(ToolAnnotations.builder()
+                        .title("Run an actuation plan")
+                        .readOnlyHint(false)
+                        .destructiveHint(false)
+                        .idempotentHint(false)
+                        .openWorldHint(true)
+                        .build())
+                .build();
+        return new SyncToolSpecification(tool, (exchange, request) -> {
+            Map<String, Object> args = request.arguments();
+            Object stepsArg = args == null ? null : args.get("steps");
+            if (!(stepsArg instanceof List<?> steps)) {
+                return error("act_plan: 'steps' must be a non-empty array of act_set-shaped objects");
             }
-            default:
-                throw new IllegalArgumentException(
-                        "act_set look 'mode' must be 'set' or 'look_at', got '" + modeStr + "'");
-        }
-    }
-
-    private static InteractIntent parseInteract(Map<String, Object> m) {
-        String kindStr = strArg(m, "kind");
-        if (kindStr == null) {
-            throw new IllegalArgumentException("act_set interact needs a 'kind'");
-        }
-        String kind = kindStr.trim().toLowerCase(Locale.ROOT);
-        switch (kind) {
-            case "dig": {
-                int[] b = requireBlock(m, "dig");
-                return InteractIntent.dig(b[0], b[1], b[2], intArg(m, "face", -1));
+            ActPlan plan;
+            try {
+                plan = ActPlan.parse(steps);
+            } catch (IllegalArgumentException e) {
+                return error(e.getMessage());
             }
-            case "use":
-                return InteractIntent.useInAir();
-            case "place": {
-                int[] b = requireBlock(m, "place");
-                return InteractIntent.place(b[0], b[1], b[2], intArg(m, "face", -1),
-                        floatArg(m, "hitX", 0f), floatArg(m, "hitY", 0f), floatArg(m, "hitZ", 0f));
-            }
-            case "attack": {
-                int entityId = intArg(m, "entityId", -1);
-                if (entityId < 0) {
-                    throw new IllegalArgumentException("act_set interact 'attack' needs a non-negative 'entityId'");
-                }
-                return InteractIntent.attack(entityId);
-            }
-            case "hotbar": {
-                int slot = intArg(m, "hotbarSlot", -1);
-                if (slot < 0 || slot > 8) {
-                    throw new IllegalArgumentException("act_set interact 'hotbar' needs 'hotbarSlot' 0-8");
-                }
-                return InteractIntent.hotbar(slot);
-            }
-            case "hold": {
-                // The presence of holdTicks picks the mode, because the two are not interchangeable
-                // and the held item cannot decide it: a bow and a raised sword are both 72000-tick
-                // items, so "how long" is a tactical choice only the caller holds. Absent means
-                // UNTIL_DONE (eat until vanilla says the meal ended), a stated count means
-                // THEN_RELEASE (draw that long, then let go -- and for a bow the release IS the shot).
-                int holdTicks = intArg(m, "holdTicks", 0);
-                if (holdTicks < 0) {
-                    throw new IllegalArgumentException(
-                            "act_set interact 'hold' needs 'holdTicks' >= 0, got " + holdTicks);
-                }
-                return holdTicks > 0
-                        ? InteractIntent.holdThenRelease(holdTicks)
-                        : InteractIntent.holdUntilDone();
-            }
-            default:
-                throw new IllegalArgumentException(
-                        "act_set interact 'kind' must be one of dig|use|place|attack|hotbar|hold, "
-                                + "got '" + kindStr + "'");
-        }
-    }
-
-    private static int[] requireBlock(Map<String, Object> m, String kind) {
-        int[] b = intTriple(m.get("block"));
-        if (b == null) {
-            throw new IllegalArgumentException(
-                    "act_set interact '" + kind + "' needs a 'block':[x,y,z]");
-        }
-        return b;
+            runtime.submitPlan(plan);
+            Map<String, Object> out = new LinkedHashMap<>();
+            out.put("accepted", true);
+            out.put("tickNow", runtime.status().tickNow());
+            out.put("plan", planObject(runtime.planStatus()));
+            return ok(Json.write(out));
+        });
     }
 
     // ===== act_cancel =====
@@ -504,7 +341,8 @@ public final class ActTools {
                         + "runs on the tick seam like everything else here, so without the seam armed "
                         + "a cancel cannot complete either -- check act_status.tickNow. "
                         + "'slots' is the string \"all\" (cancel every "
-                        + "slot) or an array of slot names ('move'|'look'|'interact'). Omitting 'slots' "
+                        + "slot, and cancel a running act_plan) or an array of slot names "
+                        + "('move'|'look'|'interact'). Omitting 'slots' "
                         + "cancels all. A live intent is flagged for a clean teardown on its next game "
                         + "tick before it ends CANCELLED; an idle/terminal slot is reset. Returns the "
                         + "list of slots for which a LIVE intent was flagged.")
@@ -531,6 +369,7 @@ public final class ActTools {
                         cancelled.add(slot.name().toLowerCase(Locale.ROOT));
                     }
                 }
+                runtime.cancelPlan();
             } else if (slotsArg instanceof List<?> list) {
                 for (Object o : list) {
                     if (o == null) {
@@ -583,7 +422,12 @@ public final class ActTools {
                 .title("Actuation status")
                 .description("Read-only: a snapshot of all three actuation slots — 'tickNow' plus, per "
                         + "slot, {slot, phase (IDLE|ACTIVE|COMPLETE|FAILED|CANCELLED), hasIntent, "
-                        + "intentKind, ticksActive, message}. Reference-free. Use it to see 'what am I "
+                        + "intentKind, ticksActive, message} — plus 'plan', the sidecar sequencer "
+                        + "(not a fourth slot): {phase (IDLE|RUNNING|COMPLETE|FAILED|CANCELLED), "
+                        + "index (0-based current step), size, waitingOn (slot names the current "
+                        + "step still needs COMPLETE), message}. IDLE plan means none is bound. The "
+                        + "next step is submitted only once every slot in waitingOn is COMPLETE with "
+                        + "the same intent identity. Reference-free. Use it to see 'what am I "
                         + "doing right now and did the last thing finish' without a screenshot. "
                         + "'tickNow' is the one game clock's current tickId, the same value clock_now "
                         + "reports: monotonic, and 0 before the first tick / if the tick seam is not "
@@ -622,7 +466,18 @@ public final class ActTools {
             Map<String, Object> out = new LinkedHashMap<>();
             out.put("tickNow", st.tickNow());
             out.put("slots", slots);
+            out.put("plan", planObject(runtime.planStatus()));
             return ok(Json.write(out));
         });
+    }
+
+    private static Map<String, Object> planObject(ActPlanStatus plan) {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("phase", plan.phase().name());
+        row.put("index", plan.index());
+        row.put("size", plan.size());
+        row.put("waitingOn", plan.waitingOn());
+        row.put("message", plan.message());
+        return row;
     }
 }

@@ -49,15 +49,19 @@ public final class ActTickLoop {
     }
 
     /**
-     * One tick step for every slot. Runs on the game thread. Public and driveable
-     * directly with a synthetic {@link TickEvent} so the whole loop is testable
-     * headlessly without a live bus.
+     * One tick step for every slot, then the sidecar sequencer. The plan advances
+     * AFTER slots so a step that reaches COMPLETE this tick can submit the next
+     * step on the same tick (eligible next tick, like any other submit).
+     *
+     * <p>Public and driveable directly with a synthetic {@link TickEvent} so the
+     * whole loop is testable headlessly without a live bus.
      */
     public void onTick(TickEvent event) {
         long tick = event == null ? 0L : event.tickId();
         for (ActSlot slot : ActSlot.values()) {
             stepSlot(slot, tick);
         }
+        runtime.stepPlan(tick);
     }
 
     private void stepSlot(ActSlot slot, long tick) {

@@ -119,6 +119,7 @@ public enum Ring {
             // nothing, so it sits with the other observers rather than with the actuators.
             Map.entry("craft_plan", R2),
             Map.entry("act_set", R1),
+            Map.entry("act_plan", R1),
             Map.entry("act_cancel", R1),
             Map.entry("act_status", R3),
             Map.entry("capture_screen", R2),

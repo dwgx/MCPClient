@@ -167,6 +167,33 @@ public class SupervisedGateL4L5DenyTest {
     }
 
     /**
+     * {@code act_plan} is the same actuation surface as {@code act_set}, sequenced.
+     * Without an L4 row, {@code disable_privilege(SE_WORLD_WRITE)} cannot stop it —
+     * the same hole {@link #l4WorldWriteDisabledDeniesActSet} closed for {@code act_set}.
+     */
+    @Test
+    public void l4WorldWriteDisabledDeniesActPlan() {
+        IoSupervisor exec = new IoSupervisor(2, 2000L);
+        SeClearancePolicy p = new SeClearancePolicy(Ring.R_MINUS_1, "tok");
+        java.util.Map<Privilege, Boolean> grants = new java.util.EnumMap<>(Privilege.class);
+        for (Privilege pr : Privilege.values()) {
+            grants.put(pr, true);
+        }
+        grants.put(Privilege.SE_WORLD_WRITE, false);
+        SeToken subj = new SeToken("t", Ring.R_MINUS_1, IntegrityLevel.SYSTEM,
+                new PrivilegeToken(grants), null);
+        IoManager reg = new IoManager(exec, new SeLocalMonitor(p, subj));
+        reg.register("act_plan", tool("act_plan"), null, "d", true, Ring.R1);
+
+        CallToolResult denied = reg.invoke("act_plan", Map.of());
+        assertTrue("act_plan denied at L4 (SE_WORLD_WRITE disabled)",
+                Boolean.TRUE.equals(denied.isError()));
+        assertTrue("deny names the privilege layer",
+                denied.content().toString().contains("L4 privilege"));
+        exec.shutdown();
+    }
+
+    /**
      * L3: a MEDIUM-integrity subject cannot run send_chat (writes a HIGH-integrity
      * resource) even at R-1 with all privileges + wildcard caps — no-write-up
      * catches it through the supervised boundary.

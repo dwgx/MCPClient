@@ -133,6 +133,7 @@ public record SeToolRequirement(Ring requiredRing,
             java.util.Map.entry("gui_type_text", IntegrityLevel.HIGH),
             java.util.Map.entry("gui_press_key", IntegrityLevel.HIGH),
             java.util.Map.entry("act_set", IntegrityLevel.HIGH),
+            java.util.Map.entry("act_plan", IntegrityLevel.HIGH),
             java.util.Map.entry("act_cancel", IntegrityLevel.HIGH),
             java.util.Map.entry("create_tool", IntegrityLevel.MEDIUM_PLUS),
             java.util.Map.entry("rollback_tool", IntegrityLevel.MEDIUM_PLUS),
@@ -192,13 +193,14 @@ public record SeToolRequirement(Ring requiredRing,
             java.util.Map.entry("gui_click_element", Privilege.SE_GUI_INTERACT),
             java.util.Map.entry("gui_type_text", Privilege.SE_GUI_INTERACT),
             java.util.Map.entry("gui_press_key", Privilege.SE_GUI_INTERACT),
-            // act_set/act_cancel drive the live player (move/look/dig/attack) — they
+            // act_set/act_plan/act_cancel drive the live player (move/look/dig/attack) — they
             // produce server-visible world/player state, so they need SE_WORLD_WRITE
             // enabled. Same class of gap the W6 send_* tools had: HIGH writers (L3) that
             // shipped with no L4 privilege, so disable_privilege had no kill switch for
             // the actuation surface. SE_NET_RAW is wrong here (that gates raw packet
             // crafting); SE_GUI_INTERACT is wrong too (that gates the GUI-widget surface).
             java.util.Map.entry("act_set", Privilege.SE_WORLD_WRITE),
+            java.util.Map.entry("act_plan", Privilege.SE_WORLD_WRITE),
             java.util.Map.entry("act_cancel", Privilege.SE_WORLD_WRITE),
             java.util.Map.entry("create_tool", Privilege.SE_CREATE_TOOL),
             java.util.Map.entry("rollback_tool", Privilege.SE_CREATE_TOOL),

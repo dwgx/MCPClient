@@ -17,6 +17,7 @@ import io.modelcontextprotocol.spec.McpSchema.Content;
 import io.modelcontextprotocol.spec.McpSchema.TextContent;
 
 import net.marcloud.mcp.core.drivers.act.ActPhase;
+import net.marcloud.mcp.core.drivers.act.ActPlan;
 import net.marcloud.mcp.core.drivers.act.ActRuntime;
 import net.marcloud.mcp.core.drivers.act.ActSlot;
 import net.marcloud.mcp.core.drivers.act.LookIntent;
@@ -498,7 +499,7 @@ public class ActToolsTest {
      */
     @Test
     public void theActWritersDeclareTheirTickSeamRequirement() {
-        for (SyncToolSpecification spec : List.of(tools.actSet(), tools.actCancel())) {
+        for (SyncToolSpecification spec : List.of(tools.actSet(), tools.actCancel(), tools.actPlan())) {
             String desc = spec.tool().description();
             assertTrue(spec.tool().name() + " must declare its requirements like every other "
                     + "seam-dependent tool", desc.startsWith("[requires: "));
@@ -724,7 +725,7 @@ public class ActToolsTest {
     }
 
     @Test
-    public void registerAllRegistersThreeToolsAsBuiltins() {
+    public void registerAllRegistersFourToolsAsBuiltins() {
         var exec = new net.marcloud.mcp.core.io.IoSupervisor(2, 2000L);
         var registry = new net.marcloud.mcp.core.io.IoManager(exec,
                 new net.marcloud.mcp.core.se.SeLocalMonitor(
@@ -734,5 +735,38 @@ public class ActToolsTest {
         assertTrue("act_set registered", registry.isBuiltin("act_set"));
         assertTrue("act_cancel registered", registry.isBuiltin("act_cancel"));
         assertTrue("act_status registered", registry.isBuiltin("act_status"));
+        assertTrue("act_plan registered", registry.isBuiltin("act_plan"));
+    }
+
+    /**
+     * {@code act_status} is how a caller watches a plan. If the plan object is
+     * missing from the payload, or present but unnamed in the description, the
+     * sequencer is unreachable from the model even when it is running.
+     */
+    @Test
+    public void actStatusNamesThePlan() {
+        ActPlan plan = ActPlan.parse(List.of(
+                Map.of("look", Map.of("mode", "set", "yaw", 10.0, "pitch", 0.0)),
+                Map.of("interact", Map.of("kind", "hotbar", "hotbarSlot", 3))));
+        runtime.submitPlan(plan);
+
+        Map<String, Object> out = parseJson(text(call(tools.actStatus(), Map.of())));
+        assertTrue("act_status must emit a plan object", out.containsKey("plan"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> planOut = (Map<String, Object>) out.get("plan");
+        assertEquals("RUNNING", planOut.get("phase"));
+        assertEquals(0, ((Number) planOut.get("index")).intValue());
+        assertEquals(2, ((Number) planOut.get("size")).intValue());
+        assertTrue("waitingOn names the live first-step slot",
+                planOut.get("waitingOn") instanceof List<?> waiting
+                        && waiting.contains("look"));
+        assertNotNull(planOut.get("message"));
+
+        String desc = tools.actStatus().tool().description();
+        assertTrue("the description must name the plan object", desc.contains("plan"));
+        for (String key : planOut.keySet()) {
+            assertTrue("act_status plan emits '" + key + "' but its description never names it",
+                    desc.contains(key));
+        }
     }
 }
