@@ -3,7 +3,7 @@
 headless 测试证明逻辑,**真机证明它真的出现在屏幕上**。这两件事在 dwm 上差得很远 ——
 2026-07-27 进游戏跑第一次,抓到三个 bug,**headless 断言原理上一个都抓不到**。
 
-自动化入口:`scripts/live-dwm-probe.py`(先 `./scripts/run-mcp.sh` 起客户端)。
+自动化入口:`scripts/live-dwm-probe.py`。先起客户端:Windows `scripts\run-mcp-overlay.bat`,macOS `./scripts/run-mcp.sh`。
 
 ---
 

@@ -1,5 +1,8 @@
 # DWM 架构深研报告
 
+> **2026-08-20:** 本文是真 Windows DWM 的设计动机研究,不是模块地图。
+> 活的包/契约/帧循环在仓库根 `dwm/README.md`。底层是 qml4j,不是 gl/imgui/skiko。
+
 对 Windows Desktop Window Manager 的深度调研,以及对我们 dwm 模块的推论。
 上一篇 `dwm-architecture-comparison.md` 做的是逐条对照;本篇往下挖一层:**它为什么这么设计**,
 以及哪些设计动机在我们这里成立。

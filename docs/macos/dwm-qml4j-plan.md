@@ -15,7 +15,7 @@
 
 | 事实 | 证据 |
 |---|---|
-| **qml4j 已发布 Maven Central** | `io.github.timer-err:qml4j-core:0.2.24` 返回 HTTP 200,`maven-metadata.xml` 的 `<release>` 即 0.2.24 |
+| **qml4j 已发布 Maven Central** | 当时核实 `qml4j-core:0.2.24`。**现在的 pin 是 `dwm/pom.xml` 的 `qml4j.version`(0.2.27)** |
 | qml4j-core **不创建窗口、不依赖 GLFW** | `grep GLFW qml4j-core/src/main/java` 只命中 `EventDispatcher` 的注释(滚轮方向约定),无 API 调用 |
 | 嵌入接缝是 `SurfaceBackend` | `qml4j-core/.../render/SurfaceBackend.java`:`init/acquireCanvas/present/resize/dispose/width/height` + `recordingContext()` |
 | Skija 是 `provided` scope | `qml4j-core/pom.xml` — natives 由宿主选择,正合我们双平台需要 |
