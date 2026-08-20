@@ -56,7 +56,7 @@ public class DwmEntryTest {
      * <p>If DwmEntry referenced {@code QmlGuiScreen} directly, loading DwmEntry would require
      * qml4j and Skija on the classpath, and asking "is there a UI?" would fail with
      * NoClassDefFoundError instead of answering false. Keeping the reference a String constant
-     * is what makes the backend swappable and absence a normal condition.
+     * is what makes absence a normal condition for a detachable module.
      */
     @Test
     public void backendIsReferencedByNameOnly() throws Exception {

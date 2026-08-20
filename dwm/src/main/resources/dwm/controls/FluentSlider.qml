@@ -24,7 +24,7 @@ import "."
 // Dragging is real, not click-to-position: qml4j's MouseArea does emit positionChanged while a
 // press is captured (EventDispatcher.dispatchPointerMove forwards to the captured area), and
 // dwm's host feeds it -- QmlGuiScreen calls pointerMove for every LWJGL move event, which is what
-// a button-held drag produces. Verified against qml4j 0.2.24, the version this module pins.
+// a button-held drag produces. Verified against qml4j 0.2.24; the module pin is now 0.2.27.
 
 Item {
     id: slider

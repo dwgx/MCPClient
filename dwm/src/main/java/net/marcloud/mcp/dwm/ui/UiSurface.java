@@ -1,13 +1,13 @@
 package net.marcloud.mcp.dwm.ui;
 
 /**
- * What a DWM render backend has to provide, in plain JVM types.
+ * What a DWM surface has to provide, in plain JVM types.
  *
- * <p>This is the SPI half of the module contract in {@code dwm/README.md}: the backend
- * (qml4j/Skija today, something else tomorrow) is swappable, and its native types live in
- * exactly one adapter package. Nothing that implements or calls this interface may expose a
- * Skija, qml4j or OpenGL type in its signatures — that is what keeps the rest of dwm, and
- * Board above it, compilable when a backend is absent or replaced.
+ * <p>This is the type-firewall half of the module contract in {@code dwm/README.md}: qml4j
+ * is the substrate, and its native types live in exactly one adapter package. Nothing that
+ * implements or calls this interface may expose a Skija, qml4j or OpenGL type in its
+ * signatures — that is what keeps the rest of dwm, and Board above it, compilable when the
+ * engine is absent. It is not a second renderer marketplace.
  *
  * <p><b>Threading.</b> Every method is called on the game's render thread, inside MC's
  * frame, while MC's GL context is current. On macOS that thread is also the process main

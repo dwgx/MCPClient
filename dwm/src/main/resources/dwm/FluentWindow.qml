@@ -223,6 +223,8 @@ Item {
         // Only the top-right corner is rounded, and to the WINDOW's radius: this button reaches
         // the shell's corner, and a square plate there would paint red outside the surface.
         // Follows the shell to 0 when maximized, or the red would round inside a square corner.
+        // Independent per-corner radii paint as of qml4j 0.2.27 (upstream PR #15). Before that
+        // the property compiled and the plate stayed square — a silent no-op, not a load error.
         topRightRadius: win.isMaximized ? 0 : Fluent.radiusOverlay
         color: closeHit.containsMouse ? win.closeHoverFill : "#00000000"
         // The red fill darkens on press the way WinUI derives its pressed variant from the base.

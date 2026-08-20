@@ -8,8 +8,7 @@ import java.lang.reflect.Constructor;
  * <p>Two contract points shape this file. It imports <b>no</b> {@code core} class, so dwm has
  * no security-decision power and no dependency on the kernel. And it names the qml4j adapter
  * only as a <b>string</b>, resolved reflectively, so this class links without qml4j or Skija on
- * the classpath — which is what makes the backend genuinely swappable and what lets a build
- * without the UI dependency still compile and run.
+ * the classpath — absence is a normal condition for a detachable module, not an error.
  *
  * <p>Board finds this the same way it finds mcp-core: by class name through the reflective
  * Backplane, catching everything. So the method contract here is deliberately narrow and

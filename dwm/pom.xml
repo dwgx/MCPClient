@@ -20,9 +20,12 @@
         <!-- qml4j is consumed as a PUBLISHED Maven Central artifact, never vendored.
              Following a new upstream release is this one line. Changes needed inside
              qml4j itself go through the dwgx/qml4j topic stack and up to TIMER-err;
-             forking it here would end our ability to track upstream. -->
-        <qml4j.version>0.2.24</qml4j.version>
-        <!-- Must match what qml4j 0.2.24 compiled against. -->
+             forking it here would end our ability to track upstream.
+             0.2.27 (Central 2026-08-17): independent per-corner radii (dwgx #15),
+             ancestor Flickable wheel fall-through, focus-property routing, and the
+             0.2.25/0.2.26 clipboard+password hardening. Skija pin unchanged. -->
+        <qml4j.version>0.2.27</qml4j.version>
+        <!-- Must match what qml4j 0.2.27 compiled against. -->
         <skija.version>0.143.16</skija.version>
 
         <!-- Live GL IT is opt-in; see the failsafe config below. -->

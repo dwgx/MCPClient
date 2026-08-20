@@ -1,7 +1,11 @@
 # dwm 引入 qml4j — 落地方案
 
+> Status 2026-08-20: implemented. qml4j is the locked substrate; the live pin is
+> `dwm/pom.xml` (`0.2.27`). The live package map is `dwm/README.md`. Names in §3
+> (`spi/RenderBackend`, `QmlInputBridge`) are the plan as written, not what shipped.
+
 目标:把 qml4j(Skija/QML)作为 dwm 的 UI 实现引入,**并且保证 qml4j 上游更新后我们能持续跟上**。
-本文只立方案与约束,不含实现。
+本文是当时的落地方案,实现以代码和 `dwm/README.md` 为准。
 
 前置:`client` + `lwjgl2-shim` 已在 macOS 跑通;`dwm/` 目前是空概念模块(`origin/mcp-core`)。
 

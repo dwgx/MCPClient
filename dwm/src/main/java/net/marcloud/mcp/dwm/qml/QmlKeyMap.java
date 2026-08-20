@@ -80,7 +80,7 @@ final class QmlKeyMap {
     /**
      * {@link UiKeys} constant to the qml4j equivalent, or 0 for text-only input.
      *
-     * <p>{@code DELETE} has no qml4j constant in 0.2.24, so it maps to 0 and forward-delete is
+     * <p>{@code DELETE} has no qml4j constant as of 0.2.27, so it maps to 0 and forward-delete is
      * simply not forwarded — better than guessing at a constant that does not exist.
      */
     static int toQml(int uiKey) {

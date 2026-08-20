@@ -14,8 +14,8 @@ import org.lwjgl.opengl.Display;
  * Drives a qml4j scene as a DWM {@link UiSurface} / {@link UiInput}.
  *
  * <p>This is the only class that knows both vocabularies: qml4j and Skija on one side, dwm's
- * plain-type SPI on the other. Keeping that knowledge here is what lets the backend be
- * swapped without touching anything above.
+ * plain-type SPI on the other. Keeping that knowledge here is what keeps qml4j types out of
+ * everything above the adapter package.
  *
  * <p><b>Everything is fault-isolated.</b> This runs inside MC's frame on the render thread; an
  * exception escaping into the game loop would crash the client, so a failure is recorded, the

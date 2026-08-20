@@ -1,5 +1,8 @@
 # 真 DWM 架构 vs 我们的 dwm
 
+> 活的模块地图在 `dwm/README.md`。qml4j 是锁定的底层(Maven Central,从不 vendor);
+> `UiSurface` 是类型防火墙,不是 GL/imgui/skiko 热切换总线。
+
 项目用 NT 隐喻命名(core=NT kernel, board=PCB, compat=AppCompat, **dwm=Desktop Window Manager**)。
 本文查清真 Windows DWM 的架构,逐条对比我们的实现,并区分:**哪些该学、哪些不适用、哪些是我们真的缺**。
 

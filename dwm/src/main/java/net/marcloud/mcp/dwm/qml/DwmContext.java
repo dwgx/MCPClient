@@ -21,7 +21,7 @@ import net.marcloud.mcp.dwm.ui.LiveState;
  * is absent, so a page renders an "unavailable" state instead of faulting the frame.
  *
  * <p><b>Returns JDK types only.</b> A binding reads {@code Dwm.chips()[0].name} directly off a
- * {@code List<Map<String,String>>}, verified against qml4j 0.2.24 — so no wrapper types are needed
+ * {@code List<Map<String,String>>}, verified against qml4j 0.2.27 — so no wrapper types are needed
  * and none are introduced, keeping this class free of anything the SPI could not express.
  */
 public final class DwmContext {
