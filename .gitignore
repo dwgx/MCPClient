@@ -17,8 +17,14 @@ _analyze_base/
 _refs/
 _shim_raw/
 _server_test/
+_scratch/
 # --- Vendored toolchains (JBR 25 w/ DCEVM ~278MB; never commit) ---
 _tools/
+
+# Live leftovers if someone launches from the repo root instead of test_run/
+# (run-mcp.bat cds to test_run/; that tree is already ignored above).
+/saves/
+/usercache.json
 
 # --- IDE / OS ---
 .idea/
