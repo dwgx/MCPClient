@@ -37,7 +37,7 @@
 
 | 文档 | 内容 |
 |---|---|
-| `agency/HANDOFF.md` | **唯一活的交接。** §0 现状与下一步 · §1 未提交那批 · **§2 四条判据(最被引用)** · §3 全部真机测量 · §4 验证纪律 · §5 命令与环境坑 · §6 owner 待决 · §7 诚实未验 · §8 出处对照 |
+| `agency/HANDOFF.md` | **唯一活的交接。** §0 现状与下一步 · §1 已提交未 live 验收的 `act_set` route · **§2 四条判据(最被引用)** · §3 全部真机测量 · §4 验证纪律 · §5 命令与环境坑 · §6 owner 待决 · §7 诚实未验 · §8 出处对照 |
 | `agency/command-to-action.md` | 设计文档:§1 已建好什么(别重建)· §4 关键路径 · §5 六个 Fork · §5.5 早期真机数字。**逐节看订正横幅** |
 | `agency/mutation-candidates-2026-08-05.json` | 72 个变异候选的逐条锚点、`secondPassVerdict`、`fixed` 标记。**账本已结清(70 SURVIVED → 70 CAUGHT,0 待修)** |
 
@@ -76,7 +76,7 @@
 | 你想知道 | 去 |
 |---|---|
 | **接手内核任务,从哪开始** | `agency/HANDOFF.md` §0 |
-| **下一轮做什么最划算** | `agency/HANDOFF.md` §0 —— 起客户端跑一次 `act_set` 的 `route`。那一条命令就是未提交那批成不成的全部判据 |
+| **下一轮做什么最划算** | `agency/HANDOFF.md` §0 —— 起客户端跑一次 `act_set` 的 `route`。代码已在 `4809786`;那一条命令才是装配验收 |
 | **AI 自己算路是怎么实现的、代码在哪** | `agency/HANDOFF.md` §3 末;`core/src/main/java/net/marcloud/mcp/core/drivers/plan/` |
 | **怎么证明一条断言不是空转 / 四条判据** | `agency/HANDOFF.md` §2 —— **先按判据问,别通读代码** |
 | **审一个从没被变异过的子系统,怎么起手** | `agency/HANDOFF.md` §2 + §4;逐条锚点在 `mutation-candidates-2026-08-05.json` |
@@ -125,5 +125,6 @@ python3 scripts/live-dwm-probe.py                      # 真机探针(要客户�
 其中包括一次错误的撤回:`dwm/handoff-2026-07-29.md` §3 一度被标成"已证伪、bug 不存在、是测量
 方法错" —— **那个判断本身是错的**,bug 是真的。两层结论都留在那里。
 
-**"已知未覆盖"要当真。** 最要紧的一条是 **Windows 侧完全未验**,而这台机器上做不到 ——
-所以它在本线是结构性不可执行的,不是"还没排到"。别再把它当计划重列一遍。
+**"已知未覆盖"要当真。** 合回 `mcp-core` 的硬前提仍是 **Windows 上的 GL / 真机探针**,
+不是「代码已经在这台机器上」。2026-08-20 工作区已在 Windows 的 `feat/dwm-qml4j`;
+headless Maven 以当场为准。别把 GL 未验写成「这台机器上做不到」。

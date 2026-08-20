@@ -222,7 +222,8 @@ MC 的 `GL_ALPHA_TEST`(§9)。
 - **`.ai-notes/` 不在这台机器上**;`codegraph` 有本地替代(`tools/codegraph/`,见 `codegraph.md`),
   但它只见**字节码里的静态调用边**,反射/动态注册的边它看不见
 - **长时间运行未验**:探针跑完就关,帧率影响、显存增长、几十分钟后的稳定性都未知
-- **Windows 侧完全未验**:这条线的 GL 修复只在 Apple GL 2.1 上跑过,
+- **Windows GL / 真机探针未验**:这条线的 GL 修复只在 Apple GL 2.1 上跑过。
+  2026-08-20 起工作区已在 Windows;`headless` Maven 以当场为准,合回主线仍要 GL。
   见 `docs/branch-topology.md`
 
 ---

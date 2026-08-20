@@ -180,13 +180,17 @@ shim/client/core/board/pg/dwm 六个)。改 CLAUDE.md 需 3 次确认,所以只�
 
 ## 5. 本线相对 mcp-core 改了什么(范围,不是清单)
 
+> **订正(2026-08-20,Windows 工作站 `git diff --stat origin/mcp-core..HEAD`):**
+> 原文把 core 写成「仅 compat 层」、board 写成零改动。那是 dwm 刚落地时的范围,**agency
+> 主线(规划/执行/`act_set` route)之后不再成立**。下面按当场 diff,不钉条数。
+
 ```
-零改动:  client/src/  board/  pg/      ← 冻结的 vanilla 源码与骨架,一行没动
-改了:    client/pom.xml                ← 仅加 macOS arm64 原生库(见下,不违反冻结)
-         lwjgl2-shim/                  ← ABI 垫片,本职
-         core/  ← 仅 compat 层:三个补丁的签名常量、四个随包公开材料、
-                   两个新 CLI 工具(KernelKeygenCli / RootCeremonyCli)、两个测试
-新建:    dwm/                          ← 本线主体
+零改动:  client/src/  pg/src            ← vanilla 源码与 pg 引擎,本线没碰
+client:  仅 pom.xml                    ← macOS arm64 原生库(不违反 client/src 冻结)
+board:   仅新增 BoardSeamsArePinnedAtTheirValuesTest.java
+core:    主体是 agency(act / plan / world / craft + 变异测试),compat 只是其中一块
+dwm:     qml4j 实现(真 GuiScreen;Mac 上 live 过)
+另改:    lwjgl2-shim / scripts / docs
 ```
 
 **`client/pom.xml` 改了 35 行,而这不违反"client 冻结"**,区别要说清:冻结的是
