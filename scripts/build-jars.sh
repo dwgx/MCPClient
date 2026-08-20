@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
 # ============================================================================
-#  build-jars.sh — build the jars the live launch needs, in one shot.
+#  build-jars.sh — jars the live launch needs, in one shot.
 #
-#    1. client  MCP-1.8.9.jar         (the game)
-#    2. core    core-1.8.9-all.jar    (the -javaagent Kernel fat jar)
-#    3. dwm-gl  dwm-gl-1.8.9-all.jar  (pure-Java overlay backend; no Kotlin/native)
-#
-#  run-mcp.bat / smoke-live-gl.sh both need (1)+(2); the overlay also (3).
+#    1. client  MCP-1.8.9.jar
+#    2. core    core-1.8.9-all.jar
+#    3. board   board-1.8.9.jar
+#    4. dwm     dwm-1.8.9.jar  (qml4j GuiScreen + runtime-classpath.txt)
 #
 #  Usage:  scripts/build-jars.sh
 # ============================================================================
@@ -18,26 +17,26 @@ cd "$ROOT" || exit 3
 MVNW="./mvnw"
 [ -x "$MVNW" ] || MVNW="mvn"
 
-echo "== build-jars: client + core-all + dwm-gl-all =="
+echo "== build-jars: client + core-all + board + dwm =="
 
-# client + core (and their deps) — core-all.jar is the -javaagent fat jar.
-echo "--- [1/2] client + core (fat agent jar) ---"
-"$MVNW" -q -pl core,client -am package -DskipTests || { echo "FAIL: core/client build"; exit 1; }
+echo "--- [1/2] client + core + board ---"
+"$MVNW" -q -pl core,client,board -am package -DskipTests || { echo "FAIL: core/client/board"; exit 1; }
 
-# dwm-gl depends on dwm+client as provided → they must be installed first.
-echo "--- [2/2] dwm-gl fat jar (pure Java; installs dwm+client to .m2 first) ---"
-"$MVNW" -q -pl dwm,client -am install -DskipTests || { echo "FAIL: dwm/client install"; exit 1; }
-"$MVNW" -q -pl dwm-gl package -DskipTests || { echo "FAIL: dwm-gl build"; exit 1; }
+echo "--- [2/2] dwm + runtime classpath cache ---"
+"$MVNW" -q -pl dwm -am package -DskipTests || { echo "FAIL: dwm"; exit 1; }
+"$MVNW" -q -ntp -pl dwm dependency:build-classpath \
+  -DincludeScope=runtime -Dmdep.outputFile="dwm/target/runtime-classpath.txt" \
+  || { echo "FAIL: dwm runtime classpath"; exit 1; }
 
 echo
 echo "== built jars =="
 for j in client/target/MCP-1.8.9.jar core/target/core-1.8.9-all.jar \
-         dwm-gl/target/dwm-gl-1.8.9-all.jar; do
+         board/target/board-1.8.9.jar dwm/target/dwm-1.8.9.jar \
+         dwm/target/runtime-classpath.txt; do
   if [ -f "$ROOT/$j" ]; then
-    sz=$(du -h "$ROOT/$j" 2>/dev/null | cut -f1)
-    echo "  OK  $j  ($sz)"
+    echo "  OK  $j"
   else
     echo "  --  $j  (not built)"
   fi
 done
-echo "Done. Launch: scripts/run-mcp.bat  (or smoke: scripts/smoke-live-gl.sh)"
+echo "Done. Launch: scripts/run-mcp.sh  (Windows: scripts/run-mcp.bat)"

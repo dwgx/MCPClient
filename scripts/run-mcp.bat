@@ -5,37 +5,52 @@ REM  Launches the game WITH the Kernel attached: the fat agent jar
 REM  (core-1.8.9-all.jar) is both -javaagent (startup hook +
 REM  Instrumentation) and on -cp (Core + MCP SDK + Byte Buddy).
 REM  MCP server listens on 127.0.0.1:25599 (socket transport).
-REM  Build first (from project root):  mvnw.cmd -q -pl core -am package -DskipTests
+REM  Build first:  scripts\build-jars.bat
+REM
+REM  dwm (qml4j GuiScreen) is optional. If dwm/target/dwm-1.8.9.jar is
+REM  present, it and its runtime deps (qml4j / Skija / asm) go on -cp.
+REM  This script does NOT arm the UI (-Dmcp.core.overlay unset). Use
+REM  run-mcp-overlay.bat to arm RSHIFT. Absent dwm = game runs normally.
 REM ============================================================
 
-setlocal
+setlocal enabledelayedexpansion
 
-REM --- JetBrains Runtime 25 (with DCEVM). Adjust if you move it. ---
-REM --- This script now lives in scripts/; %~dp0.. is the project root. ---
 if "%JBR_HOME%"=="" set "JBR_HOME=%~dp0..\_tools\jbrsdk-25.0.3-windows-x64-b508.16"
 set "JAVA=%JBR_HOME%\bin\java.exe"
 
-set "GAME_JAR=%~dp0..\client\target\MCP-1.8.9.jar"
-set "CORE_JAR=%~dp0..\core\target\core-1.8.9-all.jar"
+set "ROOT=%~dp0.."
+set "GAME_JAR=%ROOT%\client\target\MCP-1.8.9.jar"
+set "CORE_JAR=%ROOT%\core\target\core-1.8.9-all.jar"
+set "BOARD_JAR=%ROOT%\board\target\board-1.8.9.jar"
+set "DWM_JAR=%ROOT%\dwm\target\dwm-1.8.9.jar"
+set "DWM_CP_CACHE=%ROOT%\dwm\target\runtime-classpath.txt"
 set "ARGS=%~dp0jvm-args-mcp.txt"
 
-REM --- DWM GL backend fat jar (pure Java, no native/Kotlin), OPTIONAL. If built,
-REM     it is added to -cp so the game JVM can load the overlay backend (core
-REM     discovers it reflectively; absent = no overlay, game runs normally — the
-REM     detachable-auxiliary contract). This plain run does NOT arm the overlay
-REM     (-Dmcp.core.overlay is unset); use run-mcp-overlay.bat to arm it. Build via
-REM     scripts\build-jars.bat. ---
-set "DWM_JAR=%~dp0..\dwm-gl\target\dwm-gl-1.8.9-all.jar"
-REM board carries the Backplane the kernel-state overlay publishes/reads through; it is
-REM compile-`provided` (in no fat jar), so add it to -cp when present (see run-mcp-overlay.bat).
-set "BOARD_JAR=%~dp0..\board\target\board-1.8.9.jar"
 set "CP=%GAME_JAR%;%CORE_JAR%"
 if exist "%BOARD_JAR%" set "CP=%CP%;%BOARD_JAR%"
-if exist "%DWM_JAR%" set "CP=%CP%;%DWM_JAR%"
-if exist "%DWM_JAR%" echo [run-mcp] DWM GL backend present, added to classpath ^(overlay NOT armed^).
 
-REM --- Working dir must be the game dir (assets, saves). ---
-cd /d "%~dp0..\test_run"
+if exist "%DWM_JAR%" (
+  set "CP=!CP!;%DWM_JAR%"
+  if not exist "%DWM_CP_CACHE%" (
+    echo [run-mcp] resolving dwm runtime dependencies ^(qml4j / Skija / asm^)...
+    pushd "%ROOT%"
+    call mvnw.cmd -q -ntp -pl dwm dependency:build-classpath -DincludeScope=runtime -Dmdep.outputFile="dwm\target\runtime-classpath.txt"
+    popd
+  )
+  findstr /C:"qml4j-core" "%DWM_CP_CACHE%" >nul 2>&1
+  if errorlevel 1 (
+    echo [run-mcp] dwm dependency cache is missing or unusable -- UI will not load.
+    echo [run-mcp]   delete dwm\target\runtime-classpath.txt and re-run.
+  ) else (
+    set /p DWM_DEPS=<"%DWM_CP_CACHE%"
+    set "CP=!CP!;!DWM_DEPS!"
+    echo [run-mcp] dwm UI on the classpath ^(overlay NOT armed^).
+  )
+) else (
+  echo [run-mcp] dwm not built -- running without the UI.
+)
+
+cd /d "%ROOT%\test_run"
 
 "%JAVA%" "@%ARGS%" ^
   -javaagent:"%CORE_JAR%" ^
