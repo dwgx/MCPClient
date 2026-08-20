@@ -55,7 +55,7 @@ class SharedClientTest(unittest.TestCase):
     """Every probe must take its socket client from mcp_probe, not carry its own."""
 
     PROBES = ("nav-astar-probe.py", "live-dwm-probe.py", "live-hold-probe.py",
-              "live-nav-probe.py", "live-look-probe.py")
+              "live-nav-probe.py", "live-look-probe.py", "live-route-probe.py")
 
     def test_no_probe_defines_its_own_socket_client(self):
         """A second copy of the read loop would be a second chance to reintroduce the truncation.
@@ -90,7 +90,8 @@ class SharedClientTest(unittest.TestCase):
         # written in parallel with the extraction and wired itself through nav-astar-probe.py,
         # where these helpers used to live; the merge repointed it. Naming both here is what stops
         # the next arrival taking the same indirect route back.
-        for script in ("live-hold-probe.py", "live-nav-probe.py", "live-look-probe.py"):
+        for script in ("live-hold-probe.py", "live-nav-probe.py", "live-look-probe.py",
+                       "live-route-probe.py"):
             derived = load(script)
             for helper in ("require_ticking", "allow_unfocused", "record"):
                 with self.subTest(probe=script, helper=helper):
@@ -207,6 +208,36 @@ class ProbeMessageLiteralsMatchProductionTest(unittest.TestCase):
             with self.subTest(fixture=fixture):
                 self.assertIn(prefix, blob, "the fixture's wording is not production's")
                 self.assertEqual(want, verdict(fixture))
+
+
+class RoutePhraseMatchesProductionTest(unittest.TestCase):
+    """live-route-probe.py keys on RouteExecutor's terminal wording.
+
+    COMPLETE alone is hollow (empty plan also completes). The distinctive string is
+    'route complete:'. If production rewords it, the live probe goes green on the
+    wrong ending until this fails.
+    """
+
+    ROUTE_EXECUTOR = os.path.join(
+        SCRIPTS, os.pardir, "core", "src", "main", "java", "net", "marcloud", "mcp", "core",
+        "drivers", "plan", "RouteExecutor.java")
+
+    def test_route_complete_wording_exists_in_production(self):
+        blob = java_string_blob(self.ROUTE_EXECUTOR)
+        self.assertGreater(len(blob), 200)
+        self.assertIn("route complete:", blob)
+        self.assertIn("nothing to do: the plan was empty", blob)
+
+    def test_the_route_probe_rejects_the_empty_plan_complete(self):
+        probe = load("live-route-probe.py")
+        self.assertFalse(probe.route_complete_verdict(
+            "COMPLETE",
+            "nothing to do: the plan was empty, so the player is already where it asked to be",
+            0.05, 0.04, 1))
+        self.assertTrue(probe.route_complete_verdict(
+            "COMPLETE",
+            "route complete: 8 move(s), 0 block(s) spent, ending (8.5, 64.0, 0.5)",
+            8.0, 0.32, 47))
 
 
 class ReplyFramingTest(unittest.TestCase):
