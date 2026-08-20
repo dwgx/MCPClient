@@ -65,7 +65,7 @@ dwm **不是**已完结:底层钉死,产品页还可以写。
 |---|---|
 | DWM 现在怎么分层 | `dwm/README.md`(仓库根,不是本目录) |
 | 接手内核任务 | `agency/command-to-action.md` + `debugging.md` §10 |
-| 下一轮最划算的内核验证 | 起客户端,跑一次 `act_set` 的 `route` |
+| `act_set` `route` 真机 | `scripts/live-route-probe.py --allow-unfocused`(Windows COMPLETE 2026-08-21) |
 | 算路代码在哪 | `core/src/main/java/net/marcloud/mcp/core/drivers/plan/` |
 | 空转断言怎么证伪 | `scripts/mutate.py` |
 | 真机陷阱(熔断 / 失焦 / 死玩家) | `debugging.md` §10 |

@@ -108,6 +108,12 @@ RESOLVING(校验目标+距离,startDig) -> DIGGING(每 tick pumpDig,轮询 block
 
 ## 2. 真正的差距:MOVE 没有反馈回路
 
+> **订正(装配已进树,Windows live 已验 2026-08-21):** `act_set` `move.route`
+> (`RouteIntent` / `RouteExecutor` / `AModelCanAskForARouteThroughActSetTest`) 在 HEAD。
+> headless 有。Windows 真机 `scripts/live-route-probe.py` 5/5,含一次生产突变(第一 tick
+> 假 COMPLETE,探针打红)再还原 5/5。缺的不是 MOVE 闭环。不要把本节标题读成「还没写」。
+> 一格高墙会被规划成 STEP_UP,而 `NavController` 不跳,那是另一条债,不是 route 没接线。
+
 `DigController` 有的东西,MOVE 一个都没有。
 
 **`MoveApplier` 是纯生命周期计数器,零感知。** 全文只做四件事:标 ACTIVE、数 tick、

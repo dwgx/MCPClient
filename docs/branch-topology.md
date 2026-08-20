@@ -1,7 +1,7 @@
 # 分支拓扑:这条线是什么,主线在哪
 
 > **2026-08-20 订正(现状):** Windows 主线 **`mcp-core`** 已经快进包含 Mac 的 qml4j dwm。
-> `mcp-core` = `feat/dwm-qml4j` = `origin/mcp-core` @ `0f8d67a`。下面 §0 的图和
+> `mcp-core` = `feat/dwm-qml4j` = `origin/mcp-core` @ `f25dd4a`。下面 §0 的图和
 > "feat 不是等着合回去的 feature 分支"是 **2026-07-30 当时**的形状,合入之后不要再当 CURRENT。
 > 推送目标:Windows 日常推 `mcp-core`;`feat/dwm-qml4j` 与它保持同一 tip。
 
