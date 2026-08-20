@@ -5,10 +5,13 @@ import java.nio.FloatBuffer;
 import net.minecraft.client.renderer.GlStateManager;
 
 import org.lwjgl.BufferUtils;
+import org.lwjgl.opengl.GL;
 import org.lwjgl.opengl.GL11;
+import org.lwjgl.opengl.GL13;
 import org.lwjgl.opengl.GL15;
 import org.lwjgl.opengl.GL20;
 import org.lwjgl.opengl.GL30;
+import org.lwjgl.opengl.GL33;
 
 /**
  * Brackets a Skija frame so MC keeps rendering afterwards.
@@ -128,6 +131,26 @@ final class GlStateGuard {
      * two lines is a poor trade against re-deriving that argument the next time something changes.
      */
     private static int hadUnpackAlignment;
+
+    /**
+     * Sampler-object bindings on texture units 0..3, plus the active unit.
+     *
+     * <p>Skia (GL 3.3) binds a sampler object to unit 0 and leaves it bound.
+     * {@code glPushAttrib} cannot save that: sampler objects are not a fixed-function
+     * attribute group. MC 1.8.9 never uses sampler objects — it relies on per-texture
+     * {@code glTexParameter} — so a leftover binding overrides filtering and wrapping
+     * and corrupts textured UI and world draws. Live-proven on the previous Windows
+     * overlay ({@code dwm-gl} GlStateGuard): unit 0 held Skia's sampler 1 after a frame;
+     * unbinding units 0..3 restored the settings/singleplayer screens.
+     *
+     * <p>Apple's GL 2.1 compatibility profile has no {@code glBindSampler}. The
+     * qml4j rewrite dropped this restore to stay loadable there, which is why the
+     * leak survived onto this Windows 3.2 context. Gated on the capability so the
+     * same class still runs on 2.1.
+     */
+    private static final int SAMPLER_UNITS = 4;
+    private static int[] hadSampler;
+    private static int hadActiveTexture;
     private static final float[] HAD_COLOUR = new float[4];
     private static final FloatBuffer COLOUR_BUF = BufferUtils.createFloatBuffer(16);
 
@@ -158,6 +181,8 @@ final class GlStateGuard {
             hadArrayBuffer = GL11.glGetInteger(GL15.GL_ARRAY_BUFFER_BINDING);
             hadElementBuffer = GL11.glGetInteger(GL15.GL_ELEMENT_ARRAY_BUFFER_BINDING);
             hadUnpackAlignment = GL11.glGetInteger(GL11.GL_UNPACK_ALIGNMENT);
+            hadActiveTexture = GL11.glGetInteger(GL13.GL_ACTIVE_TEXTURE);
+            captureSamplers();
             if (hadAttribArray == null) {
                 // Once per run: the count cannot change for a live context, and querying it every
                 // frame would be a driver round-trip for a constant.
@@ -267,6 +292,7 @@ final class GlStateGuard {
             GL15.glBindBuffer(GL15.GL_ELEMENT_ARRAY_BUFFER, hadElementBuffer);
 
             GL11.glPixelStorei(GL11.GL_UNPACK_ALIGNMENT, hadUnpackAlignment);
+            restoreSamplers();
 
             // The attribute array enables, restored after the buffer bindings so a re-enable cannot
             // pick up Skia's binding. Measured leak: [] in, [0 1] out.
@@ -282,5 +308,41 @@ final class GlStateGuard {
         } catch (Throwable t) {
             System.err.println("[dwm] GlStateGuard.leave faulted: " + t);
         }
+    }
+
+    private static boolean samplerObjectsAvailable() {
+        try {
+            org.lwjgl.opengl.GLCapabilities caps = GL.getCapabilities();
+            // The created context is 3.2 compat on Windows, so OpenGL33 may be false even
+            // when the driver exposes the entry point Skia actually calls.
+            return caps != null && caps.glBindSampler != 0L;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    private static void captureSamplers() {
+        if (!samplerObjectsAvailable()) {
+            return;
+        }
+        if (hadSampler == null) {
+            hadSampler = new int[SAMPLER_UNITS];
+        }
+        for (int u = 0; u < SAMPLER_UNITS; u++) {
+            GL13.glActiveTexture(GL13.GL_TEXTURE0 + u);
+            hadSampler[u] = GL11.glGetInteger(GL33.GL_SAMPLER_BINDING);
+        }
+        GL13.glActiveTexture(hadActiveTexture);
+    }
+
+    private static void restoreSamplers() {
+        if (!samplerObjectsAvailable() || hadSampler == null) {
+            return;
+        }
+        for (int u = 0; u < SAMPLER_UNITS; u++) {
+            GL13.glActiveTexture(GL13.GL_TEXTURE0 + u);
+            GL33.glBindSampler(u, hadSampler[u]);
+        }
+        GL13.glActiveTexture(hadActiveTexture);
     }
 }

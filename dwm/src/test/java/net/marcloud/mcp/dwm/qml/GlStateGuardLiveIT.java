@@ -11,10 +11,12 @@ import org.junit.Test;
 import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.Display;
 import org.lwjgl.opengl.DisplayMode;
+import org.lwjgl.opengl.GL;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL13;
 import org.lwjgl.opengl.GL15;
 import org.lwjgl.opengl.GL20;
+import org.lwjgl.opengl.GL33;
 
 /**
  * Asserts that a real qml4j frame leaves the GL state exactly as it found it.
@@ -245,11 +247,36 @@ public class GlStateGuardLiveIT {
             + "/" + GL11.glIsEnabled(GL11.GL_COLOR_ARRAY)
             + "/" + GL11.glIsEnabled(GL11.GL_TEXTURE_COORD_ARRAY)
             + " activeTex=" + GL11.glGetInteger(GL13.GL_ACTIVE_TEXTURE)
+            + " samplers=" + samplerBindings()
             + " scissor=" + GL11.glIsEnabled(GL11.GL_SCISSOR_TEST)
             + " stencil=" + GL11.glIsEnabled(GL11.GL_STENCIL_TEST)
             + " viewport=" + viewport.get(2) + "x" + viewport.get(3)
             + " colour=" + String.format("%.2f,%.2f,%.2f,%.2f",
                 colour.get(0), colour.get(1), colour.get(2), colour.get(3));
+    }
+
+    /**
+     * Sampler-object bindings on units 0..3. Skia leaves a sampler on unit 0; that is
+     * outside glPushAttrib, and omitting it from the comparison is how the leak that
+     * corrupts MC's textured screens survived a "whole-state" assertion.
+     */
+    private static String samplerBindings() {
+        try {
+            org.lwjgl.opengl.GLCapabilities caps = GL.getCapabilities();
+            if (caps == null || caps.glBindSampler == 0L) {
+                return "n/a";
+            }
+        } catch (Throwable t) {
+            return "n/a";
+        }
+        int saved = GL11.glGetInteger(GL13.GL_ACTIVE_TEXTURE);
+        StringBuilder b = new StringBuilder("[");
+        for (int u = 0; u < 4; u++) {
+            GL13.glActiveTexture(GL13.GL_TEXTURE0 + u);
+            b.append(GL11.glGetInteger(GL33.GL_SAMPLER_BINDING)).append(',');
+        }
+        GL13.glActiveTexture(saved);
+        return b.append(']').toString();
     }
 
     /** The indices of every enabled generic vertex attribute array, as a stable string. */
