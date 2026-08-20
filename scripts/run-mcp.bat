@@ -34,7 +34,7 @@ if exist "%DWM_JAR%" (
   if not exist "%DWM_CP_CACHE%" (
     echo [run-mcp] resolving dwm runtime dependencies ^(qml4j / Skija / asm^)...
     pushd "%ROOT%"
-    call mvnw.cmd -q -ntp -pl dwm dependency:build-classpath -DincludeScope=runtime -Dmdep.outputFile="dwm\target\runtime-classpath.txt"
+    call mvnw.cmd -q -ntp -pl dwm dependency:build-classpath -DincludeScope=runtime -Dmdep.outputFile="%ROOT%\dwm\target\runtime-classpath.txt"
     popd
   )
   findstr /C:"qml4j-core" "%DWM_CP_CACHE%" >nul 2>&1

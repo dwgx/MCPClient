@@ -20,7 +20,7 @@ if errorlevel 1 ( echo FAIL: core/client/board build & exit /b 1 )
 echo --- [2/2] dwm + runtime classpath cache ---
 call mvnw.cmd -q -pl dwm -am package -DskipTests
 if errorlevel 1 ( echo FAIL: dwm build & exit /b 1 )
-call mvnw.cmd -q -ntp -pl dwm dependency:build-classpath -DincludeScope=runtime -Dmdep.outputFile="dwm\target\runtime-classpath.txt"
+call mvnw.cmd -q -ntp -pl dwm dependency:build-classpath -DincludeScope=runtime -Dmdep.outputFile="%CD%\dwm\target\runtime-classpath.txt"
 if errorlevel 1 ( echo FAIL: dwm runtime classpath & exit /b 1 )
 
 echo.

@@ -25,7 +25,7 @@ echo "--- [1/2] client + core + board ---"
 echo "--- [2/2] dwm + runtime classpath cache ---"
 "$MVNW" -q -pl dwm -am package -DskipTests || { echo "FAIL: dwm"; exit 1; }
 "$MVNW" -q -ntp -pl dwm dependency:build-classpath \
-  -DincludeScope=runtime -Dmdep.outputFile="dwm/target/runtime-classpath.txt" \
+  -DincludeScope=runtime -Dmdep.outputFile="$ROOT/dwm/target/runtime-classpath.txt" \
   || { echo "FAIL: dwm runtime classpath"; exit 1; }
 
 echo
