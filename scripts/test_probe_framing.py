@@ -55,7 +55,8 @@ class SharedClientTest(unittest.TestCase):
     """Every probe must take its socket client from mcp_probe, not carry its own."""
 
     PROBES = ("nav-astar-probe.py", "live-dwm-probe.py", "live-hold-probe.py",
-              "live-nav-probe.py", "live-look-probe.py", "live-route-probe.py")
+              "live-nav-probe.py", "live-look-probe.py", "live-route-probe.py",
+              "live-act-plan-probe.py")
 
     def test_no_probe_defines_its_own_socket_client(self):
         """A second copy of the read loop would be a second chance to reintroduce the truncation.
@@ -91,7 +92,7 @@ class SharedClientTest(unittest.TestCase):
         # where these helpers used to live; the merge repointed it. Naming both here is what stops
         # the next arrival taking the same indirect route back.
         for script in ("live-hold-probe.py", "live-nav-probe.py", "live-look-probe.py",
-                       "live-route-probe.py"):
+                       "live-route-probe.py", "live-act-plan-probe.py"):
             derived = load(script)
             for helper in ("require_ticking", "allow_unfocused", "record"):
                 with self.subTest(probe=script, helper=helper):
@@ -238,6 +239,28 @@ class RoutePhraseMatchesProductionTest(unittest.TestCase):
             "COMPLETE",
             "route complete: 8 move(s), 0 block(s) spent, ending (8.5, 64.0, 0.5)",
             8.0, 0.32, 47))
+
+
+class ActPlanPhraseMatchesProductionTest(unittest.TestCase):
+    """live-act-plan-probe.py keys on ActPlanInterpreter's terminal wording."""
+
+    INTERPRETER = os.path.join(
+        SCRIPTS, os.pardir, "core", "src", "main", "java", "net", "marcloud", "mcp", "core",
+        "drivers", "act", "ActPlanInterpreter.java")
+
+    def test_plan_complete_wording_exists_in_production(self):
+        blob = java_string_blob(self.INTERPRETER)
+        self.assertGreater(len(blob), 100)
+        self.assertIn("plan complete", blob)
+
+    def test_the_act_plan_probe_rejects_running_and_unchanged_hotbar(self):
+        probe = load("live-act-plan-probe.py")
+        self.assertFalse(probe.plan_complete_verdict(
+            "RUNNING", "running step 0/2", 0, 0, 3, 10.0, 90.0, 90.0))
+        self.assertFalse(probe.plan_complete_verdict(
+            "COMPLETE", "plan complete", 3, 3, 3, 10.0, 90.0, 90.0))
+        self.assertTrue(probe.plan_complete_verdict(
+            "COMPLETE", "plan complete", 0, 3, 3, 10.0, 90.0, 90.0))
 
 
 class ReplyFramingTest(unittest.TestCase):
