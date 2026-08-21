@@ -278,8 +278,10 @@ RESOLVING(校验目标+距离,startDig) -> DIGGING(每 tick pumpDig,轮询 block
 > 第四个 `ActSlot`,也不是 `create_tool`/`eval_java` 玩法。词汇 = 现有 `act_set`
 > 的 move/look/interact;20Hz 仍归 `ActTickLoop`;FAILED 不继续下一步。门控与
 > `act_set` 同面(R1 / HIGH / `SE_WORLD_WRITE` / `CAP_WORLD_WRITE`)。headless:
-> core 1125,`ActPlanInterpreterAdvancesOnlyAfterCompleteTest` 等。**Windows live
-> 未跑 `act_plan`。** §6.8 的 `create_tool` 写路径仍未测,也不是这条路。
+> core 1125,`ActPlanInterpreterAdvancesOnlyAfterCompleteTest` 等。Windows live
+> `scripts/live-act-plan-probe.py` 3/3 (look then hotbar; yaw landed and slot
+> changed) + mutant (omit `ActTickLoop.stepPlan`: plan stays RUNNING, INTERACT
+> IDLE, probe red) + restored 3/3. §6.8 的 `create_tool` 写路径仍未测,也不是这条路。
 
 - **编译进 `core/drivers/act` 的 Java controller**:贴合现有 `ActApplier`/`ActActuator`/`FakeActuator`,
   headless 可测,门控在 R1(actuation 本来就在那),漂移测试会管住它。
