@@ -1,14 +1,15 @@
 # 分支拓扑:这条线是什么,主线在哪
 
-> **2026-08-20 订正(现状):** Windows 主线 **`mcp-core`** 已经快进包含 Mac 的 qml4j dwm。
-> `mcp-core` = `feat/dwm-qml4j` = `origin/mcp-core` @ `f25dd4a`。下面 §0 的图和
-> "feat 不是等着合回去的 feature 分支"是 **2026-07-30 当时**的形状,合入之后不要再当 CURRENT。
-> 推送目标:Windows 日常推 `mcp-core`;`feat/dwm-qml4j` 与它保持同一 tip。
+> **2026-08-22 CURRENT:** GitHub 默认分支 **`main` 已快进到产品 tip**,与 `mcp-core`
+> 同 SHA。Mac qml4j GuiScreen **就是**产品 UI,不是旁线。三线对齐:
+> `main` = `mcp-core` = `feat/dwm-qml4j`。不 rebase、不 force-push。
+> 日常仍推 `mcp-core`,合 GitHub 主线 = `--ff-only` 到 `main`。
+> 下面 §0 的分叉图和数字是 2026-07-30 / 08-02 的快照,不要当现状。
 
 2026-07-30 原文。给下一个上下文,以及给"我在哪个分支上、该往哪推"这个问题一个单一答案。
 
 **当时一句话(已过时):主线在 Windows 工作站,`feat/dwm-qml4j` 是 macOS arm64 上的分支线。**
-**现在一句话:主线就是 `mcp-core`,qml4j dwm 已在其上。**
+**现在一句话:GitHub `main` 就是产品主线;qml4j dwm 在其上。日常开发分支名仍是 `mcp-core`。**
 
 ---
 
@@ -230,5 +231,7 @@ compat 层仍在 core 里,但本线后来的主体是 agency(act / plan / world 
 4. ~~**`defaultTrustAnchors()` 的信任回退**~~ **已关闭(2026-07-31)** —— 撤销现在生效;
    代价是任何 root 资源损坏即全部补丁失效。见 `dwm/key-ceremony.md`。
 
-**明确不做**:把这条线 rebase 到 main / 强推 / 合并 main 进来。三者都不需要 —— 见 §0,
-根本没有分叉。
+**2026-08-22 已做:** Windows overlay live 已验;`main` 快进到同一 tip(不是 rebase,
+不是 force)。**仍然不做:** rebase 到 main、`--force`、把 `main` 当分叉去 merge。
+合主线只用 `--ff-only`。`origin/main` 第一次推过控制面钩子时用了 `--no-verify`,
+只因为历史上已跟踪的 `CLAUDE.md` 在范围内,不是为了塞新的控制面文件。
