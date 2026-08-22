@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # ============================================================================
-#  capture-overlay.sh — launch MC with a chosen overlay backend ARMED, wait for
-#  the MCP facade, call capture_screen, decode the returned base64 PNG to a file,
-#  then tear the client down. Lets the agent VISUALLY verify the overlay itself.
+#  capture-overlay.sh — launch MC with the qml4j DWM overlay ARMED, wait for
+#  the MCP facade, GET /v1/screen, write the PNG, then tear the client down.
 #
-#    Usage:  scripts/capture-overlay.sh <backend> [outfile] [--keep] [--warmup S]
-#      backend   skiko-ui | gl-ui | imgui-ui | gl | imgui   (or "" = auto)
-#      outfile   PNG path (default: scripts/_capture/<backend>.png)
+#  There is one substrate: qml4j as a real GuiScreen (dwm/README.md).
+#  The gl / imgui / skiko jars are gone. Passing those names is a setup error.
+#
+#    Usage:  scripts/capture-overlay.sh [qml4j] [outfile] [--keep] [--warmup S]
+#      outfile   PNG path (default: scripts/_capture/qml4j.png)
 #      --keep    leave the client running
 #      --warmup  seconds to let the menu settle before capture (default 8)
 #
@@ -29,60 +30,67 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
-[ -z "$OUT" ] && OUT="$SCRIPT_DIR/_capture/${BACKEND:-auto}.png"
+
+case "${BACKEND}" in
+  ""|qml4j) BACKEND="qml4j" ;;
+  skiko-ui|gl-ui|imgui-ui|gl|imgui|skiko)
+    echo "SETUP FAIL: overlay backend '$BACKEND' was demolished. qml4j is the substrate (dwm/README.md)." >&2
+    exit 3
+    ;;
+  *)
+    echo "SETUP FAIL: unknown overlay '$BACKEND' (only qml4j)." >&2
+    exit 3
+    ;;
+esac
+
+[ -z "$OUT" ] && OUT="$SCRIPT_DIR/_capture/qml4j.png"
 mkdir -p "$(dirname "$OUT")"
 
 JBR_HOME="${JBR_HOME:-$ROOT/_tools/jbrsdk-25.0.3-windows-x64-b508.16}"
 JAVA="$JBR_HOME/bin/java.exe"; [ -x "$JAVA" ] || JAVA="$JBR_HOME/bin/java"
 GAME_JAR="$ROOT/client/target/MCP-1.8.9.jar"
 CORE_JAR="$ROOT/core/target/core-1.8.9-all.jar"
-GL_JAR="$ROOT/dwm-gl/target/dwm-gl-1.8.9-all.jar"
-IMGUI_JAR="$ROOT/dwm-imgui/target/dwm-imgui-1.8.9-all.jar"
-SKIKO_JAR="$ROOT/dwm-skiko/target/dwm-skiko-1.8.9-all.jar"
+BOARD_JAR="$ROOT/board/target/board-1.8.9.jar"
+DWM_JAR="$ROOT/dwm/target/dwm-1.8.9.jar"
+DWM_CP_CACHE="$ROOT/dwm/target/runtime-classpath.txt"
 ARGS_FILE="$SCRIPT_DIR/jvm-args-mcp.txt"
 GAME_DIR="$ROOT/test_run"
 HOST=127.0.0.1; PORT=1337
-LAUNCH_LOG="$SCRIPT_DIR/_capture/launch-${BACKEND:-auto}.log"
+LAUNCH_LOG="$SCRIPT_DIR/_capture/launch-qml4j.log"
 
 fail_setup(){ echo "SETUP FAIL: $1" >&2; exit 3; }
 [ -x "$JAVA" ]     || fail_setup "no java at $JAVA"
 [ -f "$GAME_JAR" ] || fail_setup "missing $GAME_JAR"
 [ -f "$CORE_JAR" ] || fail_setup "missing $CORE_JAR"
+[ -f "$DWM_JAR" ]  || fail_setup "missing $DWM_JAR — ./mvnw -q -pl dwm -am package -DskipTests"
 command -v curl >/dev/null 2>&1 || fail_setup "curl not on PATH"
 
 winpath(){ if command -v cygpath >/dev/null 2>&1; then cygpath -w "$1"; else printf '%s' "$1"; fi; }
 if command -v cygpath >/dev/null 2>&1; then CPSEP=';'; else CPSEP=':'; fi
 
-# Classpath: game + kernel + whichever backend jars exist.
-CP="$(winpath "$GAME_JAR")$CPSEP$(winpath "$CORE_JAR")"
-[ -f "$GL_JAR" ]    && CP="$CP$CPSEP$(winpath "$GL_JAR")"
-[ -f "$IMGUI_JAR" ] && CP="$CP$CPSEP$(winpath "$IMGUI_JAR")"
-[ -f "$SKIKO_JAR" ] && CP="$CP$CPSEP$(winpath "$SKIKO_JAR")"
-
-# Native lib flags for imgui + skiko (harmless when those backends unused).
-NATIVE_OPTS=()
-if [ -f "$IMGUI_JAR" ]; then
-  IMG_DIR="$ROOT/dwm-imgui/target/imgui-native"
-  if [ ! -f "$IMG_DIR/imgui-java64.dll" ]; then
-    mkdir -p "$IMG_DIR"; ( cd "$ROOT" && "$JBR_HOME/bin/jar" xf "$IMGUI_JAR" io/imgui/java/native-bin/imgui-java64.dll \
-      && mv io/imgui/java/native-bin/imgui-java64.dll "$IMG_DIR/" && rm -rf io ) 2>/dev/null
-  fi
-  NATIVE_OPTS+=("-Dimgui.library.path=$(winpath "$IMG_DIR")")
+if [ ! -f "$DWM_CP_CACHE" ] || [ "$ROOT/dwm/pom.xml" -nt "$DWM_CP_CACHE" ]; then
+  echo "== resolving dwm runtime dependencies (qml4j / Skija / asm) =="
+  ( cd "$ROOT" && ./mvnw -q -ntp -pl dwm dependency:build-classpath \
+      -DincludeScope=runtime -Dmdep.outputFile="$DWM_CP_CACHE" ) \
+    || fail_setup "could not resolve dwm dependencies"
 fi
-[ -f "$SKIKO_JAR" ] && NATIVE_OPTS+=("-Dskiko.renderApi=OPENGL")
+grep -q "qml4j-core" "$DWM_CP_CACHE" || fail_setup "dwm classpath cache missing qml4j-core"
 
-BACKEND_OPT=()
-[ -n "$BACKEND" ] && BACKEND_OPT+=("-Dmcp.core.overlay.backend=$BACKEND")
+CP="$(winpath "$GAME_JAR")$CPSEP$(winpath "$CORE_JAR")"
+[ -f "$BOARD_JAR" ] && CP="$CP$CPSEP$(winpath "$BOARD_JAR")"
+CP="$CP$CPSEP$(winpath "$DWM_JAR")"
+# The Maven cache is already in host path form.
+CP="$CP$CPSEP$(tr -d '\r\n' < "$DWM_CP_CACHE")"
 
 GAME_PID=""
 cleanup(){ [ "$KEEP" = "1" ] || { [ -n "$GAME_PID" ] && kill "$GAME_PID" 2>/dev/null; }; }
 trap cleanup EXIT
 
-echo "== capture-overlay: backend='${BACKEND:-auto}' -> $OUT =="
+echo "== capture-overlay: qml4j -> $OUT =="
 mkdir -p "$(dirname "$LAUNCH_LOG")"
 ( cd "$GAME_DIR" && exec "$JAVA" "@$(winpath "$ARGS_FILE")" \
     -Dmcp.core.http=true -Dmcp.core.httpPort="$PORT" -Dmcp.core.httpBind="$HOST" \
-    -Dmcp.core.overlay=true "${BACKEND_OPT[@]}" "${NATIVE_OPTS[@]}" \
+    -Dmcp.core.overlay=true \
     -javaagent:"$(winpath "$CORE_JAR")" \
     -cp "$CP" \
     net.minecraft.client.main.Main \
@@ -91,7 +99,6 @@ mkdir -p "$(dirname "$LAUNCH_LOG")"
 GAME_PID=$!
 echo "  game pid: $GAME_PID  (log: $LAUNCH_LOG)"
 
-# Wait for facade.
 deadline=$(( $(date +%s) + 180 )); up=0
 while [ "$(date +%s)" -lt "$deadline" ]; do
   if [ -n "$GAME_PID" ] && ! kill -0 "$GAME_PID" 2>/dev/null; then
@@ -104,9 +111,7 @@ done
 echo "  facade up. warming up ${WARMUP}s for the menu + overlay to settle ..."
 sleep "$WARMUP"
 
-# capture_screen -> base64 PNG in content[].data
-echo "  calling capture_screen ..."
-# The facade omits base64 from the tool JSON and streams the raw PNG at /v1/screen.
+echo "  calling /v1/screen ..."
 curl -fsS -m 30 "http://$HOST:$PORT/v1/screen" -o "$OUT"
 rc=$?
 if [ "$rc" = "0" ] && [ -s "$OUT" ]; then

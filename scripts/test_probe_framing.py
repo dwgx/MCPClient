@@ -301,5 +301,18 @@ class ReplyFramingTest(unittest.TestCase):
         self.assertEqual(self.mcp._complete_reply(small), small)
 
 
+class CaptureOverlayIsQml4jTest(unittest.TestCase):
+    """gl/imgui/skiko launchers were demolished; this script must not teach them."""
+
+    SCRIPT = os.path.join(SCRIPTS, "capture-overlay.sh")
+
+    def test_source_does_not_name_demolished_backends(self):
+        with open(self.SCRIPT, encoding="utf-8") as f:
+            text = f.read()
+        for needle in ("dwm-gl", "dwm-imgui", "dwm-skiko", "overlay.backend"):
+            self.assertNotIn(needle, text, f"{needle} is a demolished overlay path")
+        self.assertIn("qml4j", text)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

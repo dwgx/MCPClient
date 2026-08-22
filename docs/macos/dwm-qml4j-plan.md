@@ -7,7 +7,8 @@
 目标:把 qml4j(Skija/QML)作为 dwm 的 UI 实现引入,**并且保证 qml4j 上游更新后我们能持续跟上**。
 本文是当时的落地方案,实现以代码和 `dwm/README.md` 为准。
 
-前置:`client` + `lwjgl2-shim` 已在 macOS 跑通;`dwm/` 目前是空概念模块(`origin/mcp-core`)。
+前置:`client` + `lwjgl2-shim` 已在 macOS 跑通。**落笔时** `dwm/` 是空概念模块;现在不是
+—— 实现以 `dwm/README.md` 与 `dwm/pom.xml` 为准。
 
 ---
 

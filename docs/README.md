@@ -1,7 +1,11 @@
 # docs/ — 索引
 
 进 git 的是产品设计与验证方法。AI 交接 / session 笔记不进 git
-(2026-08-20 已从 `feat/dwm-qml4j` 历史拿掉),活进度在工作站 `.ai-notes/`。
+(2026-08-20 已从 `feat/dwm-qml4j` 历史拿掉),活进度(HEAD SHA、测试条数)在工作站 `.ai-notes/`。
+
+> **2026-08-22:** GitHub 默认分支 `main` 已快进到产品 tip,与 `mcp-core` /
+> `feat/dwm-qml4j` 同 SHA。Mac qml4j GuiScreen **就是**产品 UI。日常开发分支名仍是
+> `mcp-core`;合主线只用 `--ff-only`。细节 `branch-topology.md`。
 
 > **读码走 codegraph(铁律⑥)。** 用法与盲区见 `codegraph.md`。
 
@@ -12,7 +16,7 @@
 **内核 / 游戏行动:**
 
 1. `agency/command-to-action.md` — 已建好什么、关键路径、Fork。逐节看订正横幅。
-2. `branch-topology.md` — 分支关系。主线是 Windows `mcp-core`(已含 qml4j dwm)。
+2. `branch-topology.md` — 分支关系。GitHub `main` = 产品主线(已含 qml4j dwm)。
 3. `debugging.md` — 排查前必读,§10 真机纪律。
 
 **UI (dwm):** 仓库根 `dwm/README.md`(活架构,qml4j 底层) → `dwm/live-verification.md` →

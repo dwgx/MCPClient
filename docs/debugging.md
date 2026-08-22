@@ -24,6 +24,8 @@
 | `scripts/live-hold-probe.py` | 内核侧:INTERACT hold 通道 13 项 | 客户端在跑 | 自己布置前提(会改世界),见 §10 |
 | `scripts/live-nav-probe.py` | 内核侧:四方向/**对角线**/1 格台阶 | 客户端在跑 | 会铺平场地,见 §10 |
 | `scripts/live-look-probe.py` | 内核侧:LOOK 追踪(KEEP)11 项 | 客户端在跑 | 会生成/移动实体,见 §10 |
+| `scripts/live-route-probe.py` | 内核侧:`act_set move.route` COMPLETE | 客户端在跑 | 见 §10;Windows 5/5 + 突变体 |
+| `scripts/live-act-plan-probe.py` | 内核侧:`act_plan` sidecar COMPLETE | 客户端在跑 | 见 §10;Windows 3/3 + 突变体 |
 | `scripts/mcp_probe.py` | 以上探针共用的客户端与守卫(不是探针本身) | 无 | 见 §10 |
 | `scripts/mutate.py` | 注入变异证明断言不是空转(不是探针) | 无 | 见交接 08-06 §2④ |
 
@@ -287,7 +289,7 @@ JVM 里它恒为 null,那六个 `*LiveIT` **只可能 skip 或 FAIL,永远探不
 
 **共用部分现在有单一归属:`scripts/mcp_probe.py`** —— socket 客户端、"等到 id=2 那行能完整 parse"
 的分帧读取、游戏线程 eval 包装、`require_ticking` / `allow_unfocused` 守卫、以及
-record/report 与 0/1/2/3 退出码约定。三个探针都 `import mcp_probe`,**不要写第四份**。
+record/report 与 0/1/2/3 退出码约定。内核探针都 `import mcp_probe`,**不要再长一份 socket 客户端**。
 
 > 本节原文写的是"`live-hold-probe.py` 复用 `nav-astar-probe.py` 的 socket 客户端"。那在
 > 抽出共享模块之前是对的,现在已过时。而这条为什么值得单独立一节:**读取循环曾存在两份、
@@ -301,7 +303,8 @@ record/report 与 0/1/2/3 退出码约定。三个探针都 `import mcp_probe`,*
 
 范例:`scripts/nav-astar-probe.py`(寻路/感知)、`scripts/live-hold-probe.py`(hold 通道,
 13/13)、`scripts/live-nav-probe.py`(导航三条,11/11,**对角线在 2026-08-06 第一次到达**)、
-`scripts/live-look-probe.py`(LOOK 追踪,11/11)。
+`scripts/live-look-probe.py`(LOOK 追踪,11/11)、`scripts/live-route-probe.py`
+(`move.route` COMPLETE)、`scripts/live-act-plan-probe.py`(`act_plan` COMPLETE)。
 
 > **⑤⑥⑦ 三条是 2026-08-05 那轮真机踩出来的**(七条里有两个是当轮作者自己的误诊)。
 > 那一轮的测量写在下面八条里。会话原文不进 git。

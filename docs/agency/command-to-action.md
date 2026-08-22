@@ -19,6 +19,12 @@
 >
 > 保留原句是因为它当时是对的,而**"这份文档是不是可信"的答案从来不是一个句子** ——
 > 是每一节自己的横幅。整份文档一句"已验证"会比一句"未验证"危险得多。
+>
+> **2026-08-22(进 git 的主线):** GitHub `main` 已快进到与 `mcp-core` 同一 tip,
+> Mac qml4j UI 就是产品 UI。`act_set move.route` 与 `act_plan` 的 Windows COMPLETE
+> 已验(含突变体打红)。§2 的历史标题不要读成「MOVE 还没闭环」。Owner 未拍:
+> Fork E/F、`act_plan` 技能库、STEP_UP 真跳、craft 生产驱动。SHA/条数以工作站
+> `.ai-notes/STATUS.md` 为准,本文不钉。
 
 `docs/` 之前**完全没有内核侧文档**(18 份全是 dwm 与 macOS),这是第一份。
 
@@ -106,13 +112,15 @@ RESOLVING(校验目标+距离,startDig) -> DIGGING(每 tick pumpDig,轮询 block
 
 ---
 
-## 2. 真正的差距:MOVE 没有反馈回路
+## 2. MOVE 闭环已进树(历史诊断:没有反馈回路)
 
 > **订正(装配已进树,Windows live 已验 2026-08-21):** `act_set` `move.route`
 > (`RouteIntent` / `RouteExecutor` / `AModelCanAskForARouteThroughActSetTest`) 在 HEAD。
 > headless 有。Windows 真机 `scripts/live-route-probe.py` 5/5,含一次生产突变(第一 tick
 > 假 COMPLETE,探针打红)再还原 5/5。缺的不是 MOVE 闭环。不要把本节标题读成「还没写」。
 > 一格高墙会被规划成 STEP_UP,而 `NavController` 不跳,那是另一条债,不是 route 没接线。
+>
+> 下面到 §2.1 是 2026-08-03 的开环诊断原文。保留误诊形状;不要跳过横幅把它当缺口清单。
 
 `DigController` 有的东西,MOVE 一个都没有。
 
