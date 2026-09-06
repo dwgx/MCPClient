@@ -4,6 +4,7 @@
 
 # Normalize line endings for text
 * text=auto
+LICENSE         text eol=lf
 
 # Maven wrapper (vendored tooling)
 mvnw            linguist-vendored
