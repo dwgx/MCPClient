@@ -28,6 +28,14 @@ export async function SiteFooter() {
           <a href={GITHUB_URL} target="_blank" rel="noopener noreferrer" className="hover:text-grass-300">
             GitHub
           </a>
+          <a
+            href={`${GITHUB_URL}/blob/main/LICENSE`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:text-grass-300"
+          >
+            CC BY-NC-ND 4.0
+          </a>
         </div>
       </div>
 

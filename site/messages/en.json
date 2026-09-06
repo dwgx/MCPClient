@@ -11,7 +11,7 @@
   "footer": {
     "tagline": "Turning a live Minecraft JVM into a programmable substrate",
     "docs": "Docs",
-    "disclaimer": "MCPClient is a research project, not affiliated with Mojang or Microsoft. Minecraft is a trademark of Mojang."
+    "disclaimer": "Original work: CC BY-NC-ND 4.0 (no commercial use, no published derivatives). Contact the author for other uses. MCPClient is a research project, not affiliated with Mojang or Microsoft. Minecraft is a trademark of Mojang."
   },
   "hero": {
     "badge": "the Kernel · MC 1.8.9",

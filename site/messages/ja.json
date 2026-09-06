@@ -11,7 +11,7 @@
   "footer": {
     "tagline": "稼働中の Minecraft JVM をプログラム可能な基盤に変える",
     "docs": "ドキュメント",
-    "disclaimer": "MCPClient は研究プロジェクトであり、Mojang / Microsoft とは関係ありません。Minecraft は Mojang の商標です。"
+    "disclaimer": "オリジナル部分：CC BY-NC-ND 4.0（商用不可、改変版の公開も不可）。それ以外の利用は作者へ。MCPClient は研究プロジェクトであり、Mojang / Microsoft とは関係ありません。Minecraft は Mojang の商標です。"
   },
   "hero": {
     "badge": "the Kernel · MC 1.8.9",

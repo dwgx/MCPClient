@@ -11,7 +11,7 @@
   "footer": {
     "tagline": "把活着的 Minecraft JVM 变成可编程基底",
     "docs": "文档",
-    "disclaimer": "MCPClient 是一个研究性项目，与 Mojang / Microsoft 无关联。Minecraft 是 Mojang 的商标。"
+    "disclaimer": "原创部分：CC BY-NC-ND 4.0（禁止商用，禁止发布二次开发含开源分叉）。其他用途请联系作者。MCPClient 是一个研究性项目，与 Mojang / Microsoft 无关联。Minecraft 是 Mojang 的商标。"
   },
   "hero": {
     "badge": "the Kernel · MC 1.8.9",
