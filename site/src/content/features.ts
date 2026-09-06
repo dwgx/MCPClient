@@ -104,7 +104,7 @@ export interface TechFact {
 export const TECH_FACTS: TechFact[] = [
   { label: { zh: "运行时", en: "Runtime", ja: "ランタイム" }, value: "JetBrains Runtime 25 + DCEVM" },
   { label: { zh: "游戏", en: "Game", ja: "ゲーム" }, value: "Minecraft 1.8.9 vanilla" },
-  { label: { zh: "图形栈", en: "Graphics", ja: "グラフィックス" }, value: "LWJGL3 (via lwjgl2-shim ABI)" },
+  { label: { zh: "图形栈", en: "Graphics", ja: "グラフィックス" }, value: "LWJGL3 + qml4j (Skija into MC FBO)" },
   { label: { zh: "协议", en: "Protocol", ja: "プロトコル" }, value: "MCP over socket 127.0.0.1:25599" },
   { label: { zh: "注入", en: "Injection", ja: "注入" }, value: "-javaagent premain" },
   { label: { zh: "REST facade", en: "REST facade", ja: "REST facade" }, value: "127.0.0.1:1337" },
@@ -171,11 +171,11 @@ export const MODULES: Module[] = [
   {
     tierKey: "aux",
     tier: { zh: "可拆卸辅助", en: "Detachable aux", ja: "着脱可能な補助" },
-    name: "dwm / dwm-gl / dwm-imgui / dwm-skiko",
+    name: "dwm",
     duty: {
-      zh: "UI 子系统 + 三个纯 Java 渲染后端（GL / ImGui / Skiko），可热切换。",
-      en: "A UI subsystem + three pure-Java rendering backends (GL / ImGui / Skiko), hot-swappable.",
-      ja: "UI サブシステム + 3 つの純 Java レンダリングバックエンド（GL / ImGui / Skiko）。ホットスワップ可能です。",
+      zh: "UI 子系统：qml4j 场景图画进 MC 的 GuiScreen。不是热切换后端。",
+      en: "UI subsystem: a qml4j scene graph painted into MC's GuiScreen. Not a hot-swappable backend bus.",
+      ja: "UI サブシステム。qml4j のシーングラフを MC の GuiScreen に描画します。ホットスワップ可能なバックエンドではありません。",
     },
   },
 ];

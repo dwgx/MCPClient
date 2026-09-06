@@ -126,9 +126,9 @@ export const modules: DocPage = {
     {
       type: "p",
       text: {
-        zh: "pg（PatchGuard 加固库）与 dwm 系列（UI 子系统 + 三个纯 Java 渲染后端 GL/ImGui/Skiko，可热切换）挂在骨架之外，零安全决策权。删了它们，三个设计骨架照编照跑。",
-        en: "pg (the PatchGuard hardening library) and the dwm family (a UI subsystem + three pure-Java rendering backends — GL/ImGui/Skiko, hot-swappable) hang outside the spine with zero security decision authority. Remove them and the three design-spine modules still compile and run.",
-        ja: "pg（PatchGuard 堅牢化ライブラリ）と dwm 系（UI サブシステム + 3 つの純 Java レンダリングバックエンド GL/ImGui/Skiko、ホットスワップ可能）は骨格の外にぶら下がり、セキュリティ決定権限を持ちません。これらを消しても、3 つの設計骨格はコンパイルも実行もできます。",
+        zh: "pg（PatchGuard 加固库）与 dwm（UI 子系统，qml4j 画进 Minecraft 自己的 GuiScreen）挂在骨架之外，零安全决策权。删了它们，三个设计骨架照编照跑。GL / ImGui / Skiko 后端已拆除，不是现行基板。",
+        en: "pg (the PatchGuard hardening library) and dwm (the UI subsystem: qml4j painted into Minecraft's own GuiScreen) hang outside the spine with zero security decision authority. Remove them and the three design-spine modules still compile and run. The GL / ImGui / Skiko backends were removed; they are not the current substrate.",
+        ja: "pg（PatchGuard 堅牢化ライブラリ）と dwm（UI サブシステム。qml4j が Minecraft 自身の GuiScreen に描画）は骨格の外にぶら下がり、セキュリティ決定権限を持ちません。これらを消しても、3 つの設計骨格はコンパイルも実行もできます。GL / ImGui / Skiko バックエンドは撤去済みで、現行の基板ではありません。",
       },
     },
   ],
