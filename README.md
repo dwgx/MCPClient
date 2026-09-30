@@ -4,9 +4,9 @@
 <div align="center">
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/banner.svg?t=3c18b73bb186" />
-  <source media="(prefers-color-scheme: light)" srcset="docs/assets/banner-light.svg?t=3c18b73bb186" />
-  <img src="docs/assets/banner.svg?t=3c18b73bb186" width="100%" alt="MCPClient — 把 Minecraft 1.8.9 客户端经 MCP 暴露给 LLM · 7 层内核做权限门控" />
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/banner.svg?t=c04cb3772b7a" />
+  <source media="(prefers-color-scheme: light)" srcset="docs/assets/banner-light.svg?t=c04cb3772b7a" />
+  <img src="docs/assets/banner.svg?t=c04cb3772b7a" width="100%" alt="MCPClient — 把 Minecraft 1.8.9 客户端经 MCP 暴露给 LLM · 7 层内核做权限门控" />
 </picture>
 
 <br/>
