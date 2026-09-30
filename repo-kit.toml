@@ -1,0 +1,14 @@
+# repo-kit · 本仓库的 banner 规格
+# 改这个文件，workflow 会重新渲染 docs/assets/banner*.svg 与 README 区块
+# 生成器：https://github.com/dwgx/DWGX/tree/main/repo-kit
+owner = "dwgx"
+
+[[repo]]
+name = "MCPClient"
+style = "tree"
+tagline = "把 Minecraft 1.8.9 客户端经 MCP 暴露给 LLM · 7 层内核做权限门控"
+install = "./mvnw -q clean package && ./mvnw -q exec:java"
+lang = "Java"
+license = "MIT"
+topics = ["mcp", "kernel", "gating", "lwjgl", "minecraft"]
+links = [{ label = "issues", url = "https://github.com/dwgx/MCPClient/issues" }]

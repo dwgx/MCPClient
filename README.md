@@ -1,5 +1,24 @@
 # MCPClient (the Kernel)
 
+<!-- dwgx-banner:BEGIN -->
+<div align="center">
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/banner.svg?t=3c18b73bb186" />
+  <source media="(prefers-color-scheme: light)" srcset="docs/assets/banner-light.svg?t=3c18b73bb186" />
+  <img src="docs/assets/banner.svg?t=3c18b73bb186" width="100%" alt="MCPClient — 把 Minecraft 1.8.9 客户端经 MCP 暴露给 LLM · 7 层内核做权限门控" />
+</picture>
+
+<br/>
+
+Java · MIT · ★1
+
+[issues](https://github.com/dwgx/MCPClient/issues)
+
+</div>
+<!-- dwgx-banner:END -->
+
+
 A live [Minecraft](https://www.minecraft.net/) 1.8.9 client (LWJGL3, JDK 25) exposed to an LLM over [MCP](https://modelcontextprotocol.io/). The model can observe, act on, hot-swap, and debug the running JVM. Every tool call goes through a 7-layer NT-style privilege kernel.
 
 Site: <https://dwgx.github.io/MCPClient/>
