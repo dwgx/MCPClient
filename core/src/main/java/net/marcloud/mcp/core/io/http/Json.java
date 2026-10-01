@@ -48,7 +48,33 @@ public final class Json {
                 }
                 sb.append(']');
             }
-            default -> writeString(sb, String.valueOf(o));
+            default -> {
+                // A record reached the writer as `String.valueOf(record)`, i.e. the literal text
+                // `Report[x=1, y=2, ...]` -- which is not JSON, and a caller that json.loads it
+                // gets a str instead of the fields it was promised. Found on a live client:
+                // inspect_block answered "Report[x=208, y=64, ...]". Every other tool in the
+                // surface happens to build its Map by hand, which is why nothing else was bitten.
+                if (o.getClass().isRecord()) {
+                    java.lang.reflect.RecordComponent[] comps = o.getClass().getRecordComponents();
+                    sb.append('{');
+                    for (int i = 0; i < comps.length; i++) {
+                        if (i > 0) sb.append(',');
+                        writeString(sb, comps[i].getName());
+                        sb.append(':');
+                        try {
+                            writeValue(sb, comps[i].getAccessor().invoke(o));
+                        } catch (ReflectiveOperationException e) {
+                            // A component that cannot be read is reported as null rather than
+                            // aborting the whole document: a partial answer a caller can parse is
+                            // worth more than an exception that loses the fields that did read.
+                            sb.append("null");
+                        }
+                    }
+                    sb.append('}');
+                } else {
+                    writeString(sb, String.valueOf(o));
+                }
+            }
         }
     }
 
