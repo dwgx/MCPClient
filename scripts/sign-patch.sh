@@ -67,6 +67,18 @@ pick_java() {
 JAVA="$(pick_java)"
 [ -x "$JAVA" ] || fail_setup "no JDK 25 found (set JAVA_HOME)"
 
+# The classpath separator must be the one the JVM that will CONSUME it uses -- not the one
+# this shell would use, and not a hardcoded guess. `mvn dependency:build-classpath` already
+# writes the platform separator into the cache file, so joining its entries with ':' produced
+# a classpath the JDK rejected with sixteen "package does not exist" errors. That was
+# invisible everywhere except Windows, and only at signing time, which is the worst possible
+# place for it: the ceremony that is supposed to be the authority on signatures could not run.
+# Ask the JVM, which is authoritative on every platform and costs one already-required start.
+CP_SEP="$("$JAVA" -XshowSettings:properties -version 2>&1 \
+  | tr -d '\r' \
+  | sed -n 's/^[[:space:]]*path\.separator[[:space:]]*=[[:space:]]*//p')"
+[ -n "$CP_SEP" ] || fail_setup "could not determine the JVM classpath separator"
+
 CLASSES="$ROOT/core/target/classes"
 [ -d "$CLASSES" ] || fail_setup "core is not built — run: ./mvnw -q -pl core -am package -DskipTests"
 
@@ -76,7 +88,7 @@ if [ ! -f "$CP_CACHE" ]; then
   ( cd "$ROOT" && ./mvnw -q -ntp -pl core dependency:build-classpath \
       -Dmdep.outputFile="$CP_CACHE" ) || fail_setup "could not resolve core's dependencies"
 fi
-CP="$CLASSES:$(cat "$CP_CACHE")"
+CP="$CLASSES$CP_SEP$(cat "$CP_CACHE")"
 
 # The work happens in Java, not in shell: the canonical signing input is defined by
 # PatchCanonicalizer, and the only way to be sure the ceremony matches it is to build the
@@ -176,7 +188,7 @@ public final class SignCeremony {
 JAVA
 
 echo "signing $PATCH_CLASS with the key at $PRIVKEY"
-"$JAVA" -cp "$CP:$WORK" "$WORK/SignCeremony.java" "$PATCH_CLASS" "$PRIVKEY"
+"$JAVA" -cp "$CP$CP_SEP$WORK" "$WORK/SignCeremony.java" "$PATCH_CLASS" "$PRIVKEY"
 
 cat <<'NEXT'
 Next steps:
