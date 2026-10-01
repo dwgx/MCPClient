@@ -72,6 +72,11 @@
       "path": "**/*",
       "rule": "Repository-wide, and the shortest version of everything above: a claim in a comment, a commit message or a document is code, and it is wrong until re-derived. This repository's record: a test count written before it was measured; a verification command that failed with its error swallowed by a pipe; a SHA whose first seven characters matched and whose remaining thirty-nine were invented; a fix described as 'done' when the mutation had never been applied. Name the source of a claim, or do not make it.",
       "merge_system_rule": true
+    },
+    {
+      "path": "core/src/test/java/net/marcloud/mcp/core/eval/**/*.java",
+      "rule": "THE CONTROL PAIR, which this repository has never once had. A criterion that passes in BOTH worlds is not a criterion. Any task asserting a capability must also assert that the IDENTICAL scenario with the capability DISABLED does NOT pass. The corpus has this at F:/Project/src/05_other/Wurst-Imperium_Wurst7/src/gametest/java/net/wurstclient/gametest/tests/NoFallHackTest.java:40-49 -- the same fall5Blocks() run twice, asserting health == 20 with the feature on and health < 20 with it off.\n\nAll four false-success instruments this project shipped fail that pair: the probe that never compiled had no world to poll; outcome=dawn from a raw tick accumulator is true forever so its two runs do not differ; the eval filter matching no task produced an empty PASS list; the 24-recovery-tick unwedge asserted a wedge was REPORTED, which is true whether or not the wedge was what stopped the body.\n\nCompanion requirement, same file: the success predicate must be SERVER-OBSERVED, never self-reported. SingleplayerTest.java:81-85 waits by polling the client's view of the SERVER's block state; AutoMineHackTest.java:31-33 OBSERVES its own precondition before enabling the feature, then observes the outcome. Neither asserts that the action was issued.",
+      "merge_system_rule": false
     }
   ]
 }
