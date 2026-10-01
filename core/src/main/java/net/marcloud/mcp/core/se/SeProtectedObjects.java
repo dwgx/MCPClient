@@ -25,9 +25,11 @@ import java.util.Set;
  * neutralize the guard.
  *
  * <p>Protection is by exact fully-qualified name plus a prefix rule for the whole
- * Security Reference Monitor ({@code se}), Object Manager ({@code ob}), and compat
- * trust-core ({@code compat}) packages, so kernel classes added later
- * (integrity/privilege/capability/handle/trust types) are covered automatically.
+ * Security Reference Monitor ({@code se}), Object Manager ({@code ob}), compat
+ * trust-core ({@code compat}), P-SECURE transport/crypto ({@code alpc}), and HTTP
+ * front-door ({@code io.http}) packages, so kernel classes added later
+ * (integrity/privilege/capability/handle/trust types, or another verdict codec)
+ * are covered automatically.
  * Redefining {@code net.minecraft.*} game classes — the legitimate use case —
  * is never affected.
  */
@@ -77,6 +79,20 @@ public final class SeProtectedObjects {
     private static final String ALPC_PACKAGE = "net.marcloud.mcp.core.alpc.";
 
     /**
+     * HTTP front-door (io.http) prefix — also whole-package protected. This package
+     * is not a helper library: {@code Json} is the codec the L1 P-SECURE wall parses
+     * the authority's verdict with ({@code SeRemoteMonitor} reads the decision out of
+     * a {@code Json.readObject} map), and {@code HttpFacade} is the REST gate that
+     * decides whether a request reaches the supervised registry at all. Protecting
+     * {@code HttpFacade} by exact name while leaving {@code Json} exposed was the same
+     * coverage gap the {@code alpc} prefix closed one layer down: {@code redefine_class}
+     * could hot-swap {@code Json.readObject} to answer {@code {"allow":true}} and
+     * disarm the remote reference monitor without touching any protected class. A
+     * prefix covers {@code Json}, {@code SseStream}, and anything added later.
+     */
+    private static final String IO_HTTP_PACKAGE = "net.marcloud.mcp.core.io.http.";
+
+    /**
      * Load-bearing classes outside the security package: the supervised-gate
      * machinery, the agent that holds Instrumentation, and the redefine/hook
      * plumbing itself. Redefining any of these could disable the guard.
@@ -115,10 +131,11 @@ public final class SeProtectedObjects {
             // Auth-decision + tool-layer gate wrappers that live OUTSIDE the protected
             // prefixes. The underlying KdBridge/MmAccess are protected, but the tool
             // wrappers that gate them are one layer up in unprotected packages — a
-            // redefine of the wrapper's gate method (e.g. DebugTools.guard → no-op,
-            // HttpFacade.authorized → true) neutralizes the check without touching the
-            // protected core. Cover the wrappers too.
-            "net.marcloud.mcp.core.io.http.HttpFacade",
+            // redefine of the wrapper's gate method (e.g. DebugTools.guard → no-op)
+            // neutralizes the check without touching the protected core. Cover the
+            // wrappers too. (HttpFacade, the third such wrapper, needs no pin here: the
+            // IO_HTTP_PACKAGE prefix above covers the whole io.http package, which is
+            // why the exact-name pin it used to need is gone.)
             "net.marcloud.mcp.core.kd.DebugTools",
             "net.marcloud.mcp.core.mm.MutateStateTools");
 
@@ -133,7 +150,7 @@ public final class SeProtectedObjects {
         String n = normalize(className);
         return n.startsWith(SECURITY_PACKAGE) || n.startsWith(OBJECT_PACKAGE)
                 || n.startsWith(COMPAT_PACKAGE) || n.startsWith(ALPC_PACKAGE)
-                || PROTECTED.contains(n);
+                || n.startsWith(IO_HTTP_PACKAGE) || PROTECTED.contains(n);
     }
 
     /**
