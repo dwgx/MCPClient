@@ -7,21 +7,18 @@ import net.marcloud.mcp.board.Signal;
  * {@code S38PacketPlayerListItem} with {@code ADD_PLAYER}). Republished onto the
  * {@link net.marcloud.mcp.board.Trace} so chips can track who is online.
  *
- * <p><b>Tier-2, honestly typed — NOT YET WIRED.</b> This is the honest typed shape
- * for a join (a single player {@link #name()} String). It is shipped so the
- * vocabulary exists, but the mcp-core→board bridge does NOT publish it today: the
- * bridge sees only a reference-free packet <em>summary</em>, and there is no
- * PHASE-P summarizer for {@code S38PacketPlayerListItem}, so its summary is just
- * the generic class name — the player name and the add/remove action are not
- * honestly available to the bridge.
+ * <p><b>Tier-2, honestly typed — WIRED.</b> The mcp-core→board bridge publishes this
+ * from inbound {@code S38PacketPlayerListItem}, for {@code ADD_PLAYER} entries only:
+ * the player-list summarizer emits {@code playerList action=... names=a,b,c} and the
+ * bridge emits one signal per named entry, because a single packet can add several.
  *
- * <p><b>To wire it honestly:</b> add an {@code S38PacketPlayerListItem} summarizer
- * that emits the action + player name(s) (e.g. {@code "playerList action=ADD name=<...>"});
- * then {@code BoardWorldEventBridge} can map {@code ADD_PLAYER} entries to a
- * {@code PlayerJoinSignal} and {@code REMOVE_PLAYER} to a {@link PlayerLeaveSignal},
- * parsing the name from the summary. Note S38 can carry multiple entries per
- * packet, so the bridge may emit several signals from one summary. Until then this
- * signal exists as a typed contract only.
+ * <p><b>{@link PlayerLeaveSignal} is genuinely NOT wired, and the reason is not the one
+ * this class used to give.</b> The old text blamed the missing
+ * {@code S38PacketPlayerListItem} summarizer — which exists, and which is what publishes
+ * <i>this</i> signal. The real reason is on the wire: a {@code REMOVE_PLAYER} entry
+ * carries only a UUID and never a name (the client decodes
+ * {@code GameProfile(uuid, null)}), so the summary honestly has no name to map and the
+ * bridge cannot build the signal without fabricating one. Do not emit it that way.
  *
  * <p>Immutable; not cancellable. Mirrors {@link KeySignal}'s shape.
  */

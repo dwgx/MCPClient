@@ -73,14 +73,37 @@ public final class Board {
     }
 
     /**
-     * Stop the framework: disable every feature and clear the event bus.
+     * Stop the framework: unload every feature and clear the event bus.
      * Idempotent — a call while not started is a no-op.
+     *
+     * <p><b>This empties the feature matrix, not just disables it</b> — deliberately, and
+     * because the previous version did not, a documented {@code shutdown()} + {@link #init()}
+     * restart came up with a dead board: {@code shutdown()} only called
+     * {@code disableAll()}, so every chip id was still present when
+     * {@code OfficialChips.install} ran again, and its {@code addAndEnable} early-returns 0
+     * for an id that is already there <i>without re-enabling it</i>. The result was five
+     * chips listed and every one of them off, with the two "enabled out of the box" ones
+     * unsubscribed from the tick bus — while the launcher still showed a roster.
+     *
+     * <p>{@link Matrix#clear()} is also the right verb on its own terms: it fires
+     * {@link Chip#onUnload()} for each chip, which {@code disableAll()} never did, so a chip
+     * holding a resource was told to let it go.
+     *
+     * <p><b>The bus is cleared separately, and both lines are load-bearing.</b> An earlier
+     * revision of this fix replaced the old two-line body with {@code FEATURES.clear()} alone,
+     * on the reasoning that clearing the matrix was the whole job. It is not: the matrix only
+     * knows the chips <i>in</i> it, and {@link Trace} is a process-wide bus that anything can
+     * subscribe to. Dropping {@code TRACE.clear()} left every non-chip subscriber live through
+     * a shutdown — still {@code isActive()}, still receiving ticks, still there after a restart,
+     * holding whatever it closed over. That is the same class of bug as the one being fixed
+     * (a restart that silently does not restore a clean board), one level down, and the only
+     * reason it is not worse is that the roster chips happen to be in the matrix.
      */
     public static synchronized void shutdown() {
         if (!started) {
             return;
         }
-        FEATURES.disableAll();
+        FEATURES.clear();
         TRACE.clear();
         Backplane.unregister(net.marcloud.mcp.board.link.BoardPort.KEY);
         Backplane.unregister("board");

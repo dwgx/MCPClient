@@ -8,13 +8,18 @@ import net.marcloud.mcp.board.Signal;
  * the {@link net.marcloud.mcp.board.Trace} so chips can track who is online — the
  * counterpart to {@link PlayerJoinSignal}.
  *
- * <p><b>Tier-2, honestly typed — NOT YET WIRED.</b> Shipped as the honest typed
- * shape (a single player {@link #name()} String), but not published by the
- * mcp-core→board bridge yet, for the same reason as {@link PlayerJoinSignal}:
- * there is no PHASE-P summarizer for {@code S38PacketPlayerListItem}, so the
- * player name is not honestly available from the packet summary the bridge sees.
- * See {@link PlayerJoinSignal} for the exact summarizer + parse work needed to
- * wire both honestly.
+ * <p><b>Tier-2, honestly typed — genuinely NOT WIRED, and the reason is the wire
+ * format, not a missing summarizer.</b> An earlier version of this comment blamed the
+ * absence of a PHASE-P summarizer for {@code S38PacketPlayerListItem}. That summarizer
+ * exists, and it is what publishes {@link PlayerJoinSignal}. The real blocker: a
+ * {@code REMOVE_PLAYER} entry carries only a UUID and never a name — the client decodes
+ * it as {@code GameProfile(uuid, null)} — so the reference-free summary the bridge reads
+ * honestly has no name to map.
+ *
+ * <p>That is the same rule the PHASE-E contract enforces elsewhere: emit nothing rather
+ * than a fabricated value. So this signal ships as a typed contract only. Wiring it
+ * honestly needs either a name the server actually sends, or a different value type
+ * (the UUID), which is a contract change and not a bridge change.
  *
  * <p>Immutable; not cancellable. Mirrors {@link KeySignal}'s shape.
  */

@@ -64,10 +64,14 @@ public final class Trace {
      * cold-path mutation ({@code subscribe}/{@code unsubscribe}/{@code clear}) —
      * simple and correct over clever incremental patching.
      *
-     * <p>Cached lists may contain entries whose {@link Subscription0#active} flag
-     * flipped to {@code false} via {@link Subscription#cancel()} after the list was
-     * built; the publish loop skips those, so a cancel need not invalidate the
-     * cache to be correct (though {@code unsubscribe}/{@code clear} do).
+     * <p>A {@link Subscription#cancel()} also invalidates the cache. It does not have to for
+     * <i>correctness</i> — the publish loop skips inactive entries — but skipping alone left the
+     * cancelled {@code Subscription0} reachable from the cache, and that object holds the
+     * {@link Listener}, which for the common anonymous-class case is the chip itself. So every
+     * chip disabled after any publish on its signal class stayed retained for the process
+     * lifetime: the frozen {@link Subscription} contract advertises this handle as "the
+     * leak-proof path". Cancel is a cold path (it is chip disable), so clearing the whole cache
+     * and letting the next publish rebuild per class costs one rebuild and buys the release.
      */
     private final ConcurrentHashMap<Class<? extends Signal>, List<Subscription0<?>>> dispatchCache =
             new ConcurrentHashMap<Class<? extends Signal>, List<Subscription0<?>>>();
@@ -91,6 +95,12 @@ public final class Trace {
             if (active) {
                 active = false;
                 subscriptions.remove(this);
+                // Drop the cached matcher lists too. Correctness does not need it — publish
+                // skips inactive entries — but the cache is the only other thing holding this
+                // object, and through it the listener, and through an anonymous listener the
+                // chip. Without this, cancel() released the subscription record while the
+                // chip it subscribed stayed reachable for the life of the process.
+                dispatchCache.clear();
             }
         }
 
@@ -174,8 +184,10 @@ public final class Trace {
         }
         List<Subscription0<?>> matching = matchersFor(signal.getClass());
         for (Subscription0<?> s : matching) {
-            // A subscription cached before its cancel() flipped active=false must
-            // not receive the signal — the cache is not invalidated on cancel.
+            // A cancel racing this publish flips active=false and clears the cache; an entry
+            // already in `matching` is still skipped here. Correctness does not depend on the
+            // skip — the rebuild would not contain it — but a publish that began before the
+            // cancel must not deliver to a subscription the caller already released.
             if (!s.active) {
                 continue;
             }

@@ -7,18 +7,17 @@ import net.marcloud.mcp.board.Signal;
  * {@code ENTITY_DIED}, carrying the death message). Republished onto the
  * {@link net.marcloud.mcp.board.Trace} so chips can react to a death.
  *
- * <p><b>Tier-2, honestly typed — NOT YET WIRED.</b> This is the honest typed shape
- * for a death (a single death-message {@link #message()} String). It is shipped so
- * the vocabulary exists, but the mcp-core→board bridge does NOT publish it today:
- * the bridge sees only a reference-free packet <em>summary</em>, and there is no
- * PHASE-P summarizer for {@code S42PacketCombatEvent}, so its summary is just the
- * generic class name — the death message is not honestly available to the bridge.
+ * <p><b>Tier-2, honestly typed — WIRED.</b> The mcp-core→board bridge publishes this
+ * from inbound {@code S42PacketCombatEvent}, for the {@code ENTITY_DIED} event id
+ * only: the combat summarizer emits a {@code death="..."} field and the bridge parses
+ * the message out of it. The non-death combat events emit nothing rather than
+ * guessing.
  *
- * <p><b>To wire it honestly:</b> add an {@code S42PacketCombatEvent} summarizer
- * that, for the {@code ENTITY_DIED} event id, emits e.g.
- * {@code "death msg=\"<...>\""}, then have {@code BoardWorldEventBridge} parse the
- * message out of that summary. Until then this signal exists as a typed contract
- * only.
+ * <p>The earlier version of this comment described that summarizer and that parse as
+ * work still to be done, including the exact field spelling to use. It is done, and it
+ * is done almost exactly as written here — the comment outlived the code, which is the
+ * drift this repository keeps paying for. {@code BoardWorldEventBridge}'s class javadoc
+ * is the authority on what is wired.
  *
  * <p>Immutable; not cancellable — the death already happened. Mirrors
  * {@link KeySignal}'s shape.

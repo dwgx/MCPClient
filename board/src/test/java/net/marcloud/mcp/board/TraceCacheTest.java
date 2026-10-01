@@ -69,9 +69,9 @@ public class TraceCacheTest {
     }
 
     /**
-     * cancel() flips active=false but deliberately does NOT invalidate the cache,
-     * so a cached matcher list still references the cancelled subscription. The
-     * publish loop must skip it via the {@code !s.active} guard.
+     * A cancelled subscriber must not be dispatched, whether the cache was warm or cold.
+     * Cancel clears the cache, so the next publish rebuilds without it — and a publish that
+     * had already grabbed the old list skips it on the {@code !active} guard.
      */
     @Test
     public void cancelledSubscriberInWarmCacheIsSkipped() {
@@ -81,15 +81,52 @@ public class TraceCacheTest {
         trace.subscribe(BaseSignal.class, tally(stay));
         Trace.Subscription sub = trace.subscribe(BaseSignal.class, tally(doomed));
 
-        trace.publish(new BaseSignal()); // warm cache: list holds BOTH subs
+        trace.publish(new BaseSignal()); // warm cache
         assertEquals(1, stay[0]);
         assertEquals(1, doomed[0]);
 
-        sub.cancel(); // active=false, but cache list still contains it
+        sub.cancel();
         trace.publish(new BaseSignal());
 
         assertEquals("cancelled subscriber must not be dispatched from a warm cache", 1, doomed[0]);
         assertEquals(2, stay[0]);
+    }
+
+    /**
+     * The retention half, which the assertion above cannot see: the dispatch cache must not
+     * keep a cancelled subscription — and through it its listener — reachable. A warm cache
+     * built before the cancel is exactly the reference that outlived it, and the
+     * {@link Subscription} contract advertises this handle as the leak-proof path.
+     *
+     * <p>White-box on purpose. Retention is not observable through the public API — the
+     * cancelled listener is correctly not delivered either way — so the assertion reads the
+     * private cache. What it pins is a real property, not a spelling.
+     */
+    @Test
+    public void cancellingReleasesTheCachedReferenceToTheListener() throws Exception {
+        Trace trace = new Trace();
+        trace.subscribe(BaseSignal.class, tally(new int[1]));
+        Trace.Subscription doomed = trace.subscribe(BaseSignal.class, tally(new int[1]));
+
+        trace.publish(new BaseSignal()); // warm the cache: it now holds BOTH subscriptions
+
+        java.lang.reflect.Field f = Trace.class.getDeclaredField("dispatchCache");
+        f.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        java.util.Map<Class<? extends Signal>, List<?>> cache =
+                (java.util.Map<Class<? extends Signal>, List<?>>) f.get(trace);
+        assertTrue("the warm cache must contain the doomed subscription, or this test is "
+                + "asserting nothing", cache.get(BaseSignal.class).contains(doomed));
+
+        doomed.cancel();
+
+        boolean stillCached = false;
+        for (List<?> list : cache.values()) {
+            stillCached |= list.contains(doomed);
+        }
+        assertFalse("a cancelled subscription must not stay reachable from the dispatch "
+                + "cache; it holds the listener, and through an anonymous listener the chip",
+                stillCached);
     }
 
     /** unsubscribe(Listener) on the cold path must also stop delivery from a warm cache. */

@@ -7,21 +7,17 @@ import net.marcloud.mcp.board.Signal;
  * onto the {@link net.marcloud.mcp.board.Trace} so chips can react to taking
  * damage or healing (e.g. a low-health warning HUD).
  *
- * <p><b>Tier-2, honestly typed — NOT YET WIRED.</b> This value type is the honest,
- * typed vocabulary for a health change (a single {@code float} health, never a
- * stringly-typed blob). It is deliberately shipped so the framework has the right
- * shape ready, but the mcp-core→board bridge does NOT currently publish it: the
- * bridge sees only a reference-free packet <em>summary</em>, and there is no
- * PHASE-P summarizer for {@code S06PacketUpdateHealth}, so its summary is just the
- * generic class name — the {@code health} value is not honestly available to the
- * bridge. Emitting a signal here would mean inventing a fake field, which the
- * PHASE-E contract forbids.
+ * <p><b>Tier-2, honestly typed — WIRED.</b> The mcp-core→board bridge publishes this
+ * from inbound {@code S06PacketUpdateHealth}: the health summarizer emits an
+ * {@code hp=<f>} field and {@code BoardWorldEventBridge} parses it. If the field is
+ * absent the bridge emits nothing rather than guessing, so this signal never carries
+ * an invented value.
  *
- * <p><b>To wire it honestly:</b> add a {@code S06PacketUpdateHealth} summarizer to
- * {@code HighValueSummarizers} that emits e.g. {@code "health hp=<f> food=<i> sat=<f>"},
- * then have {@code BoardWorldEventBridge} parse {@code hp=} out of that summary
- * (exactly as it does for {@code S23} block-change today). Until then this signal
- * exists as a typed contract only.
+ * <p>That is exactly the work the earlier version of this comment said was still to
+ * do ("add a summarizer, then parse {@code hp=}"). It is done; the comment outlived
+ * it, which is the drift this repository keeps paying for. See
+ * {@code BoardWorldEventBridge}'s class javadoc for the full wiring table — that is
+ * the authority, not this paragraph.
  *
  * <p>Immutable; not cancellable. Mirrors {@link KeySignal}'s shape.
  */
