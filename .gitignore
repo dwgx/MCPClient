@@ -91,3 +91,20 @@ __pycache__/
 
 # Ephemeral git worktrees created for parallel agent runs; never committed.
 .claude/worktrees/
+
+# --- Agent scratch that landed in the repo root or a module dir ---
+# The 2026-09-30/10-01 sessions left these behind. They are NOT deleted here on purpose: the
+# cleanup needs an Owner's word, and deleting is not reversible. Ignoring them is enough to stop
+# `git add -A` from sweeping a previous session's scratch into a commit -- which is the shape that
+# already happened once in this repo (see docs/branch-topology.md, the mutate.py note).
+.agent-tmp-*/
+.chatverify_archive/
+core/.agent-tmp-mut2/
+core/cp.txt
+.tmp_audit.md
+.tmp_report.md
+.tmp_report.*
+
+# A Windows artifact: a redirect to NUL written as a literal filename. It breaks `ls`, `cat` and
+# any directory listing that touches the repo root, and it is not a file anyone can open.
+/nul
