@@ -231,13 +231,13 @@ LWJGL 运行时按 `os.name`/`os.arch` 选对应的那套。
 可验证(**用真基线 `5eec5b9`,不要用 `origin/mcp-core`**):
 
 ```bash
-# client/src 相对 v1.0.0 干净基线到底改了什么 —— 下面这条会打印出 22 个文件
+# client/src 相对 v1.0.0 干净基线到底改了什么 —— 这条会打印出 26 个文件，
+# 其中 22 个在 client/src/main，4 个在 client/src/test。下面第二条把它们分出来。
 git diff --stat 5eec5b9..HEAD -- client/src
 
-# 挑出其中**非机械**的那些(排除 Guava/oshi 迁移与新增测试),人工读剩下的小集合
+# 只看真正被改的 vanilla 源码（排除那 4 个新增测试）
 git diff --name-only 5eec5b9..HEAD -- client/src/main \
   | grep -vE 'NbtRoundTripTest|PacketBufferCodecTest|PacketIdRegistryTest|CompressionFramingTest'
-```
 
 > **订正(2026-09-30):** 上一版这里给的"可验证"是
 > `git diff --stat origin/mcp-core..HEAD -- client/src board pg  # 应为空`。
