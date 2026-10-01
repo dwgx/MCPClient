@@ -14,12 +14,29 @@ import java.util.function.Consumer;
  * Guarded}, run the passes its level activates, and return hardened bytes — or
  * the ORIGINAL bytes if the class is not guarded or if anything goes wrong.
  *
- * <p><b>Fail-safe is the core contract.</b> Hardening is a build-time convenience;
- * it must never produce a jar that will not load. So every transformed class is
- * re-verified with {@link CheckClassAdapter}, and on any pass exception or
+ * <p><b>Fail-safe is the core contract, and here is its actual boundary.</b> Hardening
+ * is a build-time convenience; it must not be the reason a jar stops loading. So every
+ * transformed class is re-verified before it is accepted, and on any pass exception or
  * verification failure the engine discards the transformation and keeps the
- * last-known-good bytes. The worst case is "this class was not hardened", never
- * "this class is broken".
+ * last-known-good bytes.
+ *
+ * <p>What "verified" means here is narrower than the word suggests, and stating it
+ * precisely matters because the previous version of this comment claimed the worst case
+ * is "this class was not hardened", never "this class is broken". That claim is too
+ * strong. {@link #verify} recomputes stack-map frames and runs ASM's
+ * {@code CheckClassAdapter} in <b>structural-only</b> mode — the data-flow verifier is
+ * off, deliberately, because it resolves reference types through a classloader that
+ * cannot see the classes being hardened and would force false reverts (see the KI-7 note
+ * in {@code verify}'s body). So the engine catches malformed bytecode and bad frames; it
+ * does <b>not</b> catch bytecode that is structurally well formed but that the JVM's
+ * verifier would reject on a type error, and nothing here attempts to load the class to
+ * find out.
+ *
+ * <p>The honest statement of the contract is therefore: <b>the worst case for the
+ * currently registered pass is "this class was not hardened"</b> — it only rewrites
+ * string constants and is covered by tests that load the real hardened class. A future
+ * {@code FLOW} or {@code VIRTUALIZE} pass must not inherit that assurance from this
+ * paragraph; it has to add a check that would actually catch what it can break.
  *
  * <p>The engine is a general-purpose hardener with no dependency on core/board;
  * it can be lifted into its own repository unchanged.
