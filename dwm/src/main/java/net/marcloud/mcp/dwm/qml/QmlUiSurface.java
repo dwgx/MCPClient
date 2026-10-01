@@ -21,6 +21,12 @@ import org.lwjgl.opengl.Display;
  * exception escaping into the game loop would crash the client, so a failure is recorded, the
  * surface goes inert, and the game continues without UI. That is also the module contract:
  * dwm is a detachable auxiliary and must never be able to take the client down.
+ *
+ * <p><b>A frame with no live GL wrap is reported, but is NOT such a failure.</b> The backend retries
+ * a failed wrap on a cooldown, so that state is recoverable, and going inert would be the one thing
+ * that made it permanent — {@link #frame} returns immediately once inert. Instead the reason is
+ * recorded in {@link #lastError()} and {@link #isOpen()} answers false until a wrap takes: an
+ * overlay nobody can see must not report itself healthy.
  */
 public final class QmlUiSurface implements UiSurface, UiInput {
 
@@ -39,6 +45,24 @@ public final class QmlUiSurface implements UiSurface, UiInput {
     private boolean open;
     /** Set when something faulted; keeps us from retrying a broken scene every frame. */
     private boolean inert;
+    /**
+     * Nesting depth of {@link #dispatch}, and the reason {@code close()} is sometimes deferred.
+     *
+     * <p>Clicking the caption's X runs, inside a single {@code view.dispatchPointerUp}:
+     * {@code onClicked} -> {@code WindowCommands.close()} -> {@code mc.displayGuiScreen(null)}
+     * -> {@code QmlGuiScreen.onGuiClosed()} -> {@code close()} -> {@code view.dispose()}. Control
+     * then unwinds back into the {@code QmlView} that was just disposed, with qml4j still owing
+     * it a return. {@code dispatch}'s guard cannot catch this — it tests {@code open} BEFORE
+     * {@code call.run()}, and {@code close()} only clears {@code open} after the dispose has
+     * already happened. Disposing the object whose stack frame you are inside is a use-after-
+     * dispose, and this module has already crashed the client twice on native faults.
+     */
+    private int dispatchDepth;
+
+    /** A close asked for from inside a dispatch; honoured when that dispatch unwinds. */
+    private boolean closeRequested;
+    /** Set once a no-wrap frame has been logged, so the report is not a 60Hz log line. */
+    private boolean noWrapReported;
     private String lastError;
 
     /**
@@ -83,6 +107,14 @@ public final class QmlUiSurface implements UiSurface, UiInput {
         if (open) {
             return true;
         }
+        // Skija issues raw GL from here as much as from a frame: DirectContext.makeGL() talks to
+        // the driver, and view.load() uploads glyph and image textures. closeQuietly() below then
+        // runs those same paths in reverse. The frame path has always been bracketed for that
+        // reason -- see GlStateGuard for the leaks (buffer bindings, attribute arrays, the FBO and
+        // the program) that crashed a live client when they went unrestored -- and these two are
+        // the only other places dwm lets Skija touch GL, so they get the same bracket. initGui()
+        // makes this path run again on every resize.
+        GlStateGuard.enter();
         try {
             backend = new McpFboSurfaceBackend();
             backend.init(widthPx, heightPx);
@@ -103,15 +135,20 @@ public final class QmlUiSurface implements UiSurface, UiInput {
                 // to accept it as a free identifier in a binding, so registering it afterwards
                 // would make every scene that reads it fail to compile.
                 .context(DwmContext.NAME, new DwmContext())
-                // Window verbs, as their own namespace rather than more methods on Dwm: asking to
-                // be minimised is a request about the window, not knowledge about the kernel.
+                // Window verbs, as their own namespace rather than more methods on Dwm: asking the
+                // window to close is a request about the window, not knowledge about the kernel.
                 .context(WindowCommands.NAME, new WindowCommands(windowHost));
             view.setClipboard(new GlfwClipboard());
             view.load(source, ClasspathResources.baseDirOf(qmlPath));
 
             // Root geometry is set on the first frame, by the extent-changed branch in frame():
             // lastWidthPx starts at -1, so that branch always runs once. Sizing it here too would
-            // be a second place to keep right for no gain.
+            // be a second place to keep right for no gain. The extents are RESET for the same
+            // reason -- they describe the view that was here a moment ago, and this is a new one;
+            // left set, a re-open at the same size would skip sizeRoot() and leave the fresh root
+            // on the scene's declared fallback instead of the framebuffer's real extent.
+            lastWidthPx = -1;
+            lastHeightPx = -1;
 
             open = true;
             inert = false;
@@ -121,9 +158,17 @@ public final class QmlUiSurface implements UiSurface, UiInput {
             // and stay down rather than throwing into the game loop.
             lastError = String.valueOf(t);
             System.err.println("[dwm] failed to open qml scene " + qmlPath + ": " + t);
-            closeQuietly();
+            // releaseNatives(), not closeQuietly(): this path is already inside the guard, and
+            // GlStateGuard is not reentrant -- its capture lives in static fields, so a nested
+            // pair would make the outer leave() restore the inner capture, i.e. the state Skija
+            // left behind instead of MC's.
+            releaseNatives();
             inert = true;
             return false;
+        } finally {
+            // Unconditional, as in frame(): a fault must not leave MC's shadowed GL state
+            // disagreeing with the driver.
+            GlStateGuard.leave();
         }
     }
 
@@ -148,7 +193,10 @@ public final class QmlUiSurface implements UiSurface, UiInput {
             }
             backend.frameTarget(widthPx, heightPx, liveFboId);
             if (backend.hasSurface()) {
+                noWrapReported = false;
                 composite();
+            } else {
+                reportNoWrap(widthPx, heightPx);
             }
         } catch (Throwable t) {
             lastError = String.valueOf(t);
@@ -158,6 +206,30 @@ public final class QmlUiSurface implements UiSurface, UiInput {
             // Unconditional: MC's shadowed GL state must be restored even on a fault, or the
             // game stops rendering from the next frame on.
             GlStateGuard.leave();
+        }
+    }
+
+    /**
+     * Record that this frame composited nothing, and why.
+     *
+     * <p>Silence was the defect here. {@link #frame} gates the composite on
+     * {@link McpFboSurfaceBackend#hasSurface()} and used to just fall through when the answer was
+     * no: the scene stayed unpainted while {@link #isOpen()} kept saying healthy and
+     * {@link #lastError()} kept saying null, so a UI that had never appeared looked exactly like a
+     * UI that was working. The wrap is now retried by the backend on a cooldown, so this is
+     * deliberately NOT {@code inert = true}: that flag stops {@link #frame} running at all, which
+     * would turn a recoverable state into a permanent one, and it is why the honest answer here is
+     * "this frame drew nothing, here is why" rather than "the surface is dead".
+     */
+    private void reportNoWrap(int widthPx, int heightPx) {
+        String why = backend.wrapFailure();
+        lastError = why != null ? why
+            : "no Skia wrap for framebuffer " + liveFboId + " at " + widthPx + "x" + heightPx;
+        if (!noWrapReported) {
+            // Once per failure episode rather than once per frame: an uncomposited overlay is a
+            // 60Hz condition, and a 60Hz log line is its own defect.
+            noWrapReported = true;
+            System.err.println("[dwm] frame composited nothing: " + lastError);
         }
     }
 
@@ -224,11 +296,40 @@ public final class QmlUiSurface implements UiSurface, UiInput {
 
     @Override
     public void close() {
-        closeQuietly();
+        // Cleared first, unconditionally, so a second call while a deferred release is pending
+        // is a no-op rather than a second dispose.
         open = false;
+        if (dispatchDepth > 0) {
+            // The X on the caption lands here, from inside view.dispatchPointerUp. Disposing
+            // now would free the object qml4j is about to resume executing in; the release runs
+            // at the end of the outermost dispatch instead, where the view is off the stack.
+            closeRequested = true;
+            return;
+        }
+        closeQuietly();
     }
 
     private void closeQuietly() {
+        // The other half of the pair documented in open(): view.dispose() and the backend's
+        // context.close() are Skija releasing GL objects, so they run under the same bracket every
+        // other Skija entry point does.
+        GlStateGuard.enter();
+        try {
+            releaseNatives();
+        } finally {
+            GlStateGuard.leave();
+        }
+    }
+
+    /**
+     * Dispose the view and the backend, swallowing teardown faults.
+     *
+     * <p>Split out of {@link #closeQuietly()} because {@link #open()}'s failure path needs the
+     * release while it is ALREADY inside the guard: {@link GlStateGuard} is not reentrant — its
+     * capture lives in static fields — so a nested pair would leave the outer {@code leave()}
+     * restoring the inner capture, i.e. the state Skija left behind instead of MC's.
+     */
+    private void releaseNatives() {
         try {
             if (view != null) {
                 view.dispose();
@@ -249,7 +350,11 @@ public final class QmlUiSurface implements UiSurface, UiInput {
 
     @Override
     public boolean isOpen() {
-        return open && !inert;
+        // "Open" has to mean "can put pixels on the screen". A surface with no live Skia wrap
+        // renders nothing, so it answers false here -- that was the state which reported healthy
+        // while every frame was skipped. Deliberately not the same as inert: the backend retries,
+        // so this goes true again the moment a wrap takes.
+        return open && !inert && backend != null && backend.hasSurface();
     }
 
     /** Last failure, or null if none. Diagnostic only. */
@@ -269,6 +374,17 @@ public final class QmlUiSurface implements UiSurface, UiInput {
     // and the compiler said nothing. The ITs now call these directly and javac checks them; the
     // probe still reflects, because it runs inside core and cannot link dwm at all, but it asks
     // for a METHOD, so the only thing it pins is this seam rather than the field layout behind it.
+
+    /**
+     * The scene root, for the element-table walk.
+     *
+     * <p>Package-private and named for what it is rather than exposing the {@link QmlView}
+     * itself: the element bridge needs the tree, not the renderer, and handing out the view
+     * would let a caller reach the whole qml4j surface from outside this package.
+     */
+    Item rootItem() {
+        return view == null ? null : view.root();
+    }
 
     QmlView view() {
         return view;
@@ -464,12 +580,22 @@ public final class QmlUiSurface implements UiSurface, UiInput {
         if (!open || inert || view == null) {
             return false;
         }
+        dispatchDepth++;
         try {
             return call.run();
         } catch (Throwable t) {
             lastError = String.valueOf(t);
             System.err.println("[dwm] input dispatch faulted: " + t);
             return false;
+        } finally {
+            // The outermost unwinding is the first moment the view is off the stack, so it is
+            // where a close asked for by a click handler is honoured. In the finally rather
+            // than after the try, so a faulting handler still releases rather than leaking.
+            dispatchDepth--;
+            if (dispatchDepth == 0 && closeRequested) {
+                closeRequested = false;
+                closeQuietly();
+            }
         }
     }
 

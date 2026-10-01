@@ -8,11 +8,18 @@ import QtQuick
 // prefix that holds regardless of how the page is reached.
 import ".."
 
-// The landing page: a heading, one line of orientation, and two buttons.
+// The landing page: a heading, one line of orientation, and what this build is attached to.
 //
 // Every page in this set holds its OWN state and reads nothing real. Reaching live kernel or board
 // data means reflecting through a Backplane, which is out of scope here -- so these are shapes for
 // the layout to be judged against, not a view of anything.
+//
+// TWO BUTTONS USED TO SIT HERE -- "Open kernel" (accent) and "Reload scene" -- and they are gone
+// rather than wired up. Nothing in the scene consumed their `clicked` signal: navigation is the
+// shell's (NavigationView owns which page is showing), scene reload is not something a page can ask
+// the host for, and the `Dwm`/`WindowHost` contexts expose neither. An enabled, highlighted button
+// that does nothing is the same lie as the inert switches PageSettings removed, so it was the
+// buttons or the behaviour -- and the behaviour is a feature, not a fix.
 
 Item {
     id: home
@@ -50,24 +57,5 @@ Item {
         text: Dwm.attachment()
         fontSize: Fluent.fontCaption
         color: Fluent.textTertiary
-    }
-
-    Row {
-        x: home.pad
-        y: home.pad + 70
-        spacing: Fluent.gutter
-
-        // Buttons size themselves to their labels, so the Row's own width follows from the content
-        // and nothing here does layout arithmetic.
-        FluentButton {
-            objectName: "homePrimary"
-            text: "Open kernel"
-            accent: true
-        }
-
-        FluentButton {
-            objectName: "homeSecondary"
-            text: "Reload scene"
-        }
     }
 }

@@ -18,17 +18,20 @@ Item {
         title: "DWM"
 
         MenuItem {
+            objectName: "menuKernelState"
             glyph: "▦"
             label: "Kernel state"
             shortcut: "F6"
         }
 
         MenuItem {
+            objectName: "menuBoardChips"
             glyph: "⌗"
             label: "Board chips"
         }
 
         MenuItem {
+            objectName: "menuCoordinates"
             glyph: "◳"
             label: "Coordinates"
         }
@@ -36,11 +39,13 @@ Item {
         MenuSeparator { }
 
         MenuItem {
+            objectName: "menuSettings"
             glyph: "⚙"
             label: "Settings"
         }
 
         MenuItem {
+            objectName: "menuAbout"
             glyph: "ⓘ"
             label: "About"
         }
@@ -48,6 +53,7 @@ Item {
         MenuSeparator { }
 
         MenuItem {
+            objectName: "menuClose"
             glyph: "✕"
             label: "Close menu"
             shortcut: "Esc"

@@ -78,6 +78,12 @@ Item {
                 }
 
                 FluentToggleSwitch {
+                    // Named from BOARD's chip id, not from the row's position: the roster is
+                    // published by the board and an index moves whenever a chip is added or
+                    // removed, so an index-based name would re-point at a different chip without
+                    // anything having gone wrong. The id is the one string both sides already
+                    // agree on -- it is what Dwm.toggleChip takes.
+                    objectName: "chip-" + modelData.id
                     x: chips.switchX
                     y: 0
                     // The board's own state, as a string, is the source of truth for the initial

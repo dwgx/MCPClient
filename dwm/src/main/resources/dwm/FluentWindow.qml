@@ -2,7 +2,7 @@ import QtQuick
 import "."
 
 // A Windows 11 window shell: an 8px rounded surface, a caption bar carrying the title on the left
-// and the three caption buttons on the right, and a content region below it that callers fill.
+// and the caption buttons on the right, and a content region below it that callers fill.
 //
 // Children go straight into the content region -- FluentWindow { NavigationView { ... } } -- so no
 // caller ever adds the caption bar's offset by hand. That region is an explicitly sized Item,
@@ -27,14 +27,16 @@ Item {
 
     // ---- window state ----------------------------------------------------------------
     //
-    // Windows models these as WM_SYSCOMMAND verbs (SC_MINIMIZE / SC_MAXIMIZE / SC_RESTORE /
-    // SC_CLOSE) that the non-client area SENDS and the window manager carries out. The frame does
-    // not implement them itself, and that division is worth copying: this file decides what each
-    // button MEANS and asks; something above it decides what happens to the window.
+    // Windows models these as WM_SYSCOMMAND verbs (SC_MAXIMIZE / SC_RESTORE / SC_CLOSE) that the
+    // non-client area SENDS and the window manager carries out. The frame does not implement them
+    // itself, and that division is worth copying: this file decides what each button MEANS and
+    // asks; something above it decides what happens to the window.
     //
-    // "normal" and "maximized" are the two states a caption bar can produce here. Minimize is a
-    // verb rather than a state, because there is no taskbar to restore from inside a game — see
-    // minimizeRequested.
+    // "normal" and "maximized" are the two states a caption bar can produce here. There is no
+    // minimize. It was a third button, and the only answer it could be given -- dismiss the screen
+    // -- is what the close button already does, because a game has no taskbar to restore a hidden
+    // window from. Its old implementation kept the Skia surface alive for a reopen that could never
+    // happen, which stranded a whole DirectContext; see UiWindowHost for the full account.
     property string windowState: "normal"
     readonly property bool isMaximized: win.windowState === "maximized"
 
@@ -127,58 +129,15 @@ Item {
     //
     // Placed from the right edge inward, so the group stays put when the window resizes.
     //
-    // ALL THREE NOW ACT. They were deliberately inert on the grounds that dwm has no OS window to
-    // minimise or maximise — true of minimise, and wrong of maximise: the shell owns its own
-    // geometry, so maximize/restore is a state change this file can carry out. Windows draws the
-    // same distinction, which is why they are different SC_ verbs against the same frame.
+    // BOTH ACT, and that is the standard this file is held to. An earlier version shipped all of
+    // them inert on the grounds that dwm has no OS window to act on -- wrong of maximize, since the
+    // shell owns its own geometry, and no longer applicable to minimize, which is gone rather than
+    // shipped as a second verb that could only do what close already does. A caption button that
+    // does nothing is the same lie as an inert switch; see UiWindowHost.
     //
     // The division copied from Windows: the caption bar SENDS a verb and does not implement policy.
-    // Maximize is geometry the shell owns, so it is handled here. Minimize and close change what
-    // the HOST does with the screen, so they are signals for the host to answer.
-
-    Rectangle {
-        id: minButton
-        x: win.width - (win.captionWidth * 3)
-        y: 0
-        width: win.captionWidth
-        height: win.titleBarHeight
-        // Hover brighter than pressed, as everywhere else in dwm: the backplate dims on the way
-        // down. Counter-intuitive, but it is what Fluent does.
-        color: minHit.pressed ? Fluent.subtlePressed
-             : minHit.containsMouse ? Fluent.subtleHover
-             : "#00000000"
-
-        Text {
-            id: minGlyph
-            x: (minButton.width - minGlyph.implicitWidth) / 2
-            y: (minButton.height - Fluent.fontCaption) / 2 - 2
-            // Box-drawing and geometric characters rather than an icon font: Segoe Fluent Icons
-            // cannot be redistributed, so glyphs that render in any font are the portable choice --
-            // the same reasoning MenuItem records for its leading glyphs.
-            text: "─"
-            fontSize: Fluent.fontCaption
-            color: Fluent.textSecondary
-        }
-
-        MouseArea {
-            id: minHit
-            x: 0
-            y: 0
-            width: minButton.width
-            height: minButton.height
-            hoverEnabled: true
-            // SC_MINIMIZE, sent straight to the host.
-            //
-            // Calls WindowHost directly rather than emitting a signal for the parent scene to
-            // handle. Measured on qml4j 0.2.24: a component's generated class does NOT implement
-            // SignalRelay, so an `onMinimizeRequested:` handler written in the enclosing document
-            // has nothing to connect to and is dropped silently -- the button did nothing and the
-            // scene compiled clean. The caption bar therefore addresses the host itself, which is
-            // also closer to what a non-client area does: it sends WM_SYSCOMMAND to the window
-            // manager, not to whatever laid it out.
-            onClicked: WindowHost.minimize()
-        }
-    }
+    // Maximize is geometry the shell owns, so it is handled here. Close changes what the HOST does
+    // with the screen, so it goes through the host.
 
     Rectangle {
         id: maxButton
@@ -204,6 +163,11 @@ Item {
 
         MouseArea {
             id: maxHit
+            // Named because what the panel publishes is THIS MouseArea, not the plate above it.
+            // Left anonymous it resolved to the window's own name, so the two caption buttons
+            // were published as two rows both called "window" and neither could be told from the
+            // other. Measured on a live client, on the two-button caption bar.
+            objectName: "windowMaximize"
             x: 0
             y: 0
             width: maxButton.width
@@ -241,13 +205,17 @@ Item {
         }
 
         MouseArea {
+            // Same reason as maxHit, and the pair is why the rule is a pair: a window with one
+            // caption button could have left both anonymous.
+            objectName: "windowClose"
             id: closeHit
             x: 0
             y: 0
             width: closeButton.width
             height: closeButton.height
             hoverEnabled: true
-            // SC_CLOSE, direct to the host for the same reason as minimize above.
+            // SC_CLOSE, direct to the host: the caption bar states the intent and the host decides
+            // what closing this screen means.
             onClicked: WindowHost.close()
         }
     }

@@ -36,12 +36,13 @@ import io.github.timer_err.qml4j.render.SurfaceBackend;
  * the trap: the number that works there is wrong here.)
  *
  * <p><b>GL isolation is the driver's job.</b> Skija issues raw GL that disturbs the state MC's
- * {@code GlStateManager} shadows; {@link QmlGuiScreen} brackets each frame with
- * {@link GlStateGuard} and this class calls {@code resetGLAll} on the way out. This class owns
- * only the surface lifecycle.
+ * {@code GlStateManager} shadows; {@link QmlUiSurface} brackets every Skija entry point — open,
+ * frame, close — with {@link GlStateGuard}, and this class calls {@code resetGLAll} on the way out.
+ * This class owns only the surface lifecycle.
  *
- * <p>Every native call is fault-isolated: a fault leaves {@code surface == null} and frames
- * no-op rather than throwing on the render thread.
+ * <p>Every native call is fault-isolated: a fault leaves {@code surface == null}, {@link
+ * #wrapFailure()} says why, and {@link #frameTarget} retries on a cooldown rather than throwing on
+ * the render thread or giving up for good — see {@link #framesUntilRetry}.
  */
 public final class McpFboSurfaceBackend implements SurfaceBackend {
 
@@ -60,10 +61,29 @@ public final class McpFboSurfaceBackend implements SurfaceBackend {
     private volatile boolean disposed;
 
     /**
-     * Whether a wrap has been attempted at the current size/FBO id, successful or not. Lets the
-     * first frame build a surface while still trying a FAILING wrap only once per parameter set.
+     * Frames still to wait before a wrap that FAILED at the current size/FBO id is tried again.
+     *
+     * <p>A cooldown, rather than the one-shot flag this used to be or a per-frame retry. One-shot
+     * was wrong in one direction: a single failure — an incomplete target, a framebuffer being
+     * recreated under us — left the UI permanently invisible, because the parameters never changed
+     * so nothing ever tried again. Per-frame is wrong in the other: a target that is broken for good
+     * would thrash a full Skia context create/destroy every frame, which is the hazard the one-shot
+     * guard existed to prevent. A countdown pays one attempt per second-ish for a broken target and
+     * lets a transient one recover.
      */
-    private boolean attempted;
+    private int framesUntilRetry;
+
+    /** Attempts a failed wrap at unchanged parameters waits between retries, at 60fps roughly 1s. */
+    private static final int RETRY_COOLDOWN_FRAMES = 60;
+
+    /**
+     * Why the target could not be wrapped, or null while a live wrap exists.
+     *
+     * <p>Read by the driver, so a frame that composites nothing can say why instead of skipping in
+     * silence — the state this used to leave the UI in: invisible, with a surface that reported
+     * itself healthy.
+     */
+    private String wrapFailure;
 
     @Override
     public void init(int w, int h) {
@@ -95,27 +115,32 @@ public final class McpFboSurfaceBackend implements SurfaceBackend {
         int nh = Math.max(1, h);
         boolean fboMoved = liveFboId > 0 && liveFboId != fboId;
         boolean sizeMoved = nw != width || nh != height;
-        // Never having built a surface is its own reason to build one. init() records the size
-        // without wrapping, so a caller whose framebuffer is the DEFAULT one (id 0 — every live
-        // IT, and any host not rendering into an FBO of its own) moved neither the id nor the
-        // size and fell into the early return below, forever: no surface, so the driver never
-        // reached composite(), so qml4j never rendered and never even laid the scene out. The
-        // symptom was silence rather than an error, which is why tests asserting "frames do not
-        // throw" could not see it; a resize was the only thing that ever recovered it.
-        //
-        // Guarded by attempted rather than by hasSurface(), so a wrap that genuinely FAILS is
-        // tried exactly once at these params instead of thrashing a Skia context
-        // create/destroy every frame — the hazard the unchanged-params return below exists for.
-        if (!attempted && !fboMoved && !sizeMoved) {
+        if (!fboMoved && !sizeMoved) {
+            if (surface != null) {
+                // Healthy: keep the wrap. Nothing is rebuilt per frame on purpose — the Skia
+                // resource cache is keyed to these GL objects.
+                return;
+            }
+            if (framesUntilRetry > 0) {
+                // A wrap that FAILED at these exact params, still cooling down. Not retried every
+                // frame: that thrashes a full Skia context create/destroy while the target is
+                // incomplete. Not given up on either — see the field, and the cooldown expiring
+                // below is the retry.
+                framesUntilRetry--;
+                return;
+            }
+            // Either nothing has been built yet, or the cooldown on a failed attempt has elapsed.
+            //
+            // Never having built a surface is its own reason to build one: init() records the size
+            // without wrapping, so a caller whose framebuffer is the DEFAULT one (id 0 — every live
+            // IT, and any host not rendering into an FBO of its own) moved neither the id nor the
+            // size and fell into the return above, forever: no surface, so the driver never reached
+            // composite(), so qml4j never rendered and never even laid the scene out. The symptom
+            // was silence rather than an error, which is why tests asserting "frames do not throw"
+            // could not see it; a resize was the only thing that ever recovered it.
             width = nw;
             height = nh;
             rebuild();
-            return;
-        }
-        if (!fboMoved && !sizeMoved) {
-            // Unchanged. Reuse the wrap if we have one; if the last wrap FAILED at these exact
-            // params, do not retry now — that thrashes a full Skia context create/destroy every
-            // frame while the target stays incomplete. Wait for a real size/FBO change.
             return;
         }
         width = nw;
@@ -123,14 +148,14 @@ public final class McpFboSurfaceBackend implements SurfaceBackend {
         if (fboMoved) {
             fboId = liveFboId;
         }
+        // A real parameter change is reason enough to try again immediately: the old wrap described
+        // a target that no longer exists, and the new one may well work.
+        framesUntilRetry = 0;
         rebuild();
     }
 
     /** Rebuild context + surface over the current size / FBO id. Fault-isolated. */
     private void rebuild() {
-        // Marked before the work, not after: a wrap that throws must still count as attempted,
-        // or the retry guard above would let it run again on the very next frame.
-        attempted = true;
         closeSurface();
         // The offscreen layer's GPU objects belong to the context about to be dropped, so it has
         // to go too — reusing it against a new context is the same stale-cache fault that turns
@@ -147,9 +172,10 @@ public final class McpFboSurfaceBackend implements SurfaceBackend {
             // Closing a context whose GL objects are already gone is not actionable.
         }
         context = null;
+        int fb = fboId > 0 ? fboId : 0;
+        String why = null;
         try {
             context = DirectContext.makeGL();
-            int fb = fboId > 0 ? fboId : 0;
             target = BackendRenderTarget.makeGL(width, height, 0, 0, fb,
                     FramebufferFormat.GR_GL_RGBA8);
             surface = Surface.makeFromBackendRenderTarget(
@@ -158,13 +184,40 @@ public final class McpFboSurfaceBackend implements SurfaceBackend {
                     ColorType.RGBA_8888,
                     ColorSpace.getSRGB());
             if (surface == null) {
-                System.err.println("[dwm] wrap returned null for FBO " + fb
-                        + " at " + width + "x" + height + " — UI inert until it changes.");
+                why = "the wrap returned null for FBO " + fb + " at " + width + "x" + height
+                        + " — the target is incomplete, which is what a framebuffer being"
+                        + " recreated under us looks like";
             }
         } catch (Throwable t) {
-            System.err.println("[dwm] FBO rebuild faulted (inert): " + t);
+            why = "the wrap faulted for FBO " + fb + " at " + width + "x" + height + ": " + t;
             surface = null;
         }
+        // Both outcomes always land here, including the throwing one: the cooldown has to be armed
+        // on failure or the "unchanged parameters" branch above would let the next frame retry, and
+        // it has to be cleared on success or a later failure would inherit a stale countdown.
+        if (surface == null) {
+            framesUntilRetry = RETRY_COOLDOWN_FRAMES;
+            if (why != null && !why.equals(wrapFailure)) {
+                // Once per distinct failure, not once per retry: a target that stays broken would
+                // otherwise print its reason every cooldown for the life of the process.
+                System.err.println("[dwm] " + why + " — no wrap, so the UI is not drawn; retrying "
+                        + "every " + RETRY_COOLDOWN_FRAMES + " frames.");
+            }
+            wrapFailure = why;
+        } else {
+            wrapFailure = null;
+            framesUntilRetry = 0;
+        }
+    }
+
+    /**
+     * Why the target could not be wrapped, or null while a live wrap exists.
+     *
+     * <p>For the driver's frame reporting: without this, a frame that composites nothing can only
+     * say "no surface", which is the half of the truth that hid the defect.
+     */
+    public String wrapFailure() {
+        return wrapFailure;
     }
 
     /**

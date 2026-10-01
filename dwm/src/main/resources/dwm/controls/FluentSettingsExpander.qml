@@ -32,6 +32,19 @@ Item {
     /** The child rows, revealed when expanded. */
     default property alias items: itemStack.children
 
+    // The prefix this instance's own parts are named with. Three MouseAreas live inside an
+    // expander -- the header target, the header card's, and the chevron's -- and the element
+    // table publishes all three, so without this they would all three resolve to the expander's
+    // one name. A name that more than one control claims is not a name: the table discards it and
+    // falls back to an index path, which is the symptom this replaces.
+    //
+    // Derived from the CALLER's name rather than fixed, because a literal here would collide
+    // across instances -- two expanders on one page is the settings page's normal case, not an
+    // edge. Unnamed, it degrades to a role name, and two unnamed expanders on one page cannot have
+    // uniquely named parts; that is the QML defect the table reports.
+    readonly property string namePrefix: expander.objectName === ""
+        ? "expander" : expander.objectName
+
     // ---- metrics ----
     property int chevronButton: 32
     property int chevronIcon: 13
@@ -120,6 +133,10 @@ Item {
     // Its own surface is suppressed, because the expander drew one above.
     FluentSettingsCard {
         id: head
+        // Named from the instance so the card's own hit area -- inert, because this card is not
+        // clickable -- cannot claim the expander's name. The area is published disabled, and an
+        // agent that can see it can then also say which header it belongs to.
+        objectName: expander.namePrefix + "Header"
         x: 0
         y: 0
         width: expander.width
@@ -184,6 +201,11 @@ Item {
 
             MouseArea {
                 id: chevronHit
+                // The chevron is a real target, not a decoration: WinUI's expander header carries
+                // it as a button, and here it is the only part of the header whose hover state
+                // the user can see. It toggles the same expander the header does, so it needs its
+                // own name rather than a second claim on the expander's.
+                objectName: expander.namePrefix + "Chevron"
                 x: 0
                 y: 0
                 width: expander.chevronButton

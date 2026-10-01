@@ -14,17 +14,19 @@ import org.lwjgl.opengl.Display;
 import org.lwjgl.opengl.DisplayMode;
 
 /**
- * The three caption buttons must do the three different things they claim to.
+ * The caption bar's buttons must do what they claim to.
  *
- * <p>All three were previously inert but for hover feedback, on the stated grounds that dwm has no
- * OS window to act on. That is true of minimise and false of maximise — the shell owns its own
- * geometry — and it was never true of close, whose {@code closeRequested} signal was declared and
- * then wired to nothing at all: clicking the X did nothing.
+ * <p>All of them were previously inert but for hover feedback, on the stated grounds that dwm has no
+ * OS window to act on. That is false of maximise — the shell owns its own geometry — and it was
+ * never true of close, whose {@code closeRequested} signal was declared and then wired to nothing
+ * at all: clicking the X did nothing.
  *
- * <p>The division under test is the one Windows draws. A caption button sends a
- * {@code WM_SYSCOMMAND} verb; the window manager carries it out. So maximize/restore is asserted as
- * a state change inside the scene (the geometry is the shell's own), while minimise and close are
- * asserted as requests that REACH THE HOST — and the host is what decides they differ.
+ * <p>There used to be a third, minimise, and it had no second thing to do: keeping the Skia surface
+ * alive for a reopen was a promise nothing in this tree could keep, so both the button and the verb
+ * are gone (see {@link UiWindowHost}). Two verbs remain, asserted apart the way Windows draws the
+ * division — a caption button sends a {@code WM_SYSCOMMAND} verb and the window manager carries it
+ * out — so maximize/restore is a state change inside the scene (the geometry is the shell's own)
+ * while close is a request that REACHES THE HOST.
  */
 public class CaptionButtonsLiveIT {
 
@@ -32,13 +34,7 @@ public class CaptionButtonsLiveIT {
 
     /** Records which verbs arrived, so a signal wired to nothing cannot pass. */
     private static final class RecordingHost implements UiWindowHost {
-        int minimizeCalls;
         int closeCalls;
-
-        @Override
-        public void minimize() {
-            minimizeCalls++;
-        }
 
         @Override
         public void close() {
@@ -145,21 +141,22 @@ public class CaptionButtonsLiveIT {
     }
 
     /**
-     * Minimise and close must both reach the host, and must be DIFFERENT verbs.
+     * Close and maximize must do different things, and close must reach the host.
      *
-     * <p>The second half is the point. Two buttons that both call close are indistinguishable from
-     * the state this replaced, where one of them did nothing — so the host records each separately
-     * and the test insists exactly one of its counters moved per click.
+     * <p>The second half is the point. Driven by CLICKING the buttons at their real coordinates
+     * rather than by emitting a signal, which is not merely more realistic but the only version
+     * that tests anything: the first attempt emitted {@code minimizeRequested} and passed nothing
+     * to the host, because on qml4j 0.2.24 a component's generated class does not implement
+     * {@code SignalRelay} and an {@code on<Signal>} handler written in the ENCLOSING document is
+     * dropped silently — the scene compiled clean and the button did nothing. The buttons now
+     * address the host directly.
      *
-     * <p>Driven by CLICKING the buttons at their real coordinates rather than by emitting a signal.
-     * That is not merely more realistic, it is the only version that tests anything: the first
-     * attempt emitted {@code minimizeRequested} and passed nothing to the host, because on qml4j
-     * 0.2.24 a component's generated class does not implement {@code SignalRelay} and an
-     * {@code on<Signal>} handler written in the ENCLOSING document is dropped silently. The buttons
-     * now address the host directly, and a click is what proves it.
+     * <p>The maximize click is asserted as the local state change it is, so the host counter cannot
+     * move for it: a host receiving a verb for a window the shell owns would be being told about
+     * something that is not its business.
      */
     @Test
-    public void minimizeAndCloseReachTheHostAsDistinctVerbs() throws Exception {
+    public void closeReachesTheHostWhileMaximizeStaysLocal() throws Exception {
         Assume.assumeTrue("needs a display", createDisplay());
         QmlUiSurface surface = null;
         try {
@@ -168,15 +165,17 @@ public class CaptionButtonsLiveIT {
             QmlView view = viewOf(surface);
             Item window = byName(view, "window");
 
-            clickCaptionButton(surface, window, 3);
-            assertEquals("clicking minimise must reach the host", 1, host.minimizeCalls);
-            assertEquals("and must NOT be routed to close -- two buttons that both close are "
-                + "indistinguishable from the state this replaced, where one did nothing",
+            // Two buttons now, placed from the right edge inward: maximize is the second, close the
+            // rightmost. A third one reinstated here would flip this click back to a no-op and this
+            // assertion is what would notice.
+            clickCaptionButton(surface, window, 2);
+            assertEquals("maximize is the shell's own geometry and must not be sent to the host",
                 0, host.closeCalls);
+            assertEquals("clicking maximize must maximize", "maximized",
+                peek(window, "windowState"));
 
             clickCaptionButton(surface, window, 1);
             assertEquals("clicking close must reach the host", 1, host.closeCalls);
-            assertEquals("and must not also minimise", 1, host.minimizeCalls);
 
             surface.close();
             surface = null;

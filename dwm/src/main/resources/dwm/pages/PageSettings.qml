@@ -78,6 +78,12 @@ Item {
                 width: groups.width
 
                 FluentSettingsCard {
+                    // Named for the element table. A card that merely holds a control still
+                    // publishes its own hit area -- inert, and disabled rather than removed
+                    // because a full-size live area would eat the control's clicks -- so an
+                    // unnamed card put an index path in the table on a live client. The name is
+                    // the card's, and the control inside keeps its own.
+                    objectName: "settingsFullbrightCard"
                     icon: "brightness"
                     header: "全亮"
                     description: "渲染方块时忽略世界光照"
@@ -91,6 +97,7 @@ Item {
 
                 FluentSettingsCard {
                     id: gammaCard
+                    objectName: "settingsGammaCard"
                     icon: "contrast"
                     header: "伽马"
                     description: "提亮阴影区域"
@@ -135,6 +142,8 @@ Item {
                     header: "显示名称"
                     description: "覆盖界面中显示的名字"
                     width: groups.width
+
+                    objectName: "settingsNameCard"
 
                     FluentTextBox {
                         objectName: "settingsName"
