@@ -32,11 +32,14 @@ test suite at the time.
 
 Exit 0 when every assertion held, 1 otherwise, 2 when nothing is listening.
 
-Transport note: it does not import mcp_probe.Mcp, because that class hardcodes `tools/call` and
-this script needs `tools/list` as well. The framing rules are copied rather than shared on
-purpose -- one connection per call, and read until the id line is COMPLETE -- because they are
-the two things that broke the earlier probes, and a probe that gets the framing wrong reports
-transport errors as product failures.
+Transport note: the read loop is NOT hand-rolled here. It lives in `mcpframing.py`, because the
+first version of this file carried a second copy of the loop and that copy was the BROKEN one -- it
+waited for a trailing `}`, which a chunk boundary can satisfy mid-line, so any reply spanning more
+than one recv was truncated and the resulting `JSONDecodeError` escaped as a product failure. One
+loop, one place to be right, pinned by `scripts/test_mcpframing.py`.
+
+This file still does not import `mcp_probe.Mcp`: that class hardcodes `tools/call` and this script
+needs `tools/list` as well. That is the only reason it is not simply a caller of it.
 """
 
 from __future__ import annotations
@@ -45,6 +48,10 @@ import argparse
 import json
 import socket
 import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from mcpframing import read_reply  # noqa: E402  -- the path must be set first
 
 EXIT_PASS, EXIT_FAIL, EXIT_NOTHING_LISTENING = 0, 1, 2
 RECV_SIZE = 65536
@@ -91,25 +98,14 @@ class Rpc:
                 {"jsonrpc": "2.0", "id": 2, "method": method, "params": params or {}},
             ):
                 sock.sendall((json.dumps(msg) + "\n").encode())
-            buf = b""
-            while b'"id":2' not in buf or not buf.rstrip().endswith(b"}"):
-                chunk = sock.recv(RECV_SIZE)
-                if not chunk:
-                    raise OSError("server closed before the reply completed")
-                buf += chunk
+            line = read_reply(sock, RECV_SIZE)
         finally:
             sock.close()
 
-        for line in buf.decode("utf-8", "replace").splitlines():
-            line = line.strip()
-            if not line.startswith("{"):
-                continue
-            msg = json.loads(line)
-            if msg.get("id") == 2:
-                if "error" in msg:
-                    raise RuntimeError(f"{method} -> {msg['error']}")
-                return msg.get("result", {})
-        raise RuntimeError(f"no id=2 reply in {len(buf)} bytes for {method}")
+        msg = json.loads(line)
+        if "error" in msg:
+            raise RuntimeError(f"{method} -> {msg['error']}")
+        return msg.get("result", {})
 
     def call(self, tool: str, args: dict | None = None) -> dict:
         result = self.request("tools/call", {"name": tool, "arguments": args or {}})
