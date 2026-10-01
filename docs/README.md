@@ -23,6 +23,13 @@
 `debugging.md` → `dwm/fluent-spec.md` / `dwm/key-ceremony.md`。
 dwm **不是**已完结:底层钉死,产品页还可以写。
 
+**审计:** 2026-09-30 对 v1.0.0 干净基线(`5eec5b9`)→ HEAD 做过一次全量审计,
+报告在工作站 `.ai-notes/docs/audits/2026-09-30-base-to-head.md`(gitignored)。
+结论一句话:**安全脊柱是干净的(找不到任何让未签补丁 arm 的路径),缺陷集中在
+"新写的功能自己骗自己"** —— 2 条 CRITICAL 都在 `drivers/plan/`:搭桥的"确认"谓词把
+水/岩浆当成已铺好的地板,以及规划器把岩浆当成可通行空间(同一个问题,读侧 `LocalGrid`
+已经标了 `walk = -2`,两边答案矛盾)。改任何 `plan/` 之前先读那两条。
+
 ---
 
 ## 1. 全部文档

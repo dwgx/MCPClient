@@ -1,7 +1,10 @@
 # macOS 已知问题
 
-本文只记录 macOS 特有的、**尚未解决**的问题。已解决的看提交历史;移植计划看
-`mcp-core-port-plan.md`。
+本文只记录 macOS 特有的、**尚未解决**的问题。已解决的看提交历史;移植/落地方案看
+`dwm-qml4j-plan.md`。
+
+> **2026-09-30 订正:** 原文这里指的是 `mcp-core-port-plan.md`,**该文件在本仓库从未存在过**
+> (全仓 grep 只命中这一行)。`docs/macos/` 下只有本文与 `dwm-qml4j-plan.md`。已指向真实文件。
 
 ---
 

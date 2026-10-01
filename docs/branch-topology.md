@@ -190,13 +190,37 @@ CLAUDE.md 模块表已于 2026-08-20 与 pom 对齐:辅助是 `pg/` + `dwm/`(qml
 > 主线(规划/执行/`act_set` route)之后不再成立**。下面按当场 diff,不钉条数。
 
 ```
-零改动:  client/src/  pg/src            ← vanilla 源码与 pg 引擎,本线没碰
-client:  仅 pom.xml                    ← macOS arm64 原生库(不违反 client/src 冻结)
-board:   仅新增 BoardSeamsArePinnedAtTheirValuesTest.java
-core:    主体是 agency(act / plan / world / craft + 变异测试),compat 只是其中一块
-dwm:     qml4j 实现(真 GuiScreen;Mac 上 live 过)
-另改:    lwjgl2-shim / scripts / docs
+client/src: 22 个 vanilla 源文件被改(不是零)—— 见下方 2026-09-30 订正
+pg/src:     零改动
+client:     另有 pom.xml(构建描述,允许)
+board:      仅新增 BoardSeamsArePinnedAtTheirValuesTest.java
+core:       主体是 agency(act / plan / world / craft + 变异测试),compat 只是其中一块
+dwm:        qml4j 实现(真 GuiScreen;Mac 上 live 过)
+另改:       lwjgl2-shim / scripts / docs
 ```
+
+> **订正(2026-09-30,逐文件分类,基线 `5eec5b9` 而非 `origin/mcp-core`):**
+> 上一版这里写的是「零改动: `client/src/`」。**那是错的,而且错法可以被一条命令证伪。**
+> 相对 v1.0.0 干净基线 `5eec5b9`,`client/src` 有 **22 个 vanilla 源文件**被改。三类:
+>
+> - **(a) 21 个**是机械依赖迁移,不改变任何 Minecraft 行为:`Objects` → `MoreObjects`、
+>   `Futures.addCallback` 补 `MoreExecutors.directExecutor()`(Guava 17 的两参重载**就是**
+>   `sameThreadExecutor`,语义相同)、`immediateFailedCheckedFuture` → `immediateFailedFuture`
+>   (两者的 `get()` 都抛 `ExecutionException(cause)`)、`Iterators` → `Collections` 的
+>   `emptyIterator`、以及 oshi 1.1 → 6.12 的 CPU 字符串(只影响 F3 与崩溃报告的显示)。
+> - **(b) 1 个**是**真实的行为性改动**:`client/src/main/java/net/minecraft/client/renderer/
+>   texture/TextureUtil.java` 的两处(`:58` 的 `p_147949_2_.length` → `[0].length`,以及
+>   `:245-248` 的 `GL_CLAMP` → `GL_CLAMP_TO_EDGE`),提交 `aa3f776`。**没有任何 compat 补丁
+>   覆盖它们**,而 KI-1 的补丁动的是另一个方法(`allocateTextureImpl`)。这不是编译强制的:
+>   未改动的 `EntityRenderer.java:904-905` 仍在用 `GL11.GL_CLAMP`,而该常量在 LWJGL3 里存在。
+> - **(c)** `client/pom.xml` 只改构建描述。
+>
+> 同一批里另外两次同类改动**被刻意回滚**,理由就写着这条规则:`78ec865`(KI-4 的
+> `NetworkSystem`)与 `c677a7e`(GuiScreen 剪贴板),分别在 `a3bc32f` 与 `deb7cb4` 里撤销。
+> 换句话说:规则被强制过两次,而这两处是漏网的。`GL_CLAMP` → `GL_CLAMP_TO_EDGE` 恰好属于
+> `platformCondition("lwjgl3")` 那种**平台条件补丁**,不是基线编辑。
+>
+> **本文档只陈述事实,不定立场。** 该回退改补丁还是追签补丁,由 owner 拍板。
 
 **`client/pom.xml` 改了 35 行,而这不违反"client 冻结"**,区别要说清:冻结的是
 **vanilla 源码**(`client/src`,反射/GUI 字段名的真相来源),不是构建描述。本线加的是
@@ -204,17 +228,24 @@ dwm:     qml4j 实现(真 GuiScreen;Mac 上 live 过)
 而改 vanilla 源码可以且必须走补丁层(KI-1/KI-4/KI-11 就是)。同一个 fat jar 仍然两平台通用:
 LWJGL 运行时按 `os.name`/`os.arch` 选对应的那套。
 
-可验证:
+可验证(**用真基线 `5eec5b9`,不要用 `origin/mcp-core`**):
 
 ```bash
-git diff --stat origin/mcp-core..HEAD -- client/src board pg   # 应为空
-git diff --stat origin/mcp-core..HEAD -- client                # 只有 pom.xml
+# client/src 相对 v1.0.0 干净基线到底改了什么 —— 下面这条会打印出 22 个文件
+git diff --stat 5eec5b9..HEAD -- client/src
+
+# 挑出其中**非机械**的那些(排除 Guava/oshi 迁移与新增测试),人工读剩下的小集合
+git diff --name-only 5eec5b9..HEAD -- client/src/main \
+  | grep -vE 'NbtRoundTripTest|PacketBufferCodecTest|PacketIdRegistryTest|CompressionFramingTest'
 ```
 
-> 历史注记:相对 v1.0.0 干净基线,`client/src` 里还留着两处**早于本线**的行为改动
-> (`TextureUtil.java` 的 `[0].length` 与 `GL_CLAMP_TO_EDGE`),以及一批 Guava/oshi
-> 依赖迁移适配。**不是本线引入的**,但"client 从未被改过"作为绝对陈述并不成立 ——
-> 本线的准确说法是"本线不碰 `client/src`"。
+> **订正(2026-09-30):** 上一版这里给的"可验证"是
+> `git diff --stat origin/mcp-core..HEAD -- client/src board pg  # 应为空`。
+> **那条命令不可能失败** —— `origin/mcp-core` 与 `HEAD` 现在是同一个 commit
+> (`46249ca`),所以这个 diff 对**任何**文件都是空的,连它旁边那句
+> `-- client  # 只有 pom.xml` 也是空的。拿一条恒真的命令当"可验证"是这个仓库反复付过
+> 代价的错误形状(premise-before-measure),而同一节的表格行"零改动: client/src/"又被
+> 下面那段历史注记自己推翻。**「可验证」必须是一条会为假而红的命令。**
 
 compat 层仍在 core 里,但本线后来的主体是 agency(act / plan / world / craft),不是「core 只有 compat」。
 
