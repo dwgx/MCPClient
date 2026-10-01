@@ -25,9 +25,15 @@ jobs:
           cache: maven
 
       # Unit tests, reactor-wide. This runs whatever modules the branch's pom
-      # declares: on main = lwjgl2-shim + client; on mcp-core = + core (253) +
-      # board (172). This is the primary regression net — a failing unit test
+      # declares: on main = lwjgl2-shim + client; on mcp-core = those plus core
+      # and board. This is the primary regression net — a failing unit test
       # fails the build. (Live/native ITs self-skip; see the reactor package step.)
+      #
+      # No test counts belong in this comment. The pair that used to sit above
+      # ("core (253) + board (172)") was off by 4-5x before anyone noticed, and any
+      # count is stale on the next commit — the same reason docs/branch-topology.md
+      # section 0.1 refuses to pin a number and says to count on the spot. To count:
+      #   ./mvnw -B -ntp test   ->   "Tests run: N" per module in the reactor summary
       - name: Unit tests (reactor)
         run: ./mvnw -B -ntp test
 
