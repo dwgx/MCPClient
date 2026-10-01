@@ -1,0 +1,67 @@
+# MC 1.8.9 + MCP Core on a STOCK JDK 25 (Temurin, etc.).  Usage:
+#   <jdk>/bin/java @jvm-args-mcp-stock.txt -javaagent:core/target/core-1.8.9-all.jar -cp <jars> Main
+#
+# This is jvm-args-mcp.txt minus the one flag a non-JBR runtime refuses, exactly as
+# jvm-args-mcp-macos.txt is. Which of the two a launch gets is decided by
+# scripts/jvm-args-select.bat, which asks the runtime rather than guessing from its
+# version banner -- see the DCEVM note below.
+#
+# Kept as a separate file rather than adding -XX:+IgnoreUnrecognizedVMOptions to the
+# shared one, because that would also swallow genuine typos in every other flag here.
+
+-Dfile.encoding=UTF-8
+
+# --- Heap ceiling. Without an explicit -Xmx the JVM ergonomically claims ~1/4 of
+#     physical RAM (8 GB on a 32 GB box) and tries to reserve that as G1 virtual
+#     space up front; when other apps (e.g. a running game) hold RAM and the
+#     Windows pagefile is small, that reservation fails with "insufficient memory /
+#     paging file too small" and the JVM aborts at boot. MC 1.8.9 needs well under
+#     2 GB, so pin it: bounded footprint, no huge reservation, no OOM abort. ---
+-Xms512m
+-Xmx2g
+
+# --- Unsafe: silences Netty/Guava warnings on JDK25 (still 'warn'). ---
+--sun-misc-unsafe-memory-access=allow
+# --- Native access: LWJGL3 / JNA / oshi. ---
+--enable-native-access=ALL-UNNAMED
+
+# --- DCEVM's -XX:+AllowEnhancedClassRedefinition is DELIBERATELY ABSENT here. It is
+#     a JetBrains Runtime flag; a stock JDK does not merely warn about it, it REFUSES
+#     TO BOOT: "Unrecognized VM option" then "Could not create the Java Virtual
+#     Machine" (verified on Temurin 25). The cost is that add-field/add-method hot
+#     redefine is unavailable; ordinary retransform -- which is what the compat
+#     patches and the tick/render seams use -- is not affected. Run under a JBR
+#     (JBR_HOME=...) and jvm-args-mcp.txt is selected instead, which has the flag. ---
+# --- Dynamic agent loading: warning-free explicit opt-in (JEP 451). ---
+-XX:+EnableDynamicAgentLoading
+# --- Allow self-attach (fallback path if -javaagent is not used). ---
+-Djdk.attach.allowAttachSelf=true
+
+# --- java.base: reflection paths dependencies force open (MANDATORY since JDK16) ---
+--add-opens java.base/java.lang=ALL-UNNAMED
+--add-opens java.base/java.lang.reflect=ALL-UNNAMED
+--add-opens java.base/java.lang.invoke=ALL-UNNAMED
+--add-opens java.base/java.lang.ref=ALL-UNNAMED
+--add-opens java.base/java.nio=ALL-UNNAMED
+--add-opens java.base/sun.nio.ch=ALL-UNNAMED
+--add-opens java.base/jdk.internal.misc=ALL-UNNAMED
+--add-opens java.base/jdk.internal.ref=ALL-UNNAMED
+--add-opens java.base/java.util=ALL-UNNAMED
+--add-opens java.base/java.util.zip=ALL-UNNAMED
+--add-opens java.base/java.util.jar=ALL-UNNAMED
+
+# --- java.desktop: window icon + ImageIO PNG screenshots ---
+--add-opens java.desktop/com.sun.imageio.plugins.png=ALL-UNNAMED
+--add-opens java.desktop/sun.awt.image=ALL-UNNAMED
+--add-opens java.desktop/sun.awt=ALL-UNNAMED
+
+# --- C6 JVMTI native debugger (core-jvmti.dll) ---
+# The onload-only debugger capabilities REQUIRE -agentpath at startup (dynamic
+# attach cannot gain them). The DLL is built by core/src/main/native/core-jvmti/
+# build.bat once MSVC Build Tools are installed. UNTIL THEN these are commented:
+# a bad -agentpath path aborts JVM boot. After building, uncomment BOTH lines and
+# point them at the SAME absolute DLL path (same file, so DebuggerBridge.System.load
+# binds the JNI natives onto the module -agentpath already loaded).
+# Coexists with -javaagent (ByteBuddy) + DCEVM flags. No JDWP.
+#-agentpath:core/src/main/native/core-jvmti/build/core-jvmti.dll
+#-Dmcp.core.jvmtiLib=core/src/main/native/core-jvmti/build/core-jvmti.dll

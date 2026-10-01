@@ -37,7 +37,8 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from mcp_probe import (  # noqa: E402 - the sys.path line above has to run first
-    EXIT_SETUP, Mcp, PREAMBLE, allow_unfocused, probe_in_world, record, report, require_ticking,
+    EXIT_SETUP, Mcp, PREAMBLE, allow_unfocused, probe_in_world, record, record_skip, report,
+    require_ticking,
 )
 
 # Degrees of slack when comparing a measured yaw against the angle the geometry implies.
@@ -236,7 +237,11 @@ def spawn_stand(mcp, dx, dz, name="LookProbeTarget"):
     Armour stand rather than a mob: it does not walk, so every movement in this probe is one the
     probe made deliberately. A wandering mob would make "did the aim follow" depend on where the mob
     chose to go.
+
+    Sweeps first: the scan below returns the FIRST entity wearing this name, and clean-up only
+    covers the runs that reached their finally.
     """
+    swept = sweep_stands(mcp, name)
     out = mcp.java("LookSpawn", PREAMBLE + """
         net.minecraft.server.integrated.IntegratedServer srv = mc.getIntegratedServer();
         if (srv == null) return "NO-SERVER";
@@ -270,9 +275,9 @@ def spawn_stand(mcp, dx, dz, name="LookProbeTarget"):
             return "NOT-YET";
         """ % name).strip()
         if found.startswith("FOUND"):
-            return _int_after(found, "id="), found
+            return _int_after(found, "id="), f"{swept}; {found}"
         time.sleep(0.3)
-    return None, "the spawned stand never reached the client world"
+    return None, f"{swept}; the spawned stand never reached the client world"
 
 
 def move_stand(mcp, entity_id, dx, dz):
@@ -339,6 +344,90 @@ def kill_stand(mcp, entity_id):
         if (se != null) se.setDead();
         return "KILLED";
     """ % int(entity_id)).strip()
+
+
+def sweep_stands(mcp, name="LookProbeTarget"):
+    """Kill every stand an EARLIER run left behind, on the server, and say how many went.
+
+    spawn_stand's scan takes the first entity wearing this name, so a leftover from a run that was
+    killed outright -- a closed terminal, a killed JVM, the game window closed by hand, none of
+    which any Python frame sees -- would be adopted as this run's target. It would also be sitting
+    where the previous run left it, which reads as a track that does not follow. Sweeping first is
+    what makes "the first entity with this name" mean "the one I just spawned".
+    """
+    return mcp.java("LookSweep", PREAMBLE + """
+        net.minecraft.server.integrated.IntegratedServer srv = mc.getIntegratedServer();
+        net.minecraft.world.WorldServer ws = srv == null ? null
+            : srv.worldServerForDimension(w.provider.getDimensionId());
+        if (ws == null) return "NO-WORLDSERVER";
+        int n = 0;
+        for (Object o : new java.util.ArrayList<Object>(ws.loadedEntityList)) {
+            if (o instanceof net.minecraft.entity.item.EntityArmorStand) {
+                net.minecraft.entity.Entity e = (net.minecraft.entity.Entity) o;
+                if ("%s".equals(e.getCustomNameTag())) { e.setDead(); n++; }
+            }
+        }
+        return "SWEPT " + n;
+    """ % name).strip()
+
+
+def stands_loaded(mcp, name="LookProbeTarget"):
+    """How many entities wearing `name` the CLIENT world still has loaded, and which ones.
+
+    The client, because that is the world this probe reads and the one LivePlayerActuator resolves
+    an id against: a stand the server has killed but the client still holds is still one this
+    probe could track.
+    """
+    return mcp.java("LookStands", PREAMBLE + """
+        java.util.List<String> ids = new java.util.ArrayList<String>();
+        for (Object o : new java.util.ArrayList<Object>(w.loadedEntityList)) {
+            if (o instanceof net.minecraft.entity.item.EntityArmorStand) {
+                net.minecraft.entity.Entity e = (net.minecraft.entity.Entity) o;
+                if ("%s".equals(e.getCustomNameTag())) ids.add(String.valueOf(e.getEntityId()));
+            }
+        }
+        return "STANDS " + ids.size() + " " + ids;
+    """ % name).strip()
+
+
+def remove_staged_stand(mcp, entity_id, name="LookProbeTarget", max_wait_s=3.0, poll_s=0.3):
+    """Take the staged stand back out of the world, and assert the world is clean again.
+
+    Written for a `finally`, because the probe used to leave this to the LAST probe in the list --
+    and that one kills the stand only on its own success path, returning early with the entity
+    alive on three others. An exception anywhere between leaves it too. A stand left standing is
+    not untidiness: spawn_stand's scan takes the first entity wearing this name, so the next run
+    would track the stale one and every reading after that would be about an entity that is not
+    there any more. This repo has already paid for the shape once ("a probe left standing poisons
+    the NEXT run"), and it is silent -- the failing run is not the one that caused it.
+
+    The wait is part of the check, not politeness: the kill lands on the SERVER and the client
+    keeps the entity until the destroy packet arrives a tick or two later, so reading immediately
+    would fail a cleanup that worked.
+    """
+    killed = kill_stand(mcp, entity_id)
+    deadline = time.time() + max_wait_s
+    out = ""
+    left = None
+    while True:
+        out = stands_loaded(mcp, name)
+        left = _int_after(out, "STANDS")
+        if left == 0 or time.time() >= deadline:
+            break
+        time.sleep(poll_s)
+    check = "the staged target is taken back out of the world on every exit path"
+    if left == 0:
+        return record(check, True, f"kill={killed[:40]}; nothing named {name} is still loaded")
+    if left is None:
+        # The kill was issued but the read failed, so this is NOT evidence of a leftover -- and
+        # calling it one would send the next reader looking for an entity that may not be there.
+        return record_skip(check,
+                           "SKIPPED-NOT-MEASURED: the kill was issued, but the client's entity list "
+                           "could not be read, so whether the stand is gone is unknown: "
+                           + out[:140])
+    return record(check, False,
+                  "STILL LOADED on the client after the kill, so the next run's scan could take it "
+                  "for its own: " + out[:140])
 
 
 def shove_yaw(mcp, to_yaw):
@@ -829,21 +918,27 @@ def main():
         probe_track_reasserts_against_an_outside_write(mcp)
         return report()
 
-    print("\n-- the baseline: a default aim does NOT follow")
-    probe_default_aim_stops_correcting(mcp, entity_id)
+    try:
+        print("\n-- the baseline: a default aim does NOT follow")
+        probe_default_aim_stops_correcting(mcp, entity_id)
 
-    print("\n-- tracking")
-    probe_track_follows_a_moving_target(mcp, entity_id)
-    probe_unbounded_track_survives_many_real_ticks(mcp, entity_id)
-    probe_track_reasserts_against_an_outside_write(mcp)
+        print("\n-- tracking")
+        probe_track_follows_a_moving_target(mcp, entity_id)
+        probe_unbounded_track_survives_many_real_ticks(mcp, entity_id)
+        probe_track_reasserts_against_an_outside_write(mcp)
 
-    print("\n-- endings")
-    probe_cancel_frees_the_slot(mcp, entity_id)
-    probe_bounded_track_completes_at_its_bound(mcp, entity_id)
-    probe_a_slew_too_slow_fails_rather_than_claiming_it_aimed(mcp, entity_id)
-    probe_losing_the_target_fails_honestly(mcp, entity_id)
+        print("\n-- endings")
+        probe_cancel_frees_the_slot(mcp, entity_id)
+        probe_bounded_track_completes_at_its_bound(mcp, entity_id)
+        probe_a_slew_too_slow_fails_rather_than_claiming_it_aimed(mcp, entity_id)
+        probe_losing_the_target_fails_honestly(mcp, entity_id)
 
-    clear_look(mcp)
+        clear_look(mcp)
+    finally:
+        # On EVERY path, including the ones that do not reach the line above: the probe used to
+        # leave the stand to the last probe in the list, and an exception anywhere in the block
+        # (a bad reply, a Ctrl-C) skipped even that. The leftover is what the NEXT run trips over.
+        remove_staged_stand(mcp, entity_id)
     return report()
 
 

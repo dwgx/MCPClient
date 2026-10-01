@@ -433,7 +433,8 @@ def drive_nav(mcp, target, timeout_ticks=LEG_TIMEOUT_TICKS, poll_s=0.4, sample_a
     """
     import json as _json
     tx, ty, tz = target
-    submitted = mcp.call("act_set", {"move": {"to": [tx, ty, tz], "timeoutTicks": timeout_ticks}})
+    submitted = mcp.call("act_set", {"move": {"walk_straight": [tx, ty, tz],
+                                            "timeoutTicks": timeout_ticks}})
     if submitted.get("isError") or "error" in submitted:
         return {"phase": "SETUP", "message": "act_set rejected: " + str(submitted)[:200],
                 "ticksActive": None, "timedout": False, "fwd": None, "str": None}

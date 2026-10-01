@@ -230,14 +230,19 @@ def probe_use_reports_started(mcp):
     mcp.call("act_set", {"interact": {"kind": "use"}})
     time.sleep(0.6)
 
-    status = mcp.call("act_status", {}).get("text", "")
+    # The rejection has to be searched for in a slot that WAS read. Searching an empty string for a
+    # string that is not in it always succeeds, so the old version of this check passed on a
+    # transport error, on a reply with no text, and on a status with no interact slot in it -- a
+    # green line that measured nothing, which is the exact shape this repo keeps finding in itself.
+    reply = mcp.call("act_status", {})
+    status = str(reply.get("error") or reply.get("text", ""))
     slot = ""
     try:
         for s in json.loads(status).get("slots", []):
             if s.get("slot") == "interact":
                 slot = json.dumps(s)
     except ValueError:
-        slot = status[:200]
+        pass
     started = mcp.java("UseAfter", PREAMBLE + """
         return "useCount=" + p.getItemInUseCount()
              + " isUsing=" + p.isUsingItem();
@@ -246,9 +251,13 @@ def probe_use_reports_started(mcp):
 
     rejected = '"use rejected in air"' in slot
     print(f"        {slot[:220]}\n        {started[:120]}")
-    return record("a use with a duration is not reported as a rejection", not rejected,
-                  "InteractController still reports 'use rejected in air' while the use started"
-                  if rejected else "reported as started")
+    detail = ("InteractController still reports 'use rejected in air' while the use started"
+              if rejected else "reported as started")
+    if not slot:
+        detail = ("PREMISE FAILED, so the absence of a rejection proves nothing: the status carried "
+                  "no interact slot to search -- " + status[:200])
+    return record("a use with a duration is not reported as a rejection", bool(slot) and not rejected,
+                  detail)
 
 
 def main():

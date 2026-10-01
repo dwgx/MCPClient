@@ -21,7 +21,7 @@ control. Input therefore goes in through dwm's own UiInput SPI, which is also th
 uses, so the probe exercises production code rather than a test-only shim.
 
 Usage:
-    python3 scripts/live-dwm-probe.py [--port 25599] [--keep]
+    python3 scripts/live-dwm-probe.py [--port 25599] [--keep] [--allow-unfocused]
 
 The socket client, the eval_java wrapper and the record/report harness live in
 scripts/mcp_probe.py, shared with the other live probes -- this probe's own copy of the reply
@@ -43,7 +43,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from mcp_probe import (  # noqa: E402 - the sys.path line above has to run first
-    EXIT_FAIL, EXIT_SETUP, EXIT_TIMEOUT, Mcp, record, report,
+    EXIT_FAIL, EXIT_SETUP, EXIT_TIMEOUT, Mcp, allow_unfocused, record, report, require_ticking,
 )
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -648,16 +648,117 @@ def close_ui(mcp):
 """)
 
 
+# The pid the first liveness check resolved, re-checked cheaply afterwards. See alive().
+_CLIENT_PID = []
+
+# Set once, the first time the liveness check cannot run at all, so the note below prints once
+# instead of on every step.
+_LIVENESS_WARNED = []
+
+
+def _client_pids():
+    """PIDs of the processes whose command line names MC's main class, or None if unanswerable.
+
+    pgrep on POSIX. There is no pgrep on Windows, and the call this replaces raised
+    FileNotFoundError on the FIRST use -- so on the machine this project is built and played on,
+    the probe died inside step() before it printed a single check. Get-CimInstance is the Windows
+    equivalent of `pgrep -f`: tasklist can filter on an image name but not on a command line, and
+    wmic (which could) is gone from current Windows.
+
+    None means "this machine cannot answer", and it is deliberately not []: [] is evidence (no
+    client process is running) while None is the absence of evidence, and the caller must not
+    report a crash it never observed.
+    """
+    if os.name == "nt":
+        query = ("Get-CimInstance Win32_Process -Filter \"Name='java.exe'\" | "
+                 "Where-Object { $_.CommandLine -like '*net.minecraft.client.main.Main*' } | "
+                 "ForEach-Object { $_.ProcessId }")
+        cmd = ["powershell", "-NoProfile", "-NonInteractive", "-Command", query]
+    else:
+        cmd = ["pgrep", "-f", "net.minecraft.client.main.Main"]
+    try:
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    # pgrep answers 0 (matched) or 1 (no match); anything else is the tool failing to run.
+    if out.returncode not in (0, 1):
+        return None
+    return [tok for tok in out.stdout.split() if tok.isdigit()]
+
+
+def _pid_alive(pid):
+    """Whether that pid is still running, or None if this machine cannot answer.
+
+    The cheap half of the check, for the per-step call, and tri-state for the same reason
+    _client_pids() is: None is the absence of evidence, [] and False are evidence. tasklist is
+    part of every Windows install this project targets, but the POSIX branch is reached whenever
+    os.name lies or a minimal container is in play, and the raise it used to produce escaped
+    alive() entirely -- killing the probe instead of degrading it, which is the exact inversion
+    of the note alive() prints when it cannot run the check at all.
+    """
+    if os.name == "nt":
+        try:
+            out = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
+                                 capture_output=True, text=True, timeout=60)
+        except (OSError, subprocess.SubprocessError):
+            return None
+        if out.returncode != 0:
+            return None
+        return str(pid) in out.stdout
+    try:
+        os.kill(int(pid), 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        # The process exists and belongs to someone else: signal 0 was refused for permission,
+        # not because the pid is gone. Reading this as "dead" would have the probe report a
+        # crash on a client that is still running.
+        return True
+    except (OSError, ValueError):
+        return None
+    return True
+
+
 def alive():
     """Whether the client process still exists.
 
     Checked after every step, because the failures that matter most here are not assertion
     failures but hard crashes: two of the three bugs this probe exists for killed the JVM
     outright, and a dead process is otherwise indistinguishable from a hung call.
+
+    The pid is resolved once, by command line, and re-checked by pid after that. Finding a process
+    by command line is a CIM (or pgrep) walk, and a PowerShell start-up per step would cost more
+    than the probe's own sleeps put together -- while reading its liveness off a status field is
+    exactly what this probe exists to not do. A pid recycled into an unrelated process reads as
+    alive, which fails in the harmless direction: the step that then talks to a dead client
+    reports the failure on its own.
     """
-    out = subprocess.run(["pgrep", "-f", "net.minecraft.client.main.Main"],
-                         capture_output=True, text=True)
-    return out.returncode == 0 and out.stdout.strip() != ""
+    if _CLIENT_PID:
+        # Tri-state, and the None arm is the point: the pid was resolved once by a tool that
+        # worked, and the per-step re-check is a different tool. Treating "cannot answer" as
+        # "dead" would report a crash the probe never observed, which is the one thing this
+        # whole check exists to avoid.
+        still = _pid_alive(_CLIENT_PID[0])
+        if still is None:
+            if not _LIVENESS_WARNED:
+                _LIVENESS_WARNED.append(True)
+                print("   NOTE: the liveness check cannot run here (no tasklist, no pgrep), so a "
+                      "client that dies between steps will not be noticed -- the step after it "
+                      "will report the failure instead.")
+            return True
+        return still
+    pids = _client_pids()
+    if pids is None:
+        if not _LIVENESS_WARNED:
+            _LIVENESS_WARNED.append(True)
+            print("   NOTE: the liveness check cannot run here (no pgrep, no PowerShell), so a "
+                  "client that dies between steps will not be noticed -- the step after it will "
+                  "report the failure instead.")
+        return True
+    if pids:
+        _CLIENT_PID.append(pids[0])
+        return True
+    return False
 
 
 def wait_for_mcp(port, timeout):
@@ -700,6 +801,9 @@ def main():
                     help="seconds to wait for the MCP port")
     ap.add_argument("--keep", action="store_true",
                     help="leave the UI open at the end instead of closing it")
+    ap.add_argument("--allow-unfocused", action="store_true",
+                    help="clear pauseOnLostFocus so the world keeps ticking while the window is in "
+                         "the background, instead of needing focus for the whole run")
     args = ap.parse_args()
 
     print(f"live-dwm-probe: waiting for MCP on 127.0.0.1:{args.port}")
@@ -720,6 +824,18 @@ def main():
         record("the world finished loading", False, "still not in a world")
         return report()
     record("the world finished loading", True)
+
+    # Before anything is measured, and for the same reason the other live probes do it: the window
+    # will not have focus while a script drives it, and vanilla answers a lost focus by opening the
+    # in-game menu -- which REPLACES whatever is on screen, dwm's UI included. Every check below
+    # would then fail for a reason that has nothing to do with dwm. Cleared here, at the start,
+    # because --allow-unfocused closes a pausing screen and must not do that under an open UI.
+    if args.allow_unfocused:
+        print(f"-- unfocused ticking: {allow_unfocused(mcp)}")
+    if not require_ticking(mcp, "the world is advancing before any UI state is measured"):
+        print("\nSETUP: world not ticking; nothing below would measure the code. Focus the game "
+              "window, or pass --allow-unfocused.")
+        return EXIT_SETUP
 
     print("\n-- opening the UI over live gameplay")
     step("DwmEntry builds and shows a screen", open_ui(mcp), lambda v: "opened" in v)

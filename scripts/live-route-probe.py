@@ -300,10 +300,10 @@ def require_act_ticking(mcp):
 
 
 def drive_route(mcp, target, block_budget=0, timeout_ticks=LEG_TIMEOUT_TICKS, poll_s=0.4):
-    """Production path: act_set move.route, poll act_status until MOVE is terminal."""
+    """Production path: act_set move.go_to, poll act_status until MOVE is terminal."""
     tx, ty, tz = target
     submitted = mcp.call("act_set", {
-        "move": {"route": [tx, ty, tz], "blockBudget": block_budget},
+        "move": {"go_to": [tx, ty, tz], "blockBudget": block_budget},
     })
     if submitted.get("isError") or "error" in submitted:
         return {"phase": "SETUP", "message": "act_set rejected: " + str(submitted)[:200],

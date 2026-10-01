@@ -1,4 +1,6 @@
 @echo off
+REM  THROWAWAY bisect copy: identical to run-mcp-overlay.bat except it forwards
+REM  MCP_EXTRA_OPTS onto the JVM line, so one build can be run with and without a flag.
 REM ============================================================================
 REM  run-mcp-overlay.bat - run-mcp.bat WITH the qml4j DWM UI ARMED
 REM  (-Dmcp.core.overlay=true). KI-11 binds RSHIFT (override -Dmcp.dwm.hotkey).
@@ -99,7 +101,7 @@ echo [run-mcp-overlay] overlay ARMED ^(-Dmcp.core.overlay=true^) qml4j/Skija.
 cd /d "%ROOT%\test_run"
 
 "%JAVA%" "@%ARGS%" ^
-  -Dmcp.core.overlay=true ^
+  -Dmcp.core.overlay=true %MCP_EXTRA_OPTS% ^
   -javaagent:"%CORE_JAR%" ^
   -cp "%CP%" ^
   net.minecraft.client.main.Main ^

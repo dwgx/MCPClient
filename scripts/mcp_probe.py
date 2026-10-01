@@ -41,11 +41,31 @@ RECV_SIZE = 65536     # the read chunk; chunk boundaries are what the old framin
 # their own tally, which is the same list twice.
 results = []
 
+# Checks that measured NOTHING, kept out of `results` because their outcome is neither of the two
+# `results` can hold: a FAIL would blame the code for a world that never moved, and a PASS would
+# claim a measurement that did not happen. report() turns a non-empty list into EXIT_SETUP.
+skips = []
+
 
 def record(name, ok, detail=""):
     results.append((name, ok, detail))
     print(("  PASS  " if ok else "  FAIL  ") + name + (f"\n          {detail}" if detail else ""))
     return ok
+
+
+def record_skip(name, detail=""):
+    """Record a check that measured nothing: not a pass, not a fail, EXIT_SETUP.
+
+    The distinction is what this exists for. record() prints FAIL and report() returns EXIT_FAIL,
+    so a frozen world used to end a run as a red FAIL naming code that was never exercised -- and
+    a FAIL is the line a reader believes. Five probes hid that by returning EXIT_SETUP before
+    report() ever ran; nav-astar-probe.py has no such guard, so the same frozen world printed
+    "FAIL: n/m checks" there. Returns False, so `if not require_ticking(mcp, what)` keeps working
+    for callers that want to stop at the guard.
+    """
+    skips.append(name)
+    print("  SKIP  " + name + (f"\n          {detail}" if detail else ""))
+    return False
 
 
 def report():
@@ -55,16 +75,25 @@ def report():
     live-hold-probe.py printed only "n/m checks" and left the reader scrolling a few hundred lines
     of probe output to find which one broke. Same exit codes either way, so taking the louder
     version costs nothing.
+
+    A skip outranks a pass: with nothing failed but something unmeasured, the run proved less than
+    it looks like it did, and EXIT_SETUP says exactly that.
     """
     passed = sum(1 for _, ok, _ in results if ok)
     total = len(results)
-    print(f"\n{'PASS' if passed == total else 'FAIL'}: {passed}/{total} checks")
+    verdict = "FAIL" if passed != total else ("SETUP" if skips else "PASS")
+    print(f"\n{verdict}: {passed}/{total} checks" + (f", {len(skips)} skipped" if skips else ""))
     if passed != total:
         print("failed:")
         for name, ok, detail in results:
             if not ok:
                 print(f"  - {name}: {detail.splitlines()[0] if detail else ''}")
         return EXIT_FAIL
+    if skips:
+        print("skipped (nothing was measured by these, so they are not a pass):")
+        for name in skips:
+            print(f"  - {name}")
+        return EXIT_SETUP
     return EXIT_PASS
 
 
@@ -131,9 +160,39 @@ class Mcp:
             reply = json.loads(line)
         except ValueError as e:
             return {"error": f"unparseable reply: {e}"}
-        content = reply.get("result", {}).get("content", [])
-        text = content[0].get("text", "") if content else ""
-        return {"text": text, "isError": reply.get("result", {}).get("isError", False)}
+        # A JSON-RPC error is NOT an empty tool result. Flattening it to {"text": "", "isError":
+        # False} -- which is what this used to do, because result was simply absent -- made a
+        # transport failure indistinguishable from a tool that legitimately returned nothing, and
+        # every caller's `if "error" in reply` guard is blind to it. That is not theoretical: it is
+        # how nav-astar-probe.py's `"use rejected in air" not in slot` check came to PASS on a
+        # reply that carried no slot at all. The same rule covers a reply that is not a result at
+        # all: "I could not read this" must never be handed back looking like a success.
+        err = reply.get("error") if isinstance(reply, dict) else None
+        if err is not None:
+            if isinstance(err, dict):
+                return {"error": f"jsonrpc error {err.get('code')}: {err.get('message')}"}
+            return {"error": f"jsonrpc error: {err}"}
+        result = reply.get("result") if isinstance(reply, dict) else None
+        if not isinstance(result, dict):
+            return {"error": f"reply carried neither result nor error: {line[:200]!r}"}
+        content = result.get("content")
+        if not isinstance(content, list):
+            return {"error": "result carried no content list: "
+                             f"{json.dumps(result)[:200]}"}
+        # The first TEXT item, not blindly the first item: a result may carry an image (gui_snapshot
+        # with includeImage) before or after its text, and content[0] on an image item is an empty
+        # string that reads as "the tool said nothing".
+        #
+        # An EMPTY content list is not that: a tool that returned nothing is a real result, and the
+        # line between "nothing to say" and "I could not read this" is the whole point of the
+        # branches above and below.
+        if not content:
+            return {"text": "", "isError": result.get("isError", False)}
+        text = next((c.get("text", "") for c in content
+                     if isinstance(c, dict) and "text" in c), None)
+        if text is None:
+            return {"error": f"result carried no text content: {json.dumps(content)[:200]}"}
+        return {"text": text, "isError": result.get("isError", False)}
 
     @staticmethod
     def _complete_reply(buf):
@@ -229,26 +288,69 @@ def probe_in_world(mcp):
                                    "clear the screen. " + out.strip()[:160])
 
 
-def is_ticking(mcp):
+def _world_sample(mcp):
+    """One reading of (isGamePaused, totalWorldTime), and the raw line it came from.
+
+    The raw line comes back on every path because it is the only explanation a caller has when the
+    answer is no: it carries the pause flag, whether the display window is active, and the clock.
+    """
+    out = mcp.java("Ticking", PREAMBLE + """
+        return "paused=" + mc.isGamePaused() + " active=" + org.lwjgl.opengl.Display.isActive()
+             + " time=" + mc.theWorld.getTotalWorldTime();
+    """).strip()
+    if not out.startswith("paused="):
+        return None, out
+    try:
+        paused = out.split("paused=", 1)[1].split(" ", 1)[0] == "true"
+        # int(float(...)): the Java prints a long, but a client that ever formats it as a double
+        # would otherwise turn a live world into "unreadable" and a skip.
+        world_time = int(float(out.split("time=", 1)[1].split(" ", 1)[0]))
+    except (IndexError, ValueError):
+        return None, out
+    return (paused, world_time), out
+
+
+def is_ticking(mcp, settle_s=0.5, tries=3):
     """Whether the world is actually advancing, and why not if it is not.
 
     Vanilla single-player stops advancing on focus loss, and the game thread keeps servicing
     eval_java throughout -- so every tick-dependent check reads a frozen world and fails for a
     reason that has nothing to do with the code under test. That is exactly what happened before
-    this guard existed.
 
     The reopening screen comes from EntityRenderer.updateCameraAndRender:1071-1076 (500ms
     unfocused -> displayInGameMenu), gated on gameSettings.pauseOnLostFocus. Minecraft.java:1184
     only *reads* that screen to set isGamePaused. Clearing currentScreen alone does not help,
     because the gate reopens it every frame -- clear the gate instead, via allow_unfocused().
+
+    The decision is a COMPARISON of two clock samples, not a reading of the pause flag. The old
+    body returned "ticking" whenever isGamePaused() was false -- and printed, but never looked at,
+    the world time it had fetched. A world whose clock is frozen while that flag says otherwise
+    (the game thread suspended by this repo's own debug_suspend_thread, an integrated-server
+    stall, a resource reload) then passed the guard, and every probe below measured a world that
+    was standing still and reported the result as a defect in the code. The sibling guard
+    (live-nav-probe.py's require_act_ticking) already sampled twice and compared; this is the same
+    shape against the world clock.
+
+    The retries buy slack in one direction only. A frozen world repeats its answer, so a second
+    look costs time on a path that was about to report SETUP anyway; a LIVE world that is merely
+    busy -- the integrated server generating chunks, a GC pause -- can miss a single 0.5s window on
+    a fast clock, and being told "the world is not ticking" when it is would abort a whole run for
+    nothing. Paused=true is the one state that needs no second look: that is the gate itself.
     """
-    out = mcp.java("Ticking", PREAMBLE + """
-        return "paused=" + mc.isGamePaused() + " active=" + org.lwjgl.opengl.Display.isActive()
-             + " t=" + mc.theWorld.getTotalWorldTime();
-    """)
-    if "paused=false" in out:
-        return True, out.strip()
-    return False, out.strip()
+    raw = ""
+    for _ in range(tries):
+        before, raw = _world_sample(mcp)
+        if before is None:
+            return False, raw
+        if before[0]:
+            return False, raw
+        time.sleep(settle_s)
+        after, raw = _world_sample(mcp)
+        if after is None:
+            return False, raw
+        if after[1] > before[1]:
+            return True, raw
+    return False, raw
 
 
 def allow_unfocused(mcp):
@@ -273,11 +375,18 @@ def allow_unfocused(mcp):
 
 
 def require_ticking(mcp, what):
-    """Skip rather than fail when the world is frozen. A false FAIL is worse than a skip."""
+    """Skip rather than fail when the world is frozen. A false FAIL is worse than a skip.
+
+    And a skip has to end as one. It is recorded through record_skip rather than record(..., False),
+    so a caller that returns EXIT_SETUP on the spot and a caller that just runs on (nav-astar-probe)
+    both end in EXIT_SETUP -- the code the module reserves for "the world/client is not in a state
+    that can be probed". Recorded as a FAIL it named code that was never exercised, and read exactly
+    like a regression.
+    """
     ok, detail = is_ticking(mcp)
     if not ok:
-        record(what, False,
-               "SKIPPED-NOT-MEASURED: the world is not ticking, so this proves nothing about the "
-               "code. Focus the game window, or call allow_unfocused(mcp), and re-run. "
-               + detail[:160])
+        record_skip(what,
+                    "SKIPPED-NOT-MEASURED: the world is not ticking, so this proves nothing about the "
+                    "code. Focus the game window, or call allow_unfocused(mcp), and re-run. "
+                    + detail[:160])
     return ok
