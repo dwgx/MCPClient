@@ -66,10 +66,13 @@
             <version>${skija.version}</version>
         </dependency>
 
-        <!-- Skia natives for both platforms in the same jar, the way client ships LWJGL's:
-             the loader picks by os.name/os.arch at runtime, so one artifact runs on
-             Windows x64 and macOS arm64. Deliberately NOT os-activated profiles, which
-             would make the output depend on which machine built it. -->
+        <!-- Skia natives for every platform this module has to run on, in the same jar, the way
+             client ships LWJGL's: the loader picks by os.name/os.arch at runtime, so one artifact
+             runs on Windows x64, macOS arm64 and Linux x64. Deliberately NOT os-activated
+             profiles, which would make the output depend on which machine built it. Linux is here
+             because ubuntu-latest is where dwm's unit tests run and the loader has no fallback: it
+             fails the run with UnsatisfiedLinkError ("Library file libskija.so not found") rather
+             than skipping, which is what took the CI build down. -->
         <dependency>
             <groupId>io.github.humbleui</groupId>
             <artifactId>skija-windows-x64</artifactId>
@@ -79,6 +82,12 @@
         <dependency>
             <groupId>io.github.humbleui</groupId>
             <artifactId>skija-macos-arm64</artifactId>
+            <version>${skija.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.github.humbleui</groupId>
+            <artifactId>skija-linux-x64</artifactId>
             <version>${skija.version}</version>
             <scope>runtime</scope>
         </dependency>
