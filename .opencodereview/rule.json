@@ -1,0 +1,77 @@
+{
+  "_comment": [
+    "Project rules for `ocr scan` / `ocr review` on MCPClient.",
+    "",
+    "Written 2026-10-01 from this repository's OWN incident history, not from a generic checklist.",
+    "Every rule below exists because something here shipped broken and the failure had a shape.",
+    "Patterns are doublestar globs matched case-insensitively against the file path; FIRST MATCH",
+    "WINS, so the specific rules are listed before the general ones. `merge_system_rule: true` keeps",
+    "the built-in ruleset (NPE, thread-safety, XSS, SQL-injection) layered underneath.",
+    "",
+    "The tool needs a provider endpoint (`ocr config set providers.<name>.api_key`). Without one it",
+    "cannot run; this file is the part that can be prepared without a key, and it is the part that",
+    "makes the tool useful HERE rather than generically noisy."
+  ],
+  "rules": [
+    {
+      "path": "core/src/main/java/net/marcloud/mcp/core/se/**/*.java",
+      "rule": "This is a seven-layer security kernel. Review every gate against four questions and answer all four in the finding: (1) what happens when the name is ABSENT from the lookup table; (2) what happens when an argument is present but malformed; (3) what happens when two tables that should agree disagree; (4) what happens on a repeated call. A gate that answers ALLOW to any of those is CRITICAL.\n\nSpecific history: `ObManager.checkRequest` read the access mask from `req.toolName()`. Folding eleven debug tools into `debug_manage`/`debug_handle` changed the tool name, the name was no longer in `HANDLE_OPS`, and the call fell through to the READ default -- a READ-only handle could suspend a thread. The follow-up bug was the mirror image: the fix asked whether an `action` ARGUMENT was present rather than whether the TOOL was folded, so `do_use_entity` and `do_entity_action` were denied on every call. Both shipped. Neither turned a test red, because refusing is not a failure.\n\nAlso require: no name lookup that returns a permissive default; every registration has an enforcement row AND every enforcement row names something registrable; a signature or integrity failure is a refusal, never a warning.",
+      "merge_system_rule": true
+    },
+    {
+      "path": "core/src/main/java/net/marcloud/mcp/core/{kd,ob,ke}/**/*.java",
+      "rule": "Object-manager, debugger and dispatcher layer. Three specific hazards, all of which have shipped here:\n\n1. TOCTOU on a handle. The target resolver can be called twice and return two different objects. Check that the object resolved BEFORE the permission check is the object the permission applies to.\n2. A cached reference outliving its cancellation. A cancelled subscription kept reachable through a cached list entry, so it stayed live across a shutdown. Any cache keyed by an identity needs an invalidation path, not just a clear-on-shutdown.\n3. A gate that downgrades instead of refusing. When a lookup misses, the honest answer is deny. `return require(id, s, HANDLE_OPS.getOrDefault(op, READ))` is the shape to look for: a default supplied by a Map lookup on a security table.",
+      "merge_system_rule": true
+    },
+    {
+      "path": "core/src/main/java/net/marcloud/mcp/core/drivers/act/**/*.java",
+      "rule": "The actuation layer moves a real player. The defect class here is a TERMINAL CONDITION THAT CAN BE TRUE WHILE THE WORLD DID NOT CHANGE.\n\nWorked instance: `MoveApplier`'s only terminating branch was guarded by `duration > 0`, and an all-zero-axis intent carried `durationTicks = 0`. The intent published zero axes every tick, reported itself as moving, and never reached a terminal branch. The caller saw `phase: ACTIVE` and a player that had not moved a single block. Nothing errored for sixteen seconds.\n\nFor every controller in this package, name the exact condition under which it reports done, then state whether that condition can hold while the world is unchanged. A terminal branch keyed on the REQUEST rather than on a re-read of the WORLD is the shape.\n\nAlso: a transform/steering constant transcribed from vanilla is invisible to any test that asserts the constant against itself. Verify such constants against `client/src/main/java/net/minecraft/` and cite both sides.",
+      "merge_system_rule": true
+    },
+    {
+      "path": "core/src/main/java/net/marcloud/mcp/core/io/**/*.java",
+      "rule": "The tool surface is the only thing an agent actually reads.\n\n1. Every tool description is a contract. Verify that each tool, FIELD, enum value, file:line and tool NAME a description mentions exists. Three phantom names have shipped in this repository: `netty-tap` (no such tool), `read_inventory` (no such tool, asserted by a test that therefore could never fail), and `heldSlot` (no such field). Sweep the whole surface.\n2. A reply must not be non-empty, plausible and false. Where a tool cannot re-read the outcome -- 1.8.9 reports no mob health to a client, and the server silently ignores a placement it cannot perform -- the reply must SAY it is not confirmable. `NOT_CONFIRMABLE` exists in this surface; require it rather than a hopeful paraphrase.\n3. Schema is what a validator sees; prose in a description is invisible to it. Any argument described only in prose is an unvalidated argument. A bare `{\"type\":\"object\"}` with no properties declares nothing and checks nothing.\n4. Prefer one persistent writer per fact. State mutated from a tool-worker thread and read on the client thread without synchronisation is a torn read waiting for a slow night.",
+      "merge_system_rule": true
+    },
+    {
+      "path": "core/src/main/java/net/marcloud/mcp/core/drivers/{plan,world}/**/*.java",
+      "rule": "Planning and observation, where a stale value presented as current is the defect class.\n\n1. Every value that comes from a cache, a diff, a sample or a possibly-unloaded chunk must be marked as such in the structure the agent reads. `world_view` has a diff mode; a cell that is 'left' can mean 'not sampled' rather than 'gone', and the two have shipped confused.\n2. A route must not be reported complete without re-reading the destination. For each completion check, state whether it could pass while the body is elsewhere.\n3. Arithmetic claimed to be vanilla's must be checked against `client/src/main/java/net/minecraft/`, not against this repository's own copy of the number. A damage, light or reach formula asserted by a test that evaluates the same formula proves nothing.\n4. Reach and combat predicates: state whether an agent can be told it may do something the server would refuse, or told it may not do something it could. Both directions mislead.",
+      "merge_system_rule": true
+    },
+    {
+      "path": "core/src/main/java/net/marcloud/mcp/core/compat/**/*.java",
+      "rule": "Bytecode patches applied to a live JVM, each carrying a signature.\n\n1. A transform that returns null when it finds no match is INERT: the patch reports armed and does nothing, and the log line is identical either way. For each patch, name the match condition and what happens on a build where it does not match.\n2. A patch that fixes one thing and silently changes a second is HIGH. Verify the semantic delta against the vanilla method, not against the patch's own javadoc.\n3. The trust chain is mutual. The baked kernel public key and every signature constant computed against it must change together; split across two commits, every patch silently fails to arm and the only symptom is one stderr line per patch.\n4. `signingBytes` must agree with what the signature is verified over. Adding a field to the signed input without changing the verifier is a signature over the wrong bytes.\n5. `client/src/main/java` is frozen vanilla. Any modification there belongs in the patch layer; if both exist for the same fix, the vendor edit is the one to remove.",
+      "merge_system_rule": true
+    },
+    {
+      "path": "core/src/test/java/**/*.java",
+      "rule": "A test that cannot fail is worse than no test, because it is read as coverage.\n\nReject each of these outright, with a line reference:\n- an assertion on a constant, or on a string the test itself just constructed;\n- a source-text scan (`code.contains(\"class\")`) standing in for a behavioural property;\n- an early-return guard (`if (plan.found()) return;`) that lets the test pass while asserting nothing;\n- an assertion that pins the CURRENT BUGGY STRING, so it goes green precisely because the defect exists -- the canonical case being an assertion that a description names a tool which does not exist;\n- an expected value computed by calling the production method under test (a mirror assertion), rather than an independently derived number;\n- a bound that equals the value under test, so the test fails intermittently and is then loosened instead of fixed;\n- a test whose only assertion is that a count is greater than zero, or that a list is empty.\n\nA new test must be mutation-checked before it is claimed: restore the pre-change code and show it goes red. State in the commit message that this was done. 'Tests pass' is not evidence that they bite.",
+      "merge_system_rule": true
+    },
+    {
+      "path": "core/src/test/java/net/marcloud/mcp/core/eval/**/*.java",
+      "rule": "The deterministic self-play substrate. It is this repository's measurement instrument, and an instrument that lies is the single most expensive defect class here.\n\n1. Every assertion must be a WORLD FACT, never a self-report. `assertTrue(policy.reportedSuccess())` measures the policy's opinion of itself.\n2. An assertion that cannot fail given the substrate's capabilities is not a test. Six tasks asserted `health > 0` while nothing in the suite could ever damage the player. If a fact is unreachable in this world, either model it or declare it in `SimWorld.KNOWN_GAPS` -- and an UNDECLARED approximation is worse than a declared one.\n3. Check every arithmetic constant against vanilla: `air()` returning a hardcoded 300 because its counter is never assigned; a reach of 5.0 where survival vanilla is 4.5; an invulnerability window that does not match `maxHurtResistantTime`.\n4. A filter that matches nothing must be an error. A runner that silently skips unmatched tasks prints an empty PASS report and the gate goes green having scored zero tasks.\n5. `KNOWN_GAPS` must be true. A declaration that the substrate HAS something it does not have is worse than silence, because a reader stops looking.",
+      "merge_system_rule": true
+    },
+    {
+      "path": "scripts/**/*.py",
+      "rule": "Probes and checkers. The question for each script is not whether it works but WHAT IT REPORTS WHEN IT CANNOT.\n\n1. Name the failure mode in which this script exits 0 while having measured nothing. If you cannot name one, the script is not checking anything.\n2. A hardcoded expectation is a claim about a TREE, not about code. Tools added later do not exist in every checkout, and a script that demands them makes a fresh clone permanently red -- which trains the reader to ignore red. Make such expectations opt-in via a flag, and report the absent ones without failing.\n3. Do not pipe a command that can fail into a filter that swallows its exit status. `cmd | grep X && next-step` turns a failed verification into a green one. This has happened in this repository three times, twice in a commit message.\n4. An empty or uninitialised input must be REFUSED, not reported as zero differences.\n5. A probe that reports a live client must verify liveness rather than assume it; a client that dies between steps used to be reported as alive.",
+      "merge_system_rule": true
+    },
+    {
+      "path": "{board,dwm}/src/main/java/**/*.java",
+      "rule": "Peripheral modules with a hard dependency rule: dwm imports no core class and board does not depend on core. A change that introduces such an import breaks the build order and must be rejected.\n\n1. GL state discipline: every enter is paired with an exit on EVERY path including exceptions, and rendering happens on the thread that owns the context. A missing guard corrupts the game's own rendering rather than throwing. LWJGL aborts the JVM on a GL call from a thread with no current context, and that has happened here.\n2. Resource lifecycle: a feature registry that can hold a native resource needs an unload path that actually fires, and a bus subscription needs cancellation that drops the cached reference -- not only the flag.",
+      "merge_system_rule": true
+    },
+    {
+      "path": "**/*.md",
+      "rule": "Documentation in this repository has a documented failure mode: counts that were wrong for a year and read as authoritative, and 'verifiable' commands that cannot fail because both refs were the same commit.\n\n1. No hard-coded test count, tool count or token count without the command that produced it and the date. If the file itself says 'count on the spot', follow its own rule.\n2. Every 'verifiable' claim must be a command that CAN go red. State what makes it red.\n3. Do not point at a file that does not exist. Check it before writing the pointer; the previous board pointed into a directory that was deleted along with its contents.\n4. Prefer marking a section superseded over deleting history, but do not leave two sections numbered the same.",
+      "merge_system_rule": false
+    },
+    {
+      "path": "**/*",
+      "rule": "Repository-wide, and the shortest version of everything above: a claim in a comment, a commit message or a document is code, and it is wrong until re-derived. This repository's record: a test count written before it was measured; a verification command that failed with its error swallowed by a pipe; a SHA whose first seven characters matched and whose remaining thirty-nine were invented; a fix described as 'done' when the mutation had never been applied. Name the source of a claim, or do not make it.",
+      "merge_system_rule": true
+    }
+  ]
+}
