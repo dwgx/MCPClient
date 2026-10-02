@@ -218,6 +218,21 @@ public final class ToolRegistry {
         return layerOf(toolName) == Layer.KERNEL;
     }
 
+    /**
+     * True when this table <b>declares</b> {@code toolName} kernel-layered.
+     *
+     * <p><b>Not the same question as {@link #isKernelLayered(String)}, and the difference is
+     * load-bearing.</b> That one denies by default: an undeclared name comes back {@link
+     * Layer#KERNEL}. This one answers membership only, so a name nobody declared is {@code
+     * false}. A consumer that must reserve the Kernel's own vocabulary without forbidding every
+     * name in the world wants THIS one — {@code MetaTools}' reserved-name check is the case in
+     * point, where "undeclared" has to mean "a genuinely new tool the model may create" and not
+     * "kernel-layered".
+     */
+    public static boolean isDeclaredKernelLayered(String toolName) {
+        return LAYERS.get(toolName) == Layer.KERNEL;
+    }
+
     /** Every name this table declares, model-facing and kernel alike. */
     public static java.util.Set<String> declaredNames() {
         return LAYERS.keySet();

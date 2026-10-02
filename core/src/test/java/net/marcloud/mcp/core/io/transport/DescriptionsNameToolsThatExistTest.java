@@ -138,7 +138,7 @@ public class DescriptionsNameToolsThatExistTest {
             AllowAllGate gate = new AllowAllGate();
 
             new ToolRegistry(new ToolContext(null, null, null, null, null)).registerAll(reg);
-            new MetaTools(reg, new DynamicToolFactory(null), null).registerAll(reg);
+            new MetaTools(reg, reg, new DynamicToolFactory(null), null).registerAll(reg);
             new PermissionTools(engine, reg).registerAll(reg);
             new PrivilegeControlTools(engine).registerAll(reg);
             new MemoryTools(new MemoryStore(Path.of(

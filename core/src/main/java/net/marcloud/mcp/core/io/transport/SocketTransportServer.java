@@ -41,6 +41,51 @@ public final class SocketTransportServer {
     private volatile Socket currentClient;
     private volatile boolean running;
 
+
+    /**
+     * The handshake instructions — the one sentence of prose this server sends a model, and the
+     * only place the codebase tells a model what its own capabilities are.
+     *
+     * <p><b>It names exactly ONE tool, {@code list_capabilities}, and that tool is model-facing
+     * by the 2026-10-02 ruling.</b> Two things the sentence must not do, both load-bearing:
+     * <ul>
+     *   <li><b>Name a kernel-layered verb.</b> This string named {@code create_tool} until that
+     *       same ruling, in the clause "and create_tool to grow new ones at runtime". Keeping it
+     *       was not "a sentence with one stale half": it was an instruction to a weak model to
+     *       reach for the one verb that MANUFACTURES the kernel surface, delivered by the server
+     *       itself, immediately after that verb was deliberately hidden. That is the failure
+     *       {@code create_tool} being kernel-layered exists to prevent, reintroduced through the
+     *       handshake.</li>
+     *   <li><b>Imply the model can extend the tool set.</b> It cannot. Promotion is
+     *       operator-only ({@code -Dmcp.core.promote}, {@code mcp_promote.txt}, and
+     *       {@code McpCore.promote}'s own javadoc says there is deliberately no model-reachable
+     *       route to it), so any such promise is false — and a weak model told it will spend its
+     *       turns hunting for a verb that is not on its surface.</li>
+     * </ul>
+     *
+     * <p><b>What the sentence still owes the model, and why {@code list_capabilities} pays
+     * it.</b> A model that has just connected has been handed no inventory, so without a way to
+     * discover what it can call this sentence is its whole orientation. "Use
+     * list_capabilities to see every tool you can call" delivers that, and it is <b>true</b>
+     * rather than a promise: {@code list_capabilities} enumerates the model-facing surface, so
+     * it reports exactly the model-facing set — pinned by
+     * {@code ToolLayeringTest.listCapabilitiesReportsExactlyTheModelFacingSet}, which fails if
+     * the tool is ever handed the audited registry instead.
+     *
+     * <p>The wording is "every tool you can call", not "all tools": 84 built-ins are registered
+     * and 51 are callable, and the subject of this sentence is what the model can do.
+     *
+     * <p><b>Why a constant and not a literal in the builder chain.</b> A string buried in a call
+     * chain is prose nothing can check. {@code TheHandshakeSentenceNamesNoKernelVerbTest} reads
+     * the tool names out of THIS value and asks {@link ToolRegistry#layerOf} about each, so a
+     * sentence naming a kernel-layered verb goes red against the layer table itself rather than
+     * against a list of forbidden names copied into the test — which would be the stale-gate-row
+     * shape.
+     */
+    public static final String INSTRUCTIONS =
+            "Drive and observe a running Minecraft 1.8.9 client. "
+                    + "Use list_capabilities to see every tool you can call.";
+
     public SocketTransportServer(IoManager registry) {
         this(registry, DEFAULT_PORT);
     }
@@ -104,9 +149,7 @@ public final class SocketTransportServer {
         // tools(listChanged=true): announce runtime-added capabilities.
         McpSyncServer server = McpServer.sync(transport)
                 .serverInfo("mcp-core", "1.8.9")
-                .instructions("Drive and observe a running Minecraft 1.8.9 client. "
-                        + "Use list_capabilities to see all tools, and create_tool to "
-                        + "grow new ones at runtime.")
+                .instructions(INSTRUCTIONS)
                 .capabilities(ServerCapabilities.builder().tools(true).build())
                 .tools(registry.currentSpecs())
                 .build();

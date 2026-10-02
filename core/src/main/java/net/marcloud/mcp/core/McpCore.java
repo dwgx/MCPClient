@@ -542,11 +542,16 @@ public final class McpCore {
         wireProvider(registry, surface, esc::registerAll, esc::registerAll);
 
         // Register the self-referential meta-tools (introspect + self-extend +
-        // redefine_class hypervisor tool). MetaTools is handed the MODEL-FACING registry,
-        // not the audited one, and that is load-bearing rather than cosmetic: create_tool
-        // registers what it builds into the registry it holds, so handing it the audited one
-        // would put every AI-authored tool somewhere the model can never call it, and
-        // create_tool's own success text ("It is now callable") would be false.
+        // redefine_class hypervisor tool). MetaTools is handed BOTH registries, because the two
+        // roles are not the same role and passing one registry for both was a live defect:
+        //
+        //   surface — create_tool installs what it builds here, so handing it the audited
+        //     registry instead would put every AI-authored tool where the model can never call
+        //     it, and would make create_tool's own success text ("It is now callable") false.
+        //   registry (audited) — the complete built-in set, which is the ONLY thing the
+        //     reserved-name check may read. It used to read the surface, where kernel-layered
+        //     names are by definition absent, so create_tool{toolName:"eval_java"} was accepted
+        //     and 33 registered kernel names were squattable. See MetaTools.isReserved.
         //
         // The provider STRADDLES both layers as of the 2026-10-02 ruling: list_capabilities is
         // model-facing, the other four are kernel-layered. wireProvider's rule is all-or-nothing
@@ -555,7 +560,7 @@ public final class McpCore {
         // exact defect the ruling was about. See
         // .ai-notes/docs/audits/2026-10-02-wave19-layer-filter.md.
         DynamicToolFactory factory = new DynamicToolFactory(hotLoad);
-        MetaTools meta = new MetaTools(surface, factory, hotLoad);
+        MetaTools meta = new MetaTools(surface, registry, factory, hotLoad);
         wireProvider(registry, surface, meta::registerAll, meta::registerModelFacing);
 
         // Privilege tools (7-layer model): drop/restore/list clearance. Driven

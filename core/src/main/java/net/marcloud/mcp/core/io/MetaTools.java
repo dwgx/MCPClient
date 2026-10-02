@@ -28,16 +28,56 @@ import io.modelcontextprotocol.spec.McpSchema.ToolAnnotations;
  *   <li>{@code rollback_tool} — revert a tool to its previous version (safety
  *       net for self-modification gone wrong).</li>
  * </ul>
+ *
+ * <h2>Two registries, and why this class holds both</h2>
+ *
+ * <p>{@code surface} and {@code audited} are different {@link IoManager} instances over the same
+ * executor and the same reference monitor, and conflating them was a live defect:
+ *
+ * <ul>
+ *   <li>{@code surface} is where {@code create_tool} installs what it builds, and what
+ *       {@code list_capabilities} enumerates. Handing it the audited registry instead would put
+ *       every AI-authored tool where the model can never call it, and would make
+ *       {@code create_tool}'s own success text ("It is now callable") false.</li>
+ *   <li>{@code audited} is the complete built-in set, and it is the ONLY thing
+ *       {@link #isReserved} may consult. The reservation check used to read the surface, where
+ *       kernel-layered names are <em>by definition</em> absent — so it answered "not reserved"
+ *       for every hidden tool, and {@code create_tool{toolName:"eval_java"}} was accepted.</li>
+ * </ul>
+ *
+ * <p>Neither is a superset of the other: the surface holds 51 model-facing names and no kernel
+ * ones; the audited registry holds all 84 registered built-ins. The constructor takes both as
+ * separate arguments precisely so the next reader cannot collapse them again.
  */
 public final class MetaTools {
 
-    private final IoManager registry;
+    /**
+     * The MODEL-FACING registry: {@code create_tool}'s install target, and the registry
+     * {@code list_capabilities} enumerates. Kernel-layered names are absent from it by design.
+     */
+    private final IoManager surface;
+
+    /**
+     * The AUDITED registry: every registered built-in, kernel-layered ones included. Held for
+     * the reserved-name check only — see {@link #isReserved} and the class javadoc.
+     */
+    private final IoManager audited;
+
     private final DynamicToolFactory factory;
     private final net.marcloud.mcp.core.ldr.LdrEngine hotLoad;
 
-    public MetaTools(IoManager registry, DynamicToolFactory factory,
+    /**
+     * @param surface  the model-facing registry {@code create_tool} installs into and
+     *                 {@code list_capabilities} enumerates
+     * @param audited  the complete built-in registry, consulted by {@link #isReserved} for the
+     *                 reserved-name check. <b>Must not be {@code surface}</b>: a kernel-layered
+     *                 name is absent from the surface by construction, so passing the surface
+     *                 here silently disables the check for every hidden tool.
+     */
+    public MetaTools(IoManager surface, IoManager audited, DynamicToolFactory factory,
                      net.marcloud.mcp.core.ldr.LdrEngine hotLoad) {
-        this.registry = registry;
+        this.surface = surface;
+        this.audited = audited;
         this.factory = factory;
         this.hotLoad = hotLoad;
     }
@@ -129,7 +169,7 @@ public final class MetaTools {
                 .build();
         return new SyncToolSpecification(tool, (exchange, request) -> {
             StringBuilder sb = new StringBuilder();
-            for (Capability c : registry.capabilities()) {
+            for (Capability c : surface.capabilities()) {
                 sb.append(String.format("- %s (v%d%s): %s\n    health: %s\n",
                         c.name(), c.version(), c.builtIn() ? ", built-in" : ", ai-authored",
                         c.description(), c.stats().summary()));
@@ -158,7 +198,7 @@ public final class MetaTools {
             if (name == null) {
                 return err("name is required");
             }
-            Capability c = registry.get(name);
+            Capability c = surface.get(name);
             if (c == null) {
                 return err("no such tool: " + name);
             }
@@ -204,10 +244,10 @@ public final class MetaTools {
             }
             // Reserved-name guard: don't let the AI overwrite the meta-tools it
             // needs to keep operating (self-lobotomy invariant, à la DGM). Derived
-            // from the live registry — ANY built-in is reserved — so it can never
-            // drift out of sync with the actual built-in set (CRITICAL#2). The
-            // registry.register() call below enforces the same invariant as a
-            // hard backstop even if this check were bypassed.
+            // from the AUDITED registry — ANY built-in is reserved — so it can
+            // never drift out of sync with the actual built-in set (CRITICAL#2).
+            // This check is the enforcement, not a courtesy: see isReserved for why
+            // IoManager.register is not a backstop for a hidden name.
             if (isReserved(toolName)) {
                 return err("'" + toolName + "' is a reserved core tool and cannot be replaced");
             }
@@ -221,7 +261,7 @@ public final class MetaTools {
                 // Unsafe), so it is exactly as dangerous as eval_java and sits at the same
                 // ring. A lowered clearance then genuinely locks it out. See
                 // Ring.DEFAULT_GENERATED (= R_MINUS_1) and SeToolRequirement's generated-tool gate.
-                registry.register(toolName, built.spec(), source, description, false,
+                surface.register(toolName, built.spec(), source, description, false,
                         net.marcloud.mcp.core.se.Ring.DEFAULT_GENERATED);
                 return ok("created and registered tool '" + toolName + "'. It is now callable.");
             } catch (RuntimeException e) {
@@ -250,7 +290,7 @@ public final class MetaTools {
             if (name == null) {
                 return err("name is required");
             }
-            boolean done = registry.rollback(name);
+            boolean done = surface.rollback(name);
             return done ? ok("rolled back '" + name + "' to previous version")
                         : err("no previous version to roll back to for '" + name + "'");
         });
@@ -308,41 +348,52 @@ public final class MetaTools {
     }
 
     /**
-     * A tool is reserved (not AI-overwritable) iff it is currently registered as a
-     * built-in. Derived from the live registry rather than a hand-maintained switch, so
-     * there is no hand-maintained list to drift -- which was the drift the audit flagged
-     * as CRITICAL#2.
+     * Whether {@code name} is reserved — i.e. whether {@code create_tool} must refuse to install
+     * an AI-authored handler under it.
      *
-     * <p><b>Both halves of that are currently false, and this comment records why rather
-     * than what the code wishes.</b> {@code registry} is the field this class was
-     * constructed with, which is {@code surface}
-     * ({@code McpCore.java:558}) -- and kernel-layered names are <em>by
-     * definition</em> absent from {@code surface}. So this answers "not reserved" for
-     * every hidden tool: 33 of the 34 registered kernel-layered names are squattable,
-     * including {@code eval_java}, the R-1 hypervisor verb.
+     * <p><b>The reserved set is every DECLARED name in the tool-layering table.</b> Two terms,
+     * both read live, neither a hand-maintained switch:
+     * <ol>
+     *   <li>{@link IoManager#isBuiltin} on the <b>audited</b> registry — every registered
+     *       built-in, model-facing or kernel-layered (84 names, 85 with L6 wired).</li>
+     *   <li>{@code ToolRegistry.isDeclaredKernelLayered} — every DECLARED kernel-layered name,
+     *       including the 12 ADR-0004 {@code debug_*} folds that are declared but never
+     *       registered.</li>
+     * </ol>
      *
-     * <p>The intended backstop does not close it either. {@code IoManager}'s check is
-     * {@code !builtIn && previous != null && previous.builtIn()}
-     * ({@code IoManager.java:161}), and {@code previous} is read from the same surface,
-     * where {@code eval_java} does not exist -- so {@code previous} is null and the guard
-     * is skipped. <b>An earlier version of this comment asserted that backstop as a hard
-     * guarantee. It is not one.</b>
+     * <p><b>Why the second term exists, and why the twelve folds belong in it.</b> The first
+     * term alone would leave {@code debug_suspend_thread} and its ten siblings squattable,
+     * because ADR-0004 folded them behind {@code debug_manage} and nothing registers them. That
+     * is the wrong answer for two reasons. A name-shaped probe can then install its own handler
+     * under a name an operator reads in {@code list_capabilities} as the JVMTI verb — the exact
+     * impersonation this guard exists to prevent, one ADR away from being live. And the layer
+     * table's own javadoc already states the rule this implements: those twelve are declared
+     * precisely so that "the reservation authority covers the whole kernel vocabulary rather than
+     * only the handful that happens to be live". Reserving an unregistered name costs nothing —
+     * {@code create_tool} is the only writer, so the cost of a false positive is one refused
+     * tool name and the cost of a false negative is a forged hypervisor verb.
      *
-     * <p>The reachability is what makes this more than a latent bug: promotion is an
-     * explicit supported feature ({@code -Dmcp.core.promote}, {@code promote()} at
-     * {@code :185}), so {@code promote("create_tool")} puts the verb in the model's hands,
-     * and the model can then install its own handler under a name an operator reads as
-     * the hypervisor's.
+     * <p><b>Why {@code isDeclaredKernelLayered} and not {@code isKernelLayered}.</b> The latter
+     * denies by default, so an undeclared name is kernel — using it here would refuse EVERY name
+     * the model could ever invent and turn {@code create_tool} into a no-op that fails with a
+     * gate error instead of doing its job. "Undeclared" has to mean "a genuinely new tool".
      *
-     * <p>Fixing it means holding two registries -- the audited one for this check and the
-     * surface for {@code create_tool}'s install target -- which changes the constructor
-     * contract of the class the whole self-extension story depends on, and would also pull
-     * the 12 unregistered ADR-0004 {@code debug_*} folds into the reserved set. That is a
-     * design decision with a real trade-off and it is **reported for the Owner to rule on**,
-     * not silently taken. See
-     * {@code .ai-notes/docs/audits/2026-10-02-wave19-layer-filter.md} section 8.
+     * <p><b>This is the enforcement, not a courtesy.</b> {@code IoManager.register}'s check is
+     * {@code !builtIn && previous != null && previous.builtIn()} ({@code IoManager.java:161}),
+     * and {@code previous} is read from the same surface this class installs into — where a
+     * kernel-layered name does not exist, so {@code previous} is null and the guard is skipped.
+     * <b>An earlier version of this comment asserted that backstop as a hard guarantee. It is
+     * not one, and it does not fire for any hidden name.</b> The reachability is real rather than
+     * latent: promotion is a supported feature ({@code -Dmcp.core.promote}, {@code
+     * McpCore.promote}), so one property puts {@code create_tool} in the model's hands and the
+     * model can then install its own handler under a name an operator reads as the
+     * hypervisor's.
+     *
+     * <p>Both terms are pinned from the outside by
+     * {@code ReservedToolNamesAreCheckedAgainstTheAuditedRegistryTest}, in both directions.
      */
     private boolean isReserved(String name) {
-        return registry.isBuiltin(name);
+        return audited.isBuiltin(name)
+                || net.marcloud.mcp.core.io.transport.ToolRegistry.isDeclaredKernelLayered(name);
     }
 }
