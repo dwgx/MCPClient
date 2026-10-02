@@ -263,8 +263,24 @@ public class PacketBuffer extends ByteBuf
         {
             int j = this.readByte();
             int k = this.readShort();
-            itemstack = new ItemStack(Item.getItemById(i), j, k);
-            itemstack.setTagCompound(this.readNBTTagCompoundFromBuffer());
+            // An id this client does not register must not become an ItemStack holding a null
+            // item. ItemStack.loadItemStackFromNBT already refuses exactly this case on the
+            // sibling path. Without the same refusal here, the first getMaxStackSize() on such a
+            // stack throws inside Container.mergeItemStack, and because queued packets are drained
+            // through Util.runTask -- which logs the failure and drops the task -- the rest of that
+            // tick's packets go with it.
+            //
+            // The tag is still read and discarded rather than the reader index being advanced:
+            // the caller loops over the slots that follow, so consuming only the id would shift
+            // every later slot by the length of a tag that is still on the wire.
+            NBTTagCompound tag = this.readNBTTagCompoundFromBuffer();
+            Item item = Item.getItemById(i);
+
+            if (item != null)
+            {
+                itemstack = new ItemStack(item, j, k);
+                itemstack.setTagCompound(tag);
+            }
         }
 
         return itemstack;
