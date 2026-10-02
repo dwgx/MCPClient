@@ -57,8 +57,13 @@ public class GuiClickLiveIT {
         // Drive the real handler for the first element on the game thread.
         String elementId = snap.elements().get(0).id();
         GuiActions actions = new GuiActions(game, svc, null);
-        GuiActions.Result r = actions.click(snap.epoch(), snap.fingerprint(), elementId, 0);
-        assertTrue("live click should be accepted (not stale): " + r.message(), r.ok());
+        GuiActions.ClickResult r = actions.click(snap.epoch(), snap.fingerprint(), elementId, 0);
+        // A live click must never come back refused or as a lie. A slot click the
+        // server accepted reads back CONFIRMED; a button click with no observable
+        // change reads back NOT_CONFIRMED and is still a click that was driven.
+        assertTrue("live click must not be refused: " + r.message(), r.ok());
+        assertTrue("live click came back as an unreadable state: " + r.message(),
+                r.verdict() != net.marcloud.mcp.core.drivers.gui.ClickVerdict.UNREADABLE);
     }
 
     @Test
@@ -71,8 +76,9 @@ public class GuiClickLiveIT {
 
         // A deliberately-wrong fingerprint must be rejected by the stale guard.
         GuiActions actions = new GuiActions(game, svc, null);
-        GuiActions.Result r = actions.click(snap.epoch(), "bogus#0#0",
+        GuiActions.ClickResult r = actions.click(snap.epoch(), "bogus#0#0",
                 snap.elements().isEmpty() ? "b0" : snap.elements().get(0).id(), 0);
-        assertTrue("stale/bogus fingerprint must be refused", !r.ok());
+        assertTrue("stale/bogus fingerprint must be refused: " + r.message(),
+                !r.ok() && r.verdict() == net.marcloud.mcp.core.drivers.gui.ClickVerdict.REFUSED_STALE);
     }
 }

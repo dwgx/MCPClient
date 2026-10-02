@@ -80,8 +80,20 @@ public class AModelCanAskForARouteThroughActSetTest {
         @Override public float strafe() {
             return -0.25f;
         }
+        @Override public boolean jump() {
+            return false;
+        }
+        @Override public boolean creeping() {
+            return false;
+        }
         @Override public int ticks() {
             return ticks;
+        }
+        @Override
+        public net.marcloud.mcp.core.drivers.act.MoveTactic tactic() {
+            // A stub has no decision to report: it publishes fixed axes and nothing else, and a
+            // tactic invented here would be a value no controller ever chose.
+            return null;
         }
         @Override public void requestCancel() {
             cancelled = true;

@@ -349,7 +349,7 @@ public class DiffLeftMeansUnsampledNotGoneTest {
     // ---- so those read as unchanged forever. Below: the rule, derived, not hand-listed.
 
     private static final SelfView IDLE = new SelfView(10, 64, 0, 0, 0, 0, 0f, 0f, 20f, 20, 5f,
-            3, 0.5f, 0, 300, "SURVIVAL", false, false, true, List.of());
+            3, 0.5f, 0, 300, "SURVIVAL", false, false, true, List.of(), 0.0, 0, false);
 
     private static WorldView selfOnly(long tick, SelfView self) {
         return new WorldView(true, tick, "explore", self, null, List.of(), false, null, null, null);
@@ -472,7 +472,7 @@ public class DiffLeftMeansUnsampledNotGoneTest {
                     IDLE.vz(), IDLE.yaw(), IDLE.pitch(), IDLE.health(), IDLE.food(),
                     IDLE.saturation(), IDLE.xpLevel(), IDLE.xpProgress(), IDLE.armor(), IDLE.air(),
                     IDLE.gamemode(), IDLE.sneaking(), IDLE.sprinting(), IDLE.onGround(),
-                    IDLE.effects());
+                    IDLE.effects(), IDLE.fallDistance(), IDLE.fallDamageIfLanded(), IDLE.blocking());
             if (selfKeys(IDLE, moved).contains("vel")) {
                 return d;
             }
@@ -538,7 +538,8 @@ public class DiffLeftMeansUnsampledNotGoneTest {
                 IDLE.yaw(), IDLE.pitch(), IDLE.health(), IDLE.food(), IDLE.saturation(),
                 IDLE.xpLevel(), IDLE.xpProgress(), IDLE.armor(), IDLE.air(), IDLE.gamemode(),
                 IDLE.sneaking(), IDLE.sprinting(), IDLE.onGround(),
-                List.of(new SelfView.Effect(12, "potion.fireResistance", 0, durationTicks)));
+                List.of(new SelfView.Effect(12, "potion.fireResistance", 0, durationTicks)),
+                IDLE.fallDistance(), IDLE.fallDamageIfLanded(), IDLE.blocking());
     }
 
     @SuppressWarnings("unchecked")

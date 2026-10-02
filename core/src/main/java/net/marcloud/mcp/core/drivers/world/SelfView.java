@@ -24,6 +24,18 @@ import java.util.List;
  *            {@code lost}, and a model reads that as its fire resistance having just expired.
  *            Next to lava, that is the dangerous direction to be wrong in. See
  *            {@code WorldViewCapture#effectsOrNull}.
+ * @param fallDistance vanilla's {@code Entity.fallDistance} in blocks — a CLIENT fact, maintained
+ *            locally at {@code Entity.updateFallState:1034-1055} and not a server value. It is
+ *            here because a critical hit's precondition is a number ({@code EntityPlayer:1333})
+ *            and nothing else reported it.
+ * @param fallDamageIfLanded half-hearts {@link FallDamage} says a landing from
+ *            {@code fallDistance} would cost, in vanilla's own arithmetic
+ *            ({@code EntityLivingBase.fall:1156}). Named for a HYPOTHETICAL landing because the
+ *            damage itself can never be read back: it is applied under {@code !worldObj.isRemote}.
+ *            This is the number that lets a caller refuse a 12-block drop before taking it.
+ * @param blocking vanilla's {@code EntityPlayer.isBlocking} — a use in progress AND the used
+ *            item's use action being BLOCK. Distinct from "using an item" on purpose: a held meal
+ *            and a raised shield are both uses and only one of them is a block.
  */
 public record SelfView(
         double x, double y, double z,
@@ -33,8 +45,8 @@ public record SelfView(
         int xpLevel, float xpProgress,
         int armor, Integer air,
         String gamemode, boolean sneaking, boolean sprinting, boolean onGround,
-        List<Effect> effects) {
-
+        List<Effect> effects,
+        double fallDistance, int fallDamageIfLanded, boolean blocking) {
     /**
      * Vanilla's air scale, kept here because two files reason about it and both need the same
      * numbers: {@code 300} on the last tick out of water, one decrement per tick under it

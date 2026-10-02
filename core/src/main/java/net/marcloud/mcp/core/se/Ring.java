@@ -108,17 +108,53 @@ public enum Ring {
             Map.entry("do_set_abilities", R1),
             Map.entry("do_place_block", R1),
             Map.entry("do_click_slot", R1),
+            // A write that moves items: the same exposure as do_click_slot, and gated the same
+            // way. Its distinguishing property is that it CONFIRMS against the server's container,
+            // which does not lower the ring -- reading the world back is how it avoids lying, not
+            // an extra privilege.
+            Map.entry("transfer_item", R1),
             Map.entry("do_set_creative_slot", R1),
             Map.entry("do_use_entity", R1),
             Map.entry("do_entity_action", R1),
+            // Spends the player's lapis and XP and writes an enchantment into the server's copy
+            // of the item. Outward network effect, same tier as the rest of the typed do_* tools.
+            Map.entry("do_enchant_item", R1),
             // R2 observe: live game/GL reads on the game thread
             Map.entry("scan_surroundings", R2),
             Map.entry("world_view", R2),
             Map.entry("find_block", R2),
+            // A read of one loaded cell: the same exposure as world_view, which reads a whole
+            // region of the same world. Ring-only, so no L3/L4 row -- it writes nothing and asks
+            // for no privilege.
+            Map.entry("inspect_block", R2),
+            // Reads identity and connection state the client already holds: the same exposure as
+            // read_player_state, which sits at R3. Ring-only -- it writes nothing and asks for no
+            // privilege, so it needs no L3 or L4 row.
+            Map.entry("server_info", R3),
+            // Opens the project's own overlay panel. It changes what is on screen and nothing
+            // else -- no packet leaves the client, no world state is written -- so R3 with no L3
+            // or L4 row, like the other screen-affecting tools.
+            Map.entry("open_overlay", R3),
+            // Opens the ESC menu: the root of the pause/options tree. Same shape as
+            // open_overlay -- it changes what is on screen (and, in singleplayer, pauses the
+            // world, which is the pause menu's own vanilla behaviour) but sends no packet and
+            // writes no world state, so R3 with no L3 or L4 row. Everything below it is driven by
+            // gui_click_element, which keeps its own R1 ring and SE_GUI_INTERACT gate.
+            Map.entry("open_pause_menu", R3),
             // craft_plan reads the static recipe table plus the live inventory and mutates
             // nothing, so it sits with the other observers rather than with the actuators.
             Map.entry("craft_plan", R2),
+            // dev_probe reads live connection/world/GL state on the game thread — an observer
+            // like the three above, and it REGISTERS as R2 (DevTools passes an R2 fallback, the
+            // REST catalog lists it as R2). It must be declared here too: enforcement re-derives
+            // the ring by name with an R3 fallback, so leaving it out did not merely mislabel it
+            // — a subject dropped to R3 could still probe the live game while every visible
+            // surface said R2 (audit H8).
+            Map.entry("dev_probe", R2),
             Map.entry("act_set", R1),
+            // Same family as act_set: it drives the live player through vanilla's own
+            // KeyBinding dispatch, so it gets the same ring rather than a name-shaped guess.
+            Map.entry("press_key_binding", R1),
             Map.entry("act_plan", R1),
             Map.entry("act_cancel", R1),
             Map.entry("act_status", R3),
@@ -157,6 +193,11 @@ public enum Ring {
             Map.entry("packets_tail", R3),
             Map.entry("packet_get", R3),
             Map.entry("packet_view", R3),
+            // Inbound chat reader over the SAME Netty-tap feed as packet_view: it
+            // re-reads the tap's typed S02PacketChat projection out of the ChatLog
+            // ring. R3 like its siblings (local, read-only) — reading chat grants no
+            // more than reading the packet it was carried in.
+            Map.entry("chat_read", R3),
             // permission tools themselves
             Map.entry("drop_privilege", R3),
             Map.entry("restore_privilege", R3),
@@ -186,6 +227,17 @@ public enum Ring {
             Map.entry("seam_tick_disable", R0),
             // C6 CONTROL-EXEC: native JVMTI debugger — pause/rewrite live thread
             // state, strictly hypervisor.
+            // Folded manifest entries (ADR-0004). These are the names the agent actually calls.
+            // The declared ring is the MAXIMUM over the cluster, and the cluster boundary is
+            // drawn at the ring boundary precisely so that maximum equals every member's ring.
+            //
+            // The eleven concrete names BELOW are deliberately kept. Once a name is absent
+            // from this table, forBuiltin() falls back to R3 -- so dropping "debug_read_local"
+            // when the manifest stopped listing it would silently hand a hypervisor tool to
+            // user clearance. That is the exact failure the ring model exists to prevent, and
+            // it is why this table is keyed by the union of called AND callable names.
+            Map.entry("debug_manage", R_MINUS_1),
+            Map.entry("debug_handle", R0),
             Map.entry("debug_suspend_thread", R_MINUS_1),
             Map.entry("debug_pop_frame", R_MINUS_1),
             Map.entry("debug_force_return", R_MINUS_1),
@@ -196,8 +248,14 @@ public enum Ring {
             Map.entry("debug_write_local", R_MINUS_1),
             Map.entry("debug_watch_field", R_MINUS_1),
             // C6 L6 handle lifecycle (only registered when the object-handle layer
-            // is wired): open/close a handle over a thread. Kernel-level self-mgmt,
-            // no native agent, no thread control by themselves.
+            // is wired): open/close a handle over a thread. Kernel-level self-mgmt
+            // (R0, not R-1): these mint no thread control by themselves, but they now
+            // carry the handle-op family's L3/L4/L5 rows and run the same guard()
+            // preamble as the nine ops above — so the debugger must be present and
+            // SE_DEBUG_CONTROL/CAP_DEBUG_CONTROL must be held (audit H9).
+            // Kept alongside "debug_handle" above. The folded tool is what the manifest lists,
+            // but forBuiltin() must keep answering for the concrete names too, or a stale or
+            // hand-rolled call to debug_open_thread would resolve to the R3 fallback.
             Map.entry("debug_open_thread", R0),
             Map.entry("debug_close_handle", R0));
 }

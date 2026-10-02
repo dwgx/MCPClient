@@ -59,23 +59,23 @@ public class KeGameDispatcherAwaitTest {
         }
     }
 
+    /**
+     * A timeout must NOT cancel the task.
+     *
+     * <p>This test previously asserted the opposite, and it was wrong. The future passed to
+     * {@code awaitOrCancel} is a vanilla {@code MinecraftFuture} from
+     * {@code Minecraft.addScheduledTask}, which pushes the task onto {@code scheduledTasks} with
+     * no way to take it back off. Cancelling leaves a cancelled FutureTask in the game's own
+     * queue; the next {@code runGameLoop} drains it through {@code Util.runTask} ->
+     * {@code FutureTask.get()}, and vanilla does not catch CancellationException there. Observed
+     * live three times before it was understood: a tool call that timed out took the entire
+     * client down with "Unreported exception thrown".
+     *
+     * <p>So the correct contract is: report the timeout, let the task run, discard its result. The
+     * test now pins that, because the failure it prevents is a crash rather than a slow call.
+     */
     @Test
-    public void interruptCancelsTheQueuedTask() {
-        FakeFuture<String> f = new FakeFuture<>(new InterruptedException("worker interrupted"));
-        try {
-            KeGameDispatcher.awaitOrCancel(f, 5000L);
-            fail("expected InterruptedException to propagate");
-        } catch (InterruptedException expected) {
-            // good
-        } catch (ExecutionException | TimeoutException other) {
-            fail("wrong exception: " + other);
-        }
-        assertTrue("interrupt path must cancel the queued task so it can't run later",
-                f.cancelled);
-    }
-
-    @Test
-    public void timeoutCancelsTheQueuedTask() {
+    public void timeoutDoesNotCancelTheQueuedTask() {
         FakeFuture<String> f = new FakeFuture<>(new TimeoutException("deadline"));
         try {
             KeGameDispatcher.awaitOrCancel(f, 5000L);
@@ -85,7 +85,24 @@ public class KeGameDispatcherAwaitTest {
         } catch (InterruptedException | ExecutionException other) {
             fail("wrong exception: " + other);
         }
-        assertTrue("timeout path must cancel", f.cancelled);
+        assertFalse("a timed-out game task must be left in the queue, not cancelled: cancelling "
+                        + "it poisons Minecraft.scheduledTasks and crashes the client on the next "
+                        + "tick", f.cancelled);
+    }
+
+    /** Same contract on the interrupt path, for the same reason. */
+    @Test
+    public void interruptDoesNotCancelTheQueuedTask() {
+        FakeFuture<String> f = new FakeFuture<>(new InterruptedException("worker interrupted"));
+        try {
+            KeGameDispatcher.awaitOrCancel(f, 5000L);
+            fail("expected InterruptedException to propagate");
+        } catch (InterruptedException expected) {
+            // good
+        } catch (ExecutionException | TimeoutException other) {
+            fail("wrong exception: " + other);
+        }
+        assertFalse("an interrupted worker must also leave the game queue intact", f.cancelled);
     }
 
     @Test

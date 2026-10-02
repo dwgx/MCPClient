@@ -6,12 +6,14 @@ import net.marcloud.mcp.core.ke.event.EventBus;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 import java.util.function.Supplier;
 
 import io.modelcontextprotocol.server.McpServerFeatures.SyncToolSpecification;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
+import io.modelcontextprotocol.spec.McpSchema.CallToolRequest;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import io.modelcontextprotocol.spec.McpSchema.ToolAnnotations;
 import net.marcloud.mcp.core.io.IoManager;
@@ -73,6 +75,20 @@ public final class DebugTools {
             "debug_set_breakpoint", "debug_clear_breakpoint", "debug_single_step",
             "debug_read_local", "debug_write_local", "debug_watch_field");
 
+    /**
+     * The folded manifest names: two entries, not eleven. {@code debug_handle} exists only
+     * when the L6 object-handle layer is wired, so a headless build registers
+     * {@code debug_manage} alone. See {@link #all()} and ADR-0004.
+     */
+    public static final List<String> FOLDED_TOOL_NAMES = List.of("debug_manage", "debug_handle");
+
+    /** The nine R-1 JVMTI operations behind {@code debug_manage}. */
+    public static final List<String> MANAGE_ACTIONS = TOOL_NAMES;
+
+    /** The two R-0 handle-lifecycle operations behind {@code debug_handle}. */
+    public static final List<String> HANDLE_ACTIONS =
+            List.of("debug_open_thread", "debug_close_handle");
+
     public void registerAll(IoManager registry) {
         for (SyncToolSpecification spec : all()) {
             var tool = spec.tool();
@@ -81,23 +97,125 @@ public final class DebugTools {
         }
     }
 
+    /**
+     * The folded surface: two tools, not eleven.
+     *
+     * <p>Folded BY RING, and only because the split is forced. {@code SeLocalMonitor.evaluate}
+     * never passes {@code arguments} to the gate, so a folded tool cannot carry several
+     * privilege requirements and resolve them per branch. Nine of these tools sit at R-1 and
+     * two ({@code debug_open_thread} / {@code debug_close_handle}) sit at R0: same
+     * IntegrityLevel, same {@code SE_DEBUG_CONTROL}, same {@code CAP_DEBUG_CONTROL}, different
+     * ring — the handles do not themselves generate thread control, so they are kernel self-
+     * management rather than hypervisor work. One tool for all eleven would have to declare
+     * either R-1 (promoting the two handles past their gate) or R0 (demoting the nine execution
+     * tools until they stop working). Both directions are privilege changes, so the cluster
+     * boundary is drawn exactly at the ring boundary and nowhere else.
+     *
+     * <p>Each cluster dispatches to the ORIGINAL spec via {@link SyncToolSpecification#callHandler}
+     * with {@code action} stripped from the arguments. The handler bodies are untouched, so
+     * behaviour per action is byte-identical to the pre-fold surface; only the manifest shrinks.
+     * See ADR-0004.
+     */
     private List<SyncToolSpecification> all() {
-        List<SyncToolSpecification> t = new ArrayList<>();
-        t.add(suspendThread());
-        t.add(popFrame());
-        t.add(forceReturn());
-        t.add(setBreakpoint());
-        t.add(clearBreakpoint());
-        t.add(singleStep());
-        t.add(readLocal());
-        t.add(writeLocal());
-        t.add(watchField());
+        Map<String, SyncToolSpecification> byName = new LinkedHashMap<>();
+        byName.put("debug_suspend_thread", suspendThread());
+        byName.put("debug_pop_frame", popFrame());
+        byName.put("debug_force_return", forceReturn());
+        byName.put("debug_set_breakpoint", setBreakpoint());
+        byName.put("debug_clear_breakpoint", clearBreakpoint());
+        byName.put("debug_single_step", singleStep());
+        byName.put("debug_read_local", readLocal());
+        byName.put("debug_write_local", writeLocal());
+        byName.put("debug_watch_field", watchField());
+        Map<String, SyncToolSpecification> handles = new LinkedHashMap<>();
         if (objects != null) {
             // L6 handle lifecycle — only when the object-handle layer is wired.
-            t.add(openThread());
-            t.add(closeHandle());
+            handles.put("debug_open_thread", openThread());
+            handles.put("debug_close_handle", closeHandle());
+        }
+        List<SyncToolSpecification> t = new ArrayList<>();
+        t.add(fold("debug_manage", "JVMTI thread execution, held at R-1 hypervisor",
+                new ArrayList<>(byName.keySet()), byName));
+        if (!handles.isEmpty()) {
+            t.add(fold("debug_handle", "JVMTI object-handle lifecycle, held at R0 kernel",
+                    new ArrayList<>(handles.keySet()), handles));
         }
         return t;
+    }
+
+    /**
+     * One manifest entry that dispatches to the per-action specs.
+     *
+     * <p>The {@code action} value is stripped before delegating so the original handlers see
+     * exactly the argument map they saw before the fold. An unknown action is an error that
+     * names the valid ones — folding eleven precise errors into one vague one is the cost
+     * ADR-0004 records, and it is paid back here by listing the actions in the message.
+     */
+    private static SyncToolSpecification fold(String name, String blurb, List<String> actions,
+                                              Map<String, SyncToolSpecification> byName) {
+        Map<String, Object> props = new LinkedHashMap<>();
+        props.put("action", Map.of(
+                "type", "string",
+                "enum", actions,
+                "description", "which operation to perform: " + String.join(", ", actions)
+                        + ". Required."));
+        // The per-action arguments travel at the TOP level, not nested: SeLocalMonitor never
+        // sees `arguments`, so the gate reads only the tool NAME, and nesting them would make
+        // the schema describe a shape the handler does not read.
+        // Per-action signatures belong in the description, because folding otherwise deletes
+        // them from the manifest. With eleven separate tools the agent could read
+        // debug_read_local's schema and see it accepts an optional `handle`; folded behind a
+        // single `action` enum it can see only the list of action NAMES. That is a real loss of
+        // schema discovery -- found by L6DebugGateThroughRegistryTest, which asserts the handle
+        // property is advertised and stopped being able to -- so it is paid back here in prose.
+        StringBuilder sig = new StringBuilder();
+        for (Map.Entry<String, SyncToolSpecification> e : byName.entrySet()) {
+            Object req = e.getValue().tool().inputSchema() == null ? null
+                    : e.getValue().tool().inputSchema().get("required");
+            sig.append("\n  - ").append(e.getKey()).append(": requires ")
+                    .append(req instanceof List<?> l && !l.isEmpty()
+                            ? String.join(", ", l.stream().map(String::valueOf).toList())
+                            : "(no required arguments)");
+        }
+        Tool tool = Tool.builder()
+                .name(name)
+                .description(blurb + ". Choose one operation with 'action' and pass that "
+                        + "operation's own arguments alongside it, at the top level."
+                        + "\nEvery action also accepts an optional 'handle' in place of"
+                        + " 'threadName' when the object-handle layer is wired: mint one with"
+                        + " debug_handle action=debug_open_thread. A handle is subject to a"
+                        + " frozen READ|WRITE|EXECUTE mask, and under -Dmcp.core.hardened=true"
+                        + " a handle-op called without one is refused rather than falling back"
+                        + " to the name-based path."
+                        + "\nActions and their required arguments:" + sig)
+                .inputSchema(schema(props, List.of("action")))
+                .annotations(ToolAnnotations.builder()
+                        .title(name)
+                        .readOnlyHint(false)
+                        .destructiveHint(false)
+                        .idempotentHint(true)
+                        .openWorldHint(false)
+                        .build())
+                .build();
+        return new SyncToolSpecification(tool, (ex, req) -> {
+            Map<String, Object> raw = req.arguments() == null
+                    ? new LinkedHashMap<>() : new LinkedHashMap<>(req.arguments());
+            Object a = raw.remove("action");
+            if (a == null) {
+                return err("'action' is required. One of: " + String.join(", ", actions) + ".");
+            }
+            SyncToolSpecification target = byName.get(String.valueOf(a));
+            if (target == null) {
+                return err("unknown action '" + a + "' for " + name + ". One of: "
+                        + String.join(", ", actions) + ".");
+            }
+            // Delegate under the ORIGINAL tool name with 'action' stripped, so the handler
+            // sees exactly the argument map and tool identity it saw before the fold. The gate
+            // has already run against the FOLDED name by this point, which is why the two
+            // clusters must be gate-homogeneous -- see the note on all().
+            return target.callHandler().apply(ex,
+                    new CallToolRequest(target.tool().name(), raw));
+        });
     }
 
     // ---- helpers (mirror SeamTools/MetaTools idiom) ----
@@ -674,7 +792,10 @@ public final class DebugTools {
                         + "READ|WRITE|EXECUTE. Returns a handle id to pass as 'handle' to "
                         + "debug_suspend_thread / debug_read_local etc. — the handle freezes the "
                         + "exact thread object once, so later jthread/name reuse cannot redirect "
-                        + "the op (TOCTOU-safe). Close it with debug_close_handle.")
+                        + "the op (TOCTOU-safe). Close it with debug_close_handle. Requires "
+                        + "SE_DEBUG_CONTROL and CAP_DEBUG_CONTROL, so disable_privilege or "
+                        + "revoke_capability closes this tool, and requires the native agent "
+                        + "(see the other debug_* tools).")
                 .inputSchema(schema(Map.of("threadName", str("exact live thread name")),
                         List.of("threadName")))
                 .annotations(ToolAnnotations.builder()
@@ -693,6 +814,13 @@ public final class DebugTools {
                         .build())
                 .build();
         return new SyncToolSpecification(tool, (ex, req) -> {
+            // The shared preamble the other nine debug_* tools run: this handler was the one
+            // that skipped it, so an L4/L5-in-handler check (the defense-in-depth layer under
+            // the side tables) never ran for handle minting (audit H9).
+            CallToolResult g = guard();
+            if (g != null) {
+                return g;
+            }
             String name = arg(req.arguments(), "threadName");
             Thread t = (name == null) ? null : findThread(name);
             if (t == null) {
@@ -715,7 +843,8 @@ public final class DebugTools {
         Tool tool = Tool.builder()
                 .name("debug_close_handle")
                 .description("KERNEL (R0): close an L6 object-handle previously opened with "
-                        + "debug_open_thread. Idempotent; only the owner can close it.")
+                        + "debug_open_thread. Idempotent; only the owner can close it. Requires "
+                        + "SE_DEBUG_CONTROL and CAP_DEBUG_CONTROL.")
                 .inputSchema(schema(Map.of("handle", str("the handle id to close")),
                         List.of("handle")))
                 .annotations(ToolAnnotations.builder()
@@ -727,6 +856,13 @@ public final class DebugTools {
                         .build())
                 .build();
         return new SyncToolSpecification(tool, (ex, req) -> {
+            // Same shared preamble as every other debug_* handler (audit H9): closing a
+            // frozen READ|WRITE|EXECUTE handle is part of the same controlled surface, and the
+            // side-table rows for it are only a defense-in-depth layer away from this check.
+            CallToolResult g = guard();
+            if (g != null) {
+                return g;
+            }
             String handle = arg(req.arguments(), "handle");
             long id;
             try {

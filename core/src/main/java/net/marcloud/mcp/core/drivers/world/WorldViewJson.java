@@ -73,6 +73,13 @@ public final class WorldViewJson {
         m.put("onGround", s.onGround());
         m.put("sneaking", s.sneaking());
         m.put("sprinting", s.sprinting());
+        // The three body facts, sent together because they are read together: a caller asking
+        // "am I falling" wants the distance AND what landing costs, and splitting them across a
+        // turn boundary is how a caller plans a drop it has not priced. `blocking` is separate
+        // because it answers a different question and is usually all a caller wants.
+        m.put("fallDistance", round(s.fallDistance()));
+        m.put("fallDamageIfLanded", s.fallDamageIfLanded());
+        m.put("blocking", s.blocking());
         // Three states, two encodings, and the split is the opposite way round from air's on
         // purpose. ABSENT means the player has no effects -- the common case, so it costs nothing --
         // and an explicit NULL means the capture could not read them (SelfView#effects). Air is
@@ -103,6 +110,16 @@ public final class WorldViewJson {
         m.put("biome", e.biome());
         m.put("timeOfDay", e.timeOfDay());
         m.put("worldTime", e.worldTime());
+        // Weather, because it moves the spawn gate: EntityMob re-reads the cell with
+        // skylightSubtracted forced to 10 under thunder, turning a midday 15 into 5. An agent told
+        // "noon" and not this plans against the wrong afternoon. lightAtPlayer is the same
+        // quantity inspect_block reports for any cell, so the two are comparable.
+        if (e.raining() || e.thundering() || e.daytime() || e.lightAtPlayer() >= 0) {
+            m.put("raining", e.raining());
+            m.put("thundering", e.thundering());
+            m.put("daytime", e.daytime());
+            m.put("lightAtPlayer", e.lightAtPlayer());
+        }
         return m;
     }
 
@@ -130,6 +147,18 @@ public final class WorldViewJson {
             m.put("type", e.type());
             m.put("pos", List.of(round(e.x()), round(e.y()), round(e.z())));
             m.put("dist", round(e.dist()));
+            // The questions a caller asks on arrival, none of which dist alone can answer.
+            // reachableSeen is the 6.0-block gate and reachableBlind the 3.0 one; which applies
+            // depends on whether the SERVER can see the player, which the client cannot observe,
+            // so both are reported rather than one guessed.
+            m.put("reachableSeen", e.reachable(true));
+            m.put("reachableBlind", e.reachable(false));
+            // Hovering and hitting are different reaches: the crosshair clamps at 3.0.
+            m.put("hoverable", e.hoverable());
+            // Attacking an item/orb/arrow/self disconnects the player; "attacks players" is what
+            // decides whether a fight is needed at all.
+            m.put("attackable", e.attackable());
+            m.put("hostile", e.hostile());
             if (e.hp() != null) m.put("hp", e.hp());
             out.add(m);
         }
@@ -139,8 +168,44 @@ public final class WorldViewJson {
     static Map<String, Object> invMap(InventoryView inv) {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("selectedSlot", inv.selectedSlot());
+        m.put("slots", slotRows(inv.slots()));
+        // The armour block is its own key, not four more entries in "slots": every consumer of
+        // "slots" assumes the 36-wide main inventory, and appending four would make "the player
+        // is carrying 40 things" true in a way nobody means. ABSENT means not captured; a present
+        // list of four is a real reading, three of which are usually null items.
+        if (inv.armour() != null) {
+            // Each row carries its piece name and the container slot that equips it. A bare index
+            // is not actionable: the caller has to know that index 36 is the helmet AND that the
+            // click that equips it is container slot 8, and the second fact is the inverted one
+            // that {@link ArmourSlots} exists to publish. Handing over an index alone is how a
+            // helmet ends up on the feet.
+            m.put("armor", armourRows(inv.armour()));
+        }
+        return m;
+    }
+
+    private static List<Object> armourRows(List<InventoryView.Slot> slots) {
         List<Object> rows = new ArrayList<>();
-        for (InventoryView.Slot s : inv.slots()) {
+        for (int armorType = 0; armorType < slots.size(); armorType++) {
+            InventoryView.Slot s = slots.get(armorType);
+            Map<String, Object> r = new LinkedHashMap<>();
+            r.put("index", s.index());
+            r.put("piece", ArmourSlots.pieceName(armorType));
+            r.put("armorType", armorType);
+            r.put("containerSlot", ArmourSlots.containerSlotFor(armorType));
+            r.put("item", s.item());
+            r.put("count", s.count());
+            r.put("damage", s.damage());
+            if (s.maxDamage() != null) r.put("maxDamage", s.maxDamage());
+            rows.add(r);
+        }
+        return rows;
+
+    }
+
+    private static List<Object> slotRows(List<InventoryView.Slot> slots) {
+        List<Object> rows = new ArrayList<>();
+        for (InventoryView.Slot s : slots) {
             Map<String, Object> r = new LinkedHashMap<>();
             r.put("index", s.index());
             r.put("item", s.item());
@@ -149,8 +214,7 @@ public final class WorldViewJson {
             if (s.maxDamage() != null) r.put("maxDamage", s.maxDamage());
             rows.add(r);
         }
-        m.put("slots", rows);
-        return m;
+        return rows;
     }
 
     static Map<String, Object> gridMap(LocalGrid g) {

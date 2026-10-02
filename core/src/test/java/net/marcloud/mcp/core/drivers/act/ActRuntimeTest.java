@@ -140,13 +140,18 @@ public class ActRuntimeTest {
         // Fresh submit is IDLE, so the view must NOT be active yet.
         runtime.registerApplier(ActSlot.MOVE, new MoveApplier());
         clock.advance();
-        runtime.submitMove(new MoveIntent(0.5f, -0.5f, true, false, false, 0));
+        // Full-scale axes, not 0.5. This test is about the GATE -- an IDLE intent must not drive
+        // movement and an ACTIVE one must -- and 0.5 is not a value a movement axis can hold
+        // (MoveIntent snaps to the key a person could press), so asserting on it would pin a
+        // value the surface deliberately does not produce. +-1 survives the snap unchanged, which
+        // is what lets the assertion be about the gate.
+        runtime.submitMove(new MoveIntent(1.0f, -1.0f, true, false, false, 0));
         assertFalse("IDLE intent must not drive movement", runtime.moveActive());
 
         tick(); // becomes ACTIVE
         assertTrue(runtime.moveActive());
-        assertEquals(0.5f, runtime.moveForward(), 1e-6);
-        assertEquals(-0.5f, runtime.moveStrafe(), 1e-6);
+        assertEquals(1.0f, runtime.moveForward(), 1e-6);
+        assertEquals(-1.0f, runtime.moveStrafe(), 1e-6);
         assertTrue(runtime.jump());
     }
 

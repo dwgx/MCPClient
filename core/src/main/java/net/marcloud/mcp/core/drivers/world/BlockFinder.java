@@ -179,6 +179,16 @@ public final class BlockFinder {
 
     private static String nameAt(WorldClient w, BlockPos pos) {
         try {
+            // Asked BEFORE the state is read, because the read is what lies. In an unloaded
+            // chunk getBlockState does not fail -- it returns air, and a stone block the
+            // player is actually looking at is reported as no block at all. Dropping that as
+            // a non-match is indistinguishable from "there is none nearby", which turns the
+            // legend's promise that a miss is trustworthy into a claim this method cannot
+            // keep. Same failure the world_view grid had, and the same answer: say the cell
+            // was not read.
+            if (!w.isBlockLoaded(pos)) {
+                return null;
+            }
             Block b = w.getBlockState(pos).getBlock();
             Object name = Block.blockRegistry.getNameForObject(b);
             if (name == null) {

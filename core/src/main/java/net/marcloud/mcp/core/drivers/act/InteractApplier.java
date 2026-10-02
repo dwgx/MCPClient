@@ -3,8 +3,9 @@ package net.marcloud.mcp.core.drivers.act;
 /**
  * The {@link ActSlot#INTERACT} applier: routes an {@link InteractIntent} to the
  * right pure controller ({@link DigController} for multi-tick digging,
- * {@link HoldController} for a sustained use, {@link InteractController} for
- * use/place/attack, {@link HotbarController} for slot select) and steps it over an
+ * {@link HoldController} for a sustained use, {@link DropController} for emptying an inventory
+ * slot, {@link InteractController} for use/place/attack, {@link HotbarController} for slot
+ * select) and steps it over an
  * {@link ActActuator}.
  *
  * <p>Stateful, game-thread-only (driven by {@link ActTickLoop}), so no
@@ -29,6 +30,7 @@ public final class InteractApplier implements ActApplier {
     private HoldController hold;
     private InteractController interact;
     private HotbarController hotbar;
+    private DropController drop;
 
     public InteractApplier(ActActuator actuator) {
         this.actuator = actuator;
@@ -52,7 +54,9 @@ public final class InteractApplier implements ActApplier {
             if (out != null) {
                 reset();
                 return current.markActive(current.lastAppliedTick(), out.message())
-                        .withPhase(ActPhase.CANCELLED, out.message());
+                        .withPhase(ActPhase.CANCELLED, out.message())
+                        .withBelief(out.belief())
+                .withUnreadCells(out.unreadCells());
             }
             reset();
             return current.withPhase(ActPhase.CANCELLED, "interact cancelled");
@@ -60,10 +64,16 @@ public final class InteractApplier implements ActApplier {
 
         ActOutcome outcome = step(ii);
         long tick = current.lastAppliedTick();
+        // The grade travels with the outcome onto the record, and this is the only place in the act
+        // layer that copies one: act_status reads the slot, and a grade that stopped here would be
+        // produced and discarded every terminal dig. Applied on the cancel path above too, because
+        // a teardown that ran is a claim about the world in exactly the same way a completion is.
         if (outcome.terminal()) {
             reset();
             return current.markActive(tick, outcome.message())
-                    .withPhase(outcome.state(), outcome.message());
+                    .withPhase(outcome.state(), outcome.message())
+                    .withBelief(outcome.belief())
+                .withUnreadCells(outcome.unreadCells());
         }
         return current.markActive(tick, outcome.message());
     }
@@ -92,6 +102,7 @@ public final class InteractApplier implements ActApplier {
             case DIG -> dig.tick(actuator);
             case HOLD -> hold.tick(actuator);
             case HOTBAR -> hotbar.tick(actuator);
+            case DROP -> drop.tick(actuator);
             default -> interact.tick(actuator);
         };
     }
@@ -113,6 +124,7 @@ public final class InteractApplier implements ActApplier {
             case DIG -> dig = new DigController(ii);
             case HOLD -> hold = new HoldController(ii);
             case HOTBAR -> hotbar = new HotbarController(ii);
+            case DROP -> drop = new DropController(ii);
             default -> interact = new InteractController(ii);
         }
     }
@@ -132,6 +144,7 @@ public final class InteractApplier implements ActApplier {
         dig = null;
         hold = null;
         interact = null;
+        drop = null;
         hotbar = null;
     }
 }

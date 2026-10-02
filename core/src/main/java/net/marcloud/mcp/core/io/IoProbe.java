@@ -111,6 +111,33 @@ public final class IoProbe {
         return Result.OK;
     }
 
+
+    /**
+     * Validates one declared property value.
+     *
+     * <p><b>What this enforces, exhaustively:</b> {@code type} (the switch below),
+     * {@code enum} (the list membership test), and — one level up, in
+     * {@link #validateObject} — {@code required}, which must be present AND non-null.
+     *
+     * <p><b>What this does NOT enforce, and a schema author must not assume it does:
+     * {@code minimum} and {@code maximum}.</b> A numeric bound declared in a tool schema is
+     * documentation to a model, not a gate here. The bounds that exist in this codebase are
+     * enforced one layer in, by the parser that consumes the value — {@code face} 0-5 and
+     * {@code hotbarSlot} 0-8 in the act parser, and {@code slot} 0-35 for the drop verb.
+     * Each names the range in its refusal message, so a caller that violates a bound learns
+     * why.
+     *
+     * <p>This is recorded as prose rather than changed because the alternative is not a bug
+     * fix. Enforcing {@code minimum}/{@code maximum} here would alter the behaviour of EVERY
+     * tool in the surface at once, including tools whose bounds are currently wider than their
+     * parsers accept — so a caller could start being refused at the boundary for a range it was
+     * previously allowed to send and have the parser reject. Deciding which of those two
+     * behaviours is correct is a policy question about the tool surface, not a defect, and it
+     * belongs to whoever owns that surface rather than to a change smuggled in as a cleanup.
+     *
+     * <p>So: a tool description that says "0-35" is telling the model the truth about what the
+     * parser will accept. It is not a promise that {@code IoProbe} checked it.
+     */
     private static Result validateValue(Map<String, Object> schema, Object value, String path) {
         if (!(schema.get("type") instanceof String type)) {
             return Result.OK; // untyped property → accept

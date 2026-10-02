@@ -109,7 +109,7 @@ public class GuiTrajectoryTest {
         String fp = svc.fingerprint(screen);
 
         // 1) a successful click on b0
-        GuiActions.Result click = actions.clickOnScreen(screen, epoch, fp, "b0", 0);
+        GuiActions.ClickResult click = actions.clickOnScreen(screen, epoch, fp, "b0", 0);
         assertTrue(click.message(), click.ok());
         assertEquals(1, screen.clicks); // real handler was driven
 
@@ -119,7 +119,7 @@ public class GuiTrajectoryTest {
         assertEquals(1, screen.keys);
 
         // 3) a click on a missing element -> failure, still recorded
-        GuiActions.Result miss = actions.clickOnScreen(screen, epoch, fp, "b99", 0);
+        GuiActions.ClickResult miss = actions.clickOnScreen(screen, epoch, fp, "b99", 0);
         assertFalse(miss.ok());
 
         List<GuiTrajectory.Entry> log3 = log.recent();
@@ -129,8 +129,8 @@ public class GuiTrajectoryTest {
         assertEquals(GuiTrajectory.KIND_CLICK, e0.kind());
         assertEquals("b0", e0.elementId());
         assertTrue(e0.ok());
-        assertEquals("FakeScreen#1#0", e0.beforeFingerprint());
-        assertEquals("FakeScreen#1#0", e0.afterFingerprint());
+        assertEquals("FakeScreen#1#0#fa437", e0.beforeFingerprint());
+        assertEquals("FakeScreen#1#0#fa437", e0.afterFingerprint());
 
         GuiTrajectory.Entry e1 = log3.get(1);
         assertEquals(GuiTrajectory.KIND_PRESS, e1.kind());
@@ -181,7 +181,7 @@ public class GuiTrajectoryTest {
         // structure drifts under the captured fingerprint -> guard rejects
         screen.addButton(new GuiButton(2, 0, 30, 100, 20, "More"));
 
-        GuiActions.Result r = actions.clickOnScreen(screen, epoch, fp, "b0", 0);
+        GuiActions.ClickResult r = actions.clickOnScreen(screen, epoch, fp, "b0", 0);
         assertFalse(r.ok());
         assertEquals(0, screen.clicks); // handler NOT driven
 

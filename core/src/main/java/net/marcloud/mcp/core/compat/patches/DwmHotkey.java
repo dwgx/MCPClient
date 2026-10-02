@@ -93,7 +93,7 @@ public final class DwmHotkey {
                 return;
             }
             wasDown = true;
-            toggleScreen();
+            toggleScreenForTool();
         } catch (Throwable t) {
             // Inlined on the render thread inside the keyboard loop: a fault here must never
             // escape into the game. Reported once so a genuine mapping break is still visible.
@@ -107,13 +107,32 @@ public final class DwmHotkey {
      * <p>Toggle rather than open: the same key that summons the UI should put it away, and the
      * screen's own Escape handling is not available while the game has focus.
      */
-    private static void toggleScreen() {
+    /**
+     * Open or close the overlay. Public because it is also the entry point an AGENT needs.
+     *
+     * <p>This used to be private, reachable only from the injected {@code onKeyEvent}, and that
+     * made the overlay the one surface in the whole project a person could open and an agent
+     * could not -- which is the exact gap audit 2.6 exists to close, reopened from the other
+     * side. {@code press_key_binding} cannot stand in: RSHIFT is not in vanilla's keybind array
+     * at all (which is why it answers {@code bindingClaimed=true} and nothing happens), and this
+     * hook is driven by the GLFW callback rather than by {@code KeyBinding.onTick}.
+     *
+     * <p>So the agent gets this method, and it is the SAME method the key calls. Not a parallel
+     * path, not a simplified one: the guard that refuses to replace another screen, the toggle
+     * rather than stack, and the construction path through {@code DwmEntry} are all shared. If
+     * they ever diverge, the person and the agent are operating different UIs, which is the
+     * defect this is avoiding.
+     *
+     * @return what happened, for a tool to report: {@code "opened"}, {@code "closed"},
+     *         {@code "dwm-not-present"}, {@code "another-screen-open"} or {@code "failed:<why>"}
+     */
+    public static String toggleScreenForTool() {
         try {
             Class<?> dwm = Class.forName(DWM_ENTRY);
             Class<?> mcClass = Class.forName(MINECRAFT);
             Object mc = mcClass.getMethod("getMinecraft").invoke(null);
             if (mc == null) {
-                return;
+                return "failed:no-minecraft";
             }
             Class<?> screenClass = Class.forName(GUI_SCREEN);
             Method display = mcClass.getMethod("displayGuiScreen", screenClass);
@@ -123,24 +142,27 @@ public final class DwmHotkey {
                     && current.getClass().getName().startsWith("net.marcloud.mcp.dwm.")) {
                 // Ours is already up: put it away rather than stacking another.
                 display.invoke(mc, (Object) null);
-                return;
+                return "closed";
             }
             if (current != null) {
                 // Some other screen owns the input (a menu, the chat box). Replacing it would
                 // discard whatever the player was doing, so leave it alone.
-                return;
+                return "another-screen-open";
             }
 
             Object screen = dwm.getMethod("createScreen").invoke(null);
             if (screen == null) {
                 // dwm present but its backend could not construct — DwmEntry already logged why.
-                return;
+                return "failed:dwm-could-not-construct";
             }
             display.invoke(mc, screen);
+            return "opened";
         } catch (ClassNotFoundException absent) {
             // dwm is not on the classpath. Normal for a detachable auxiliary: no UI, no complaint.
+            return "dwm-not-present";
         } catch (Throwable t) {
             reportOnce("could not open the dwm screen", t);
+            return "failed:" + t;
         }
     }
 

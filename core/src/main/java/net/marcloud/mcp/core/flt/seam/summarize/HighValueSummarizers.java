@@ -102,7 +102,12 @@ public final class HighValueSummarizers {
             S03PacketTimeUpdate s = (S03PacketTimeUpdate) p;
             long wt = s.getWorldTime();
             String cycle = wt < 0 ? "frozen" : "on";
-            long tod = Math.abs(wt) % 24000L;
+            // The shared reduction, not a local one: this file used Math.abs(wt) % 24000, which
+            // folds the sign before the modulus and so reports world time -1 as tod=1 -- the
+            // same value as +1, and 23999 ticks from where that instant actually is. The packet
+            // summary is what an operator reads to see what the server is doing; it was
+            // answering a different question from the two observation tools beside it.
+            long tod = net.marcloud.mcp.core.drivers.world.WorldViewCapture.timeOfDay(wt);
             return "time total=" + s.getTotalWorldTime() + " world=" + wt
                     + " tod=" + tod + " cycle=" + cycle;
         }
@@ -135,6 +140,29 @@ public final class HighValueSummarizers {
         }
     }
 
+    /**
+     * Chat gets a TYPED projection as well as the String summary, because it is the
+     * only packet whose useful content is undecidable from its resolved text.
+     *
+     * <p>Vanilla delivers every inbound line as an {@code IChatComponent}, and for a
+     * death that component is a {@code ChatComponentTranslation} carrying the KEY
+     * ({@code death.attack.explosion.player}) plus its arguments. Resolving it to a
+     * string destroys the two things a model needs: which of the 34 vanilla keys it
+     * was (locale-dependent prose cannot answer that), and what the arguments were
+     * (the killer and the item, which prose also cannot separate reliably).
+     *
+     * <p>This runs SYNCHRONOUSLY inside the Netty tap on the still-live component,
+     * which is the only moment it is readable — the tap then freezes the packet to a
+     * reference-free {@code MessageSnapshot} and the component dies with the callback
+     * frame. Only Strings and an int escape.
+     *
+     * <p>Argument order is meaningful and is preserved verbatim: the death keys use
+     * {@code %1$s} victim, {@code %2$s} killer, {@code %3$s} item
+     * ({@code EntityDamageSource.getDeathMessage}:52). {@code getUnformattedText()} is
+     * avoided here on purpose for nested translation args — it would call
+     * {@code ensureInitialized()} and drag {@code StatCollector}/{@code StringTranslate}
+     * onto the Netty worker thread; the key itself is the machine-readable fact.
+     */
     static final class Chat implements PacketSummarizer {
         @Override public boolean handles(String cn) {
             return "net.minecraft.network.play.server.S02PacketChat".equals(cn);
@@ -152,6 +180,82 @@ public final class HighValueSummarizers {
                 text = text.substring(0, 120) + "…";
             }
             return "chat type=" + s.getType() + " text=\"" + text + "\"";
+        }
+        @Override public java.util.Map<String, Object> project(Object p) {
+            S02PacketChat s = (S02PacketChat) p;
+            net.minecraft.util.IChatComponent c;
+            try {
+                c = s.getChatComponent();
+            } catch (Throwable t) {
+                c = null;
+            }
+            String text;
+            String key = null;
+            java.util.List<String> args = null;
+            try {
+                text = c == null ? "" : c.getUnformattedText();
+            } catch (Throwable t) {
+                text = "";
+            }
+            if (c instanceof net.minecraft.util.ChatComponentTranslation tr) {
+                try {
+                    key = tr.getKey();
+                } catch (Throwable ignored) {
+                }
+                args = argsOf(tr.getFormatArgs());
+            }
+            if (text != null && text.length() > 240) {
+                text = text.substring(0, 240) + "…";
+            }
+            return PacketView.of()
+                    .put("type", s.getType())
+                    .put("text", text)
+                    .put("key", key)
+                    .put("args", args)
+                    .buildMap();
+        }
+
+        /**
+         * Flatten the translation's format args to Strings WITHOUT resolving nested
+         * translations. An arg that is itself a component is rendered through
+         * {@code ChatComponentText.getUnformattedText} only when it is a plain text
+         * component; a nested translation contributes its own KEY instead of its
+         * localised prose, because {@code getUnformattedText} would resolve it
+         * against the client's locale on a Netty thread.
+         */
+        private static java.util.List<String> argsOf(Object[] formatArgs) {
+            if (formatArgs == null) {
+                return java.util.List.of();
+            }
+            java.util.List<String> out = new java.util.ArrayList<>(formatArgs.length);
+            for (Object a : formatArgs) {
+                out.add(argText(a));
+            }
+            return out;
+        }
+
+        private static String argText(Object a) {
+            if (a == null) {
+                return "null";
+            }
+            if (a instanceof net.minecraft.util.ChatComponentTranslation nested) {
+                return nested.getKey();
+            }
+            if (a instanceof net.minecraft.util.ChatComponentText plain) {
+                try {
+                    return plain.getUnformattedText();
+                } catch (Throwable t) {
+                    return "";
+                }
+            }
+            if (a instanceof net.minecraft.util.IChatComponent other) {
+                try {
+                    return other.getUnformattedText();
+                } catch (Throwable t) {
+                    return "";
+                }
+            }
+            return a.toString();
         }
     }
 

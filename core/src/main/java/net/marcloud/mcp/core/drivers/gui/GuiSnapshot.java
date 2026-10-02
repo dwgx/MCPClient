@@ -25,6 +25,9 @@ import net.marcloud.mcp.core.io.http.Json;
  * @param title      human-readable screen title (best effort; may equal screen)
  * @param viewport   screen/framebuffer geometry for overlay mapping
  * @param elements   every extracted clickable element
+ * @param panel      the screen's non-interactive state (title, inventories, trades,
+ *                   enchantment offers, costs, progress) — or null when the screen
+ *                   has none worth spending the caller's budget on
  * @param fingerprint cheap structural signature for the stale-epoch action guard
  * @param unreadable field/read failures encountered (fail-loud-but-degrade; empty when clean)
  */
@@ -36,9 +39,9 @@ public record GuiSnapshot(
         String title,
         Viewport viewport,
         List<GuiElement> elements,
+        GuiPanelState panel,
         String fingerprint,
         List<String> unreadable) {
-
     public GuiSnapshot {
         elements = elements == null ? List.of() : List.copyOf(elements);
         unreadable = unreadable == null ? List.of() : List.copyOf(unreadable);
@@ -57,6 +60,9 @@ public record GuiSnapshot(
         for (GuiElement e : elements) {
             els.add(e.toMap());
         }
+        // The panel block is a top-level key, not an element: it is not clickable, so
+        // giving it an element id would invite a click that does not exist.
+        m.put("panel", panel == null ? null : panel.toMap());
         m.put("elements", els);
         m.put("fingerprint", fingerprint);
         m.put("unreadable", unreadable);

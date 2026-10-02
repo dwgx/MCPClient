@@ -11,12 +11,29 @@ import java.util.Map;
  * token saver). {@code prev == null} falls back to a full projection. Numeric
  * self/entity motion uses a dead-band so idle jitter does not spam the diff.
  *
+ * <p>One caveat on "token saver", because it will otherwise be budgeted on: it is TRUE for a
+ * stationary caller and roughly FALSE for the grid section of a moving one. The grid is
+ * anchored to the player, so it differs on most polls while walking and is resent whole. See the
+ * grid branch in {@link #diff} for why it is not per-column.
+ *
  * <p>Omission is load-bearing here, which makes a field this class forgets to compare worse than
  * one it compares badly: absence says "unchanged" in the encoding above, so an unexamined field
  * reports healthy while meaning "never looked". Every self field {@link WorldViewJson#selfMap}
  * ships must therefore be compared by {@code selfDiff}, and
  * {@code DiffLeftMeansUnsampledNotGoneTest} derives that check from the record rather than
  * trusting this sentence.
+ *
+ * <p><b>Absence means "unchanged", so every section that was NOT SAMPLED must say so.</b> All six
+ * -- self, entities, inventory, target, env and grid -- answer {@code {"unsampled": true}} when the
+ * current view holds no sample for them, rather than staying silent. Silence would re-assert the
+ * last known state as current: a caller polling with {@code sections} that omit the grid would be
+ * told the terrain never moved, and one that omitted env would never learn it walked through a
+ * portal. It is deliberately the same token the entities section has always used, so a caller
+ * branches on one shape; and it repeats on every such poll rather than firing once on the
+ * transition, because a stateless differ cannot know which poll was the transition and because
+ * "this mode cannot speak about that section" remains true for as long as it is true. The same
+ * three-state split also covers a FAILED read: an unreadable inventory arrives here as null, and
+ * is reported as no sample rather than as the empty kit it used to look like.
  */
 public final class WorldViewDiff {
 
@@ -72,8 +89,14 @@ public final class WorldViewDiff {
         Map<String, Object> inv = inventoryDiff(prev.inventory(), cur.inventory());
         if (!inv.isEmpty()) out.put("inventory", inv);
 
-        if (targetChanged(prev.target(), cur.target())) {
-            out.put("target", cur.target() == null ? null : WorldViewJson.targetMap(cur.target()));
+        if (cur.target() == null) {
+            // Not sampled this poll. A bare null used to stand here, which the full projection
+            // already uses for the same fact -- but in DIFF mode absence means "unchanged", and the
+            // caller cannot tell a missing key from a section that was never looked at. Same token
+            // the entities section has always used.
+            out.put("target", Map.of("unsampled", true));
+        } else if (targetChanged(prev.target(), cur.target())) {
+            out.put("target", WorldViewJson.targetMap(cur.target()));
         }
         Map<String, Object> env = envDiff(prev.env(), cur.env());
         if (!env.isEmpty()) out.put("env", env);
@@ -89,9 +112,25 @@ public final class WorldViewDiff {
         //
         // Emitted whole rather than per-column: a column is small, the geometry the caller
         // navigates by has to be internally consistent, and a per-column patch set would need its
-        // own absence convention on top of the one the columns already use. When nothing changed it
-        // costs nothing, because the key is simply not present.
-        if (cur.grid() != null && !java.util.Objects.equals(prev.grid(), cur.grid())) {
+        // own absence convention on top of the one the columns already use.
+        //
+        // BUT: this section is not the token saver the class docstring implies, and a caller
+        // budgeting on that assumption will be wrong by a lot. LocalGrid is ANCHORED TO THE
+        // PLAYER -- it carries originX/Y/Z -- so the snapshot differs the moment the player
+        // crosses a block boundary, and a caller polling mode=diff while walking gets the whole
+        // grid on most polls rather than none. "Omitted when nothing changed" is true and much
+        // weaker than it sounds: for a stationary caller it is a real saving, and for a moving one
+        // it is not. The grid carries absolute origins, so a per-column patch set IS possible and
+        // is the fix if this ever needs to be cheap; it was not done here because it would change
+        // the wire format for every caller, and that is a decision for the contract owner rather
+        // than a quiet change made inside a diff fix.
+        //
+        // An unsampled grid says so rather than staying silent. Silence would assert the last known
+        // terrain still holds -- and a caller that stopped asking for the grid between two polls
+        // would be told the world did not move.
+        if (cur.grid() == null) {
+            out.put("grid", Map.of("unsampled", true));
+        } else if (!java.util.Objects.equals(prev.grid(), cur.grid())) {
             out.put("grid", WorldViewJson.gridMap(cur.grid()));
         }
 
@@ -100,8 +139,15 @@ public final class WorldViewDiff {
 
     private static Map<String, Object> selfDiff(SelfView a, SelfView b) {
         Map<String, Object> m = new LinkedHashMap<>();
-        if (a == null || b == null) {
-            if (b != null) m.put("now", WorldViewJson.selfMap(b));
+        if (b == null) {
+            // Not sampled this poll. Silence would mean "unchanged" in this encoding, so a caller
+            // that dropped 'self' from its section list would be told it was standing still.
+            return Map.of("unsampled", true);
+        }
+        if (a == null) {
+            // No baseline to diff against, so the whole current self ships: otherwise every field
+            // that differs from nothing would read as having just changed.
+            m.put("now", WorldViewJson.selfMap(b));
             return m;
         }
         if (Math.abs(a.x() - b.x()) > POS_BAND || Math.abs(a.y() - b.y()) > POS_BAND
@@ -154,6 +200,20 @@ public final class WorldViewDiff {
         if (a.onGround() != b.onGround()) m.put("onGround", b.onGround());
         if (a.sneaking() != b.sneaking()) m.put("sneaking", b.sneaking());
         if (a.sprinting() != b.sprinting()) m.put("sprinting", b.sprinting());
+        // fallDistance accumulates every tick of a fall, so a raw inequality would report a change
+        // on every tick of every fall. Reported only when the LANDING is what changed -- the
+        // distance going back to 0 -- because that is the event a caller acts on, and the damage
+        // figure changing is the same event seen from its consequence.
+        if (a.fallDistance() > 0.0D && b.fallDistance() == 0.0D) {
+            m.put("landed", true);
+            m.put("fallDistance", a.fallDistance());
+        } else if (a.fallDistance() == 0.0D && b.fallDistance() > 0.0D) {
+            m.put("fallDistance", b.fallDistance());
+        }
+        if (a.fallDamageIfLanded() != b.fallDamageIfLanded()) {
+            m.put("fallDamageIfLanded", b.fallDamageIfLanded());
+        }
+        if (a.blocking() != b.blocking()) m.put("blocking", b.blocking());
         Map<String, Object> fx = effectsDiff(a.effects(), b.effects());
         if (!fx.isEmpty()) m.put("effects", fx);
         return m;
@@ -374,8 +434,17 @@ public final class WorldViewDiff {
 
     private static Map<String, Object> inventoryDiff(InventoryView a, InventoryView b) {
         Map<String, Object> m = new LinkedHashMap<>();
-        if (a == null || b == null) {
-            if (b != null) m.put("now", WorldViewJson.invMap(b));
+        if (b == null) {
+            // No current reading. This is the section's whole reason to exist as a three-state
+            // field: a FAILED read (WorldViewCapture#inventoryOrNull) and an unrequested one both
+            // arrive here, and both used to arrive silent -- which in diff mode means "unchanged",
+            // so a failed read would re-assert the last kit the caller saw, or worse, report the
+            // slots a partial read never reached as `cleared`. Saying so is what keeps a model from
+            // acting on an inventory it was never shown.
+            return Map.of("unsampled", true);
+        }
+        if (a == null) {
+            m.put("now", WorldViewJson.invMap(b));
             return m;
         }
         if (a.selectedSlot() != b.selectedSlot()) m.put("selectedSlot", b.selectedSlot());
@@ -402,13 +471,88 @@ public final class WorldViewDiff {
         }
         if (!changed.isEmpty()) m.put("changed", changed);
         if (!cleared.isEmpty()) m.put("cleared", cleared);
+        // The armour block reports under its own key with the piece NAMES, because a diff that
+        // says "index 37 changed" is not actionable: the caller needs to know the helmet came off
+        // and the boots went on, which are different facts about the same two indices. An
+        // unpaired list follows the same token the rest of the differ uses for "could not read".
+        Map<String, Object> ar = armourDiff(a.armour(), b.armour());
+        if (!ar.isEmpty()) m.putAll(ar);
         return m;
+    }
+
+    /**
+     * Armour: which piece is in which cell, now.
+     *
+     * <p>Only ever a "now" block -- the whole four cells, because the interesting change is a
+     * swap (helmet off, boots on) rather than a single delta, and a per-cell delta list would
+     * report two changes for one act. ABSENT on both sides is silence; present on one side only
+     * is the "unread" token, matching every other section.
+     */
+    private static Map<String, Object> armourDiff(List<InventoryView.Slot> a,
+                                                  List<InventoryView.Slot> b) {
+        if (b == null) {
+            return Map.of();
+        }
+        if (a == null) {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("armorNow", armourNow(b));
+            return m;
+        }
+        if (a.size() != b.size()) {
+            return Map.of("armorNow", armourNow(b));
+        }
+        for (int i = 0; i < b.size(); i++) {
+            InventoryView.Slot x = a.get(i);
+            InventoryView.Slot y = b.get(i);
+            boolean same = x != null && y != null
+                    && eq(x.item(), y.item()) && x.count() == y.count() && x.damage() == y.damage();
+            if (!same) {
+                return Map.of("armorNow", armourNow(b));
+            }
+        }
+        return Map.of();
+    }
+
+    /** The worn pieces, named, in armourType order -- the shape a caller can act on. */
+    private static List<Object> armourNow(List<InventoryView.Slot> slots) {
+        List<Object> out = new ArrayList<>();
+        for (int i = 0; i < slots.size(); i++) {
+            InventoryView.Slot s = slots.get(i);
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("piece", ArmourSlots.pieceName(i));
+            m.put("armorType", i);
+            m.put("item", s == null ? null : s.item());
+            m.put("containerSlot", ArmourSlots.containerSlotFor(i));
+            out.add(m);
+        }
+        return out;
     }
 
     private static Map<String, Object> envDiff(EnvView a, EnvView b) {
         Map<String, Object> m = new LinkedHashMap<>();
-        if (a == null || b == null) return m;
+        if (b == null) {
+            // Not sampled this poll, and silence here is the worst case of the three: env carries
+            // the DIMENSION, so a caller that polled without it across a Nether portal would be
+            // told nothing changed while it stands in another world. Same token as entities.
+            return Map.of("unsampled", true);
+        }
+        if (a == null) {
+            // No baseline: the whole current env under the `now` key the other sections use, since
+            // there is nothing to have changed FROM.
+            return Map.of("now", WorldViewJson.envMap(b));
+        }
         if (!eq(a.timeOfDay(), b.timeOfDay())) m.put("timeOfDay", b.timeOfDay());
+        // The clock and the daylight answer, which the bucket alone could not carry.
+        //
+        // `timeOfDay` is a 1000-tick bucket, so a sunset spanning 13,000-13,999 is ONE bucket and
+        // a diff across it was silent: a caller polling mode=diff every second could stand through
+        // dusk and be told nothing had happened, then be told nothing had happened again when
+        // night began 807 ticks later -- because by then the bucket had already changed, at the
+        // boundary nobody was watching. The two fields below close that: `worldTime` moves every
+        // tick (so any clock movement is visible) and `daytime` flips on the tick vanilla's own
+        // curve flips, which is the fact a caller actually has to act on.
+        if (!eq(a.worldTime(), b.worldTime())) m.put("worldTime", b.worldTime());
+        if (!eq(a.daytime(), b.daytime())) m.put("daytime", b.daytime());
         if (!eq(a.biome(), b.biome())) m.put("biome", b.biome());
         if (!eq(a.dimension(), b.dimension())) m.put("dimension", b.dimension());
         return m;

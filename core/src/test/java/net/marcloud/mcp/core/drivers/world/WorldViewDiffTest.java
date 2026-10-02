@@ -17,7 +17,7 @@ public final class WorldViewDiffTest {
 
     private static WorldView view(double x, float health, List<EntityView> ents) {
         SelfView self = new SelfView(x, 64, 0, 0, 0, 0, 0f, 0f, health, 20, 5f,
-                3, 0.5f, 0, 300, "SURVIVAL", false, false, true, List.of());
+                3, 0.5f, 0, 300, "SURVIVAL", false, false, true, List.of(), 0.0, 0, false);
         return new WorldView(true, 1L, "explore", self, null, ents, false, null,
                 TargetView.miss(), null);
     }
@@ -25,7 +25,7 @@ public final class WorldViewDiffTest {
     /** A player standing still: no motion, full food, no effects. Mutate one field per test. */
     private static SelfView idle() {
         return new SelfView(10, 64, 0, 0, 0, 0, 0f, 0f, 20f, 20, 5f,
-                3, 0.5f, 0, 300, "SURVIVAL", false, false, true, List.of());
+                3, 0.5f, 0, 300, "SURVIVAL", false, false, true, List.of(), 0.0, 0, false);
     }
 
     /** Only the self section is populated, so nothing else can put a key in the diff. */
@@ -37,21 +37,21 @@ public final class WorldViewDiffTest {
         return new SelfView(s.x(), s.y(), s.z(), vx, vy, vz, s.yaw(), s.pitch(),
                 s.health(), s.food(), s.saturation(), s.xpLevel(), s.xpProgress(),
                 s.armor(), s.air(), s.gamemode(), s.sneaking(), s.sprinting(), s.onGround(),
-                s.effects());
+                s.effects(), s.fallDistance(), s.fallDamageIfLanded(), s.blocking());
     }
 
     private static SelfView withSaturation(SelfView s, float saturation) {
         return new SelfView(s.x(), s.y(), s.z(), s.vx(), s.vy(), s.vz(), s.yaw(), s.pitch(),
                 s.health(), s.food(), saturation, s.xpLevel(), s.xpProgress(),
                 s.armor(), s.air(), s.gamemode(), s.sneaking(), s.sprinting(), s.onGround(),
-                s.effects());
+                s.effects(), s.fallDistance(), s.fallDamageIfLanded(), s.blocking());
     }
 
     private static SelfView withEffects(SelfView s, List<SelfView.Effect> effects) {
         return new SelfView(s.x(), s.y(), s.z(), s.vx(), s.vy(), s.vz(), s.yaw(), s.pitch(),
                 s.health(), s.food(), s.saturation(), s.xpLevel(), s.xpProgress(),
                 s.armor(), s.air(), s.gamemode(), s.sneaking(), s.sprinting(), s.onGround(),
-                effects);
+                effects, s.fallDistance(), s.fallDamageIfLanded(), s.blocking());
     }
 
     /** Potion 12 is vanilla's fire resistance -- the effect whose expiry over lava is lethal. */

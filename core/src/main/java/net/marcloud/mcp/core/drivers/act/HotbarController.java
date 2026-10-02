@@ -29,19 +29,37 @@ public final class HotbarController {
     public ActOutcome tick(ActActuator act) {
         if (slot < MIN_SLOT || slot > MAX_SLOT) {
             // Reject BEFORE any write.
+            //
+            // READ_DIRECTLY, and the reason is worth stating because this class is the design's
+            // 2.A #6 in its purest form: the refusal is about the INTENT's own field, validated in
+            // the expression that builds the sentence. Nothing about the world is claimed and
+            // nothing could be stale.
             done = true;
-            return ActOutcome.failed("hotbar slot " + slot + " out of range [0,8]");
+            return ActOutcome.failed("hotbar slot " + slot + " out of range [0,8]",
+                    ActOutcome.READ_DIRECTLY);
         }
         if (!act.inWorld()) {
             done = true;
-            return ActOutcome.failed("not in world");
+            return ActOutcome.failed("not in world", ActOutcome.READ_DIRECTLY);
         }
         act.setHeldSlot(slot);
         int now = act.heldSlot();
         done = true;
         if (now == slot) {
-            return ActOutcome.done("selected hotbar slot " + slot);
+            // OBSERVED, and this is the exact claim design 2.A #6 says is observed: the client's own
+            // copy of `EntityPlayer.inventory.currentItem` read back this tick, with no intermediary
+            // and nothing derived. The code's own comment said so before the layer existed -- "A
+            // hotbar switch is OBSERVED, not inferred" -- and this is the line that made it true.
+            //
+            // What it is NOT is a claim the server accepted the switch. C09 is sent lazily and the
+            // server resynchronises the slot from its own copy; 1.8.9 sends no verdict back. So
+            // READ_DIRECTLY is exactly the right strength and one notch more would be a lie.
+            return ActOutcome.done("selected hotbar slot " + slot, ActOutcome.READ_DIRECTLY);
         }
-        return ActOutcome.failed("hotbar select did not take (wanted " + slot + ", is " + now + ")");
+        // DERIVED_FROM_READS rather than READ_DIRECTLY: the sentence is a COMPARISON between what we
+        // asked for and what the field reads back. Both values are live, so the derivation is
+        // honest, but "the select did not take" is a conclusion and not a number on a field.
+        return ActOutcome.failed("hotbar select did not take (wanted " + slot + ", is " + now + ")",
+                ActOutcome.DERIVED_FROM_READS);
     }
 }

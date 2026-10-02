@@ -149,6 +149,40 @@ public final class BlockProbe {
     }
 
     /**
+     * Read one position and say how well the answer is earned, at the cost of exactly one
+     * {@link #at(World, int, int, int)}.
+     *
+     * <p><b>The zero-read property is the design constraint, not an optimisation.</b> ADR-0005
+     * §1's third category -- a mechanism that costs capability and buys none -- is rejected
+     * outright, so a belief that needed its own probe would be unaffordable by construction. This
+     * one does not: {@code at} already answers UNKNOWN for every cause of "could not look" (chunk
+     * not loaded, out of bounds, null state, the read threw), so the grade is a function of the
+     * value that came back and costs ZERO extra world reads. A caller that wants a grade therefore
+     * pays exactly what it paid before this method existed.
+     *
+     * <p><b>Why {@link Graded} rather than a second enum constant.</b> {@link Solidity} is already
+     * three-valued and UNKNOWN is already encoded in it. What it cannot say is "this was read
+     * directly" versus "this was carried over", and bolting a {@code belief} field onto the enum
+ * would be a second encoding of the same three states -- the way this repository ended up with
+     * three of them.
+     *
+     * <p><b>The grade is not decoration and the mapping is not the cheap one.</b> Mapping every
+     * answer to OBSERVED would pass any test that only asked "is it graded". It is wrong: an
+     * unread cell is a statement about this client, not about the terrain, and 12 of the design's
+     * 18 sites are lying under exactly that mapping.
+     */
+    public static Graded<Solidity> probe(World world, int x, int y, int z) {
+        Solidity solidity = at(world, x, y, z);
+        if (solidity.wasRead()) {
+            return Graded.observed(solidity);
+        }
+        return Graded.unknown(solidity, "the cell could not be read at all: the chunk is not "
+                + "loaded, the position is out of world bounds, the block state came back null, or "
+                + "the read threw. UNKNOWN is the correct answer here and AIR or SOLID would each "
+                + "invent terrain nobody looked at");
+    }
+
+    /**
      * Whether a player body of {@code height} blocks fits at this position AND has a floor.
      *
      * <p>Kept here rather than in the planner because "can something stand here" is asked by digging,

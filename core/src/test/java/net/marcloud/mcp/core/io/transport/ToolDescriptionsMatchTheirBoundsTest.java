@@ -19,6 +19,7 @@ import net.marcloud.mcp.board.signals.PacketSendSignal;
 import net.marcloud.mcp.core.GameAccess;
 import net.marcloud.mcp.core.GameBridge;
 import net.marcloud.mcp.core.drivers.action.ActionManager;
+import net.marcloud.mcp.core.drivers.world.BlockFinder;
 import net.marcloud.mcp.core.drivers.world.DisconnectTracker;
 import net.marcloud.mcp.core.drivers.world.PacketLog;
 import net.marcloud.mcp.core.ke.KeGameDispatcher;
@@ -308,9 +309,11 @@ public class ToolDescriptionsMatchTheirBoundsTest {
     @Test
     public void worldViewDiffIsMeasuredAgainstTheCallersPreviousView() throws Exception {
         ToolRegistry reg = husk(new CapturingWire());
-        // An unknown section name: every real section reads live world state, and the point here is
-        // the baseline bookkeeping, not the contents.
-        Map<String, Object> sameCall = Map.of("mode", "diff", "sections", List.of("none"));
+        // 'env' is the one section that reads nothing the husk lacks: the provider and the biome
+        // lookup fail into their catch blocks, so the call succeeds without a live client. (It used
+        // to be an unknown name, which relied on the sampler ignoring it -- exactly the silent
+        // omission AnUnknownSectionNameIsRefusedTest now forbids.)
+        Map<String, Object> sameCall = Map.of("mode", "diff", "sections", List.of("env"));
 
         String first = call(reg, "world_view", sameCall);
         assertTrue("the FIRST diff has no baseline, and saying so is honest -- there is nothing to "
@@ -327,6 +330,58 @@ public class ToolDescriptionsMatchTheirBoundsTest {
         assertTrue("the legend must say the baseline is the caller's last call, since that is what "
                 + "makes two identical polls mean different things",
                 schemaProp(tool("world_view"), "mode").contains("since last world_view"));
+    }
+
+    /**
+     * find_block: the region the reply NAMES must be the region the search actually swept.
+     *
+     * <p>The handler passed {@code radius}/{@code limit} straight through -- {@code BlockFinder}
+     * clamps them to 32/64 -- and then built the miss message out of the numbers the CALLER sent.
+     * {@code radius=200} searched 32 and answered "no match … within 200 blocks"; {@code radius=-5}
+     * answered "within -5 blocks". A model reads the first as a fact about 200 blocks of world and
+     * concludes the ore is absent, then travels or digs on that basis.
+     *
+     * <p>This is the same defect shape the rest of this file exists for, one tool over, and it is
+     * checked the same way: by driving the real handler and reading its reply, with the bounds taken
+     * from {@code BlockFinder}'s own constants rather than copied beside them.
+     */
+    @Test
+    public void findBlockNamesTheRegionItActuallySearched() throws Exception {
+        ToolRegistry reg = husk(new CapturingWire());
+
+        String wide = call(reg, "find_block", Map.of("types", "stone", "radius", 200));
+        assertTrue("the reply must describe the region that was swept: " + wide,
+                wide.contains("within " + BlockFinder.MAX_RADIUS + " blocks"));
+        assertFalse("and must not repeat the caller's number back as if it had been honoured: "
+                + wide, wide.contains("within 200 blocks"));
+        assertTrue("while saying plainly that the request was clamped, so the caller learns the "
+                + "search is narrower than it asked rather than that the block is absent: " + wide,
+                wide.contains("radius 200 clamped to " + BlockFinder.MAX_RADIUS));
+
+        String negative = call(reg, "find_block", Map.of("types", "stone", "radius", -5));
+        assertTrue("a radius below the floor is clamped to 1, and that is what must be reported: "
+                + negative, negative.contains("within 1 blocks"));
+        assertFalse("a negative region is not a fact about the world: " + negative,
+                negative.contains("within -5 blocks"));
+
+        String honoured = call(reg, "find_block", Map.of("types", "stone", "radius", 16));
+        assertTrue("an in-range radius is the region searched, unchanged: " + honoured,
+                honoured.contains("within 16 blocks"));
+        assertFalse("and a search that did what it was asked must carry no clamp note: " + honoured,
+                honoured.contains("clamped"));
+
+        String capped = call(reg, "find_block",
+                Map.of("types", "stone", "radius", 1, "limit", 200));
+        assertTrue("the hit ceiling must be reported too, or a caller that asked for 200 hits reads "
+                + "a short list as 'there are only that many nearby': " + capped,
+                capped.contains("limit 200 clamped to " + BlockFinder.MAX_LIMIT));
+
+        assertTrue("the schema must state what an out-of-range value does, since that is where a "
+                + "caller learns it is clamped rather than refused: "
+                + schemaProp(tool("find_block"), "radius"),
+                schemaProp(tool("find_block"), "radius").contains("clamped"));
+        assertTrue("for the ceiling as well",
+                schemaProp(tool("find_block"), "limit").contains("clamped"));
     }
 
     // ---- the smallest client the send path will accept ----------------------

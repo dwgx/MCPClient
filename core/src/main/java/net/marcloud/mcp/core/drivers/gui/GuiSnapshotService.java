@@ -93,46 +93,140 @@ public final class GuiSnapshotService {
         int ep = syncEpoch(screen);
         if (screen == null) {
             return new GuiSnapshot(ep, null, inWorld, false, null, viewport,
-                    List.of(), fingerprintString(null, 0, 0), List.of());
+                    List.of(), null, fingerprintString(null, 0, 0, 0), List.of());
         }
-        GuiReflect.Extraction ex = GuiReflect.extract(screen, onlyInteractable);
+        // Both passes share one unreadable sink, so a mapping drift in either shows up
+        // once in the snapshot's own `unreadable` list rather than in two places.
+        List<String> unreadable = new java.util.ArrayList<>();
+        GuiReflect.Extraction ex = GuiReflect.extract(screen, onlyInteractable, unreadable);
+        Container container = (screen instanceof GuiContainer gc) ? gc.inventorySlots : null;
+        GuiPanelState panel = GuiPanelReflect.read(screen, container, unreadable);
         boolean isContainer = screen instanceof GuiContainer;
         String name = screen.getClass().getSimpleName();
         String fp = fingerprint(screen);
         return new GuiSnapshot(ep, name, inWorld, isContainer, name, viewport,
-                ex.elements(), fp, ex.unreadable());
+                ex.elements(), panel.hasContent() ? panel : null, fp, unreadable);
     }
 
     // ===== FINGERPRINT / STALE-EPOCH GUARD =====
 
     /**
-     * Cheap structural signature of a screen: {@code simpleName#buttonCount#slotCount}.
+     * Cheap structural signature of a screen: {@code simpleName#buttonCount#slotCount#token}.
      * Does NOT read element positions, so it's safe to compute frequently. A null
-     * screen fingerprints as {@code "none#0#0"}.
+     * screen fingerprints as {@code "none#0#0#0"}.
+     *
+     * <p><b>Why the token exists.</b> The epoch alone cannot catch a screen that swaps its
+     * content while keeping the same object — which is exactly what a QML {@code Loader}
+     * does, and it is also what a screen that rebuilds its buttons in place does. Counting
+     * elements alone is not enough either: two pages with four controls each produce the same
+     * counts, the epoch does not move, and a click aimed at page A silently lands on page B.
+     * The token is an order-sensitive hash of the element LABELS, so it changes when the
+     * content changes and is stable when it does not.
+     *
+     * <p>Labels are the right input rather than ids or coordinates: a QML proxy's label is its
+     * index path in the scene tree, which changes when the page changes, while two proxies on
+     * the same page keep it; a vanilla button's label is its caption, which moves with the
+     * button set. Coordinates were rejected because the fingerprint is recomputed often and
+     * reading them is both the expensive part and the part most likely to shift under a resize
+     * that did not change the content.
      */
     public String fingerprint(GuiScreen screen) {
         if (screen == null) {
-            return fingerprintString(null, 0, 0);
+            return fingerprintString(null, 0, 0, 0);
         }
-        int buttons = countButtons(screen);
-        int slots = countSlots(screen);
-        return fingerprintString(screen.getClass().getSimpleName(), buttons, slots);
-    }
-
-    private static String fingerprintString(String name, int buttons, int slots) {
-        return (name == null ? "none" : name) + "#" + buttons + "#" + slots;
-    }
-
-    @SuppressWarnings("unchecked")
-    private static int countButtons(GuiScreen screen) {
+        int buttons = 0;
+        int token = 1;
         try {
             java.lang.reflect.Field f = GuiScreen.class.getDeclaredField("buttonList");
             f.setAccessible(true);
-            Object v = f.get(screen);
-            return v instanceof List<?> l ? l.size() : 0;
+            if (f.get(screen) instanceof List<?> l) {
+                buttons = l.size();
+                // Hash in list order and fold the length in first, so a reorder is a change
+                // too -- an order-sensitive hash is the difference between "same controls" and
+                // "the same controls in the same places".
+                token = buttons * 31 + 1;
+                for (Object o : l) {
+                    String label = "";
+                    if (o instanceof net.minecraft.client.gui.GuiButton b
+                            && b.displayString != null) {
+                        label = b.displayString;
+                    }
+                    for (int i = 0; i < label.length(); i++) {
+                        token = token * 31 + label.charAt(i);
+                    }
+                    token = token * 31 + 0x5F;
+                }
+            }
         } catch (Throwable t) {
-            return 0;
+            // A screen we cannot introspect still fingerprints; it just cannot be distinguished
+            // from another such screen, which is the pre-existing behaviour.
+            buttons = 0;
+            token = 0;
         }
+        int slots = countSlots(screen);
+        return fingerprintString(screen.getClass().getSimpleName(), buttons, slots, token)
+                + listFingerprintTerm(screen);
+    }
+
+    /**
+     * The list term of a screen's fingerprint, or {@code ""} for a screen with no
+     * lists.
+     *
+     * <p><b>Why scroll belongs in the fingerprint.</b> A snapshot is a claim about
+     * what is addressable right now, and on a list screen the answer depends on the
+     * scroll: at offset 0 rows 0-7 of the Controls list are addressable, at offset
+     * 40 rows 2-9 are. An (epoch, fingerprint) minted at one scroll therefore
+     * describes a different set of controls at another, exactly as a QML page swap
+     * describes a different set — and the epoch cannot see it, because the screen
+     * object never changed. Folding each list's class, row count and
+     * {@code amountScrolled} in makes a scroll move the structural token, so a
+     * reference planned before it is refused rather than acted on.
+     *
+     * <p>It reads offsets, not positions: the scroll is state the player changed on
+     * purpose, while coordinates shift under a resize that changed nothing.
+     *
+     * <p>The suffix is omitted entirely when a screen has no lists, so every
+     * list-free screen — and the null screen — keeps exactly the fingerprint it had.
+     */
+    private static String listFingerprintTerm(GuiScreen screen) {
+        List<GuiListReflect.ListRef> lists =
+                GuiListReflect.lists(screen, new java.util.ArrayList<>());
+        if (lists.isEmpty()) {
+            return "";
+        }
+        int token = lists.size() * 131 + 7;
+        StringBuilder sb = new StringBuilder("@L");
+        for (GuiListReflect.ListRef ref : lists) {
+            int scroll = ref.list().getAmountScrolled();
+            int rows = rowsOf(ref.list());
+            sb.append(ref.list().getClass().getSimpleName())
+                    .append(':').append(rows).append('@').append(scroll).append(';');
+            token = token * 31 + scroll;
+            token = token * 31 + rows;
+        }
+        sb.append(Integer.toHexString(token));
+        return sb.toString();
+    }
+
+    private static int rowsOf(net.minecraft.client.gui.GuiSlot list) {
+        for (Class<?> c = list.getClass(); c != null && c != Object.class; c = c.getSuperclass()) {
+            try {
+                java.lang.reflect.Method m = c.getDeclaredMethod("getSize");
+                m.setAccessible(true);
+                Object v = m.invoke(list);
+                return v instanceof Number n ? n.intValue() : 0;
+            } catch (NoSuchMethodException e) {
+                // walk up
+            } catch (Throwable t) {
+                return 0;
+            }
+        }
+        return 0;
+    }
+
+    private static String fingerprintString(String name, int buttons, int slots, int token) {
+        return (name == null ? "none" : name) + "#" + buttons + "#" + slots + "#"
+                + Integer.toHexString(token);
     }
 
     private static int countSlots(GuiScreen screen) {

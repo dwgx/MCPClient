@@ -45,6 +45,11 @@ core-jvmti.dll
 core-jvmti.dylib
 core-jvmti.so
 
+# LWJGL extracts its native libraries into a .lwjgl/<version>/ directory beside
+# whatever module loads them. It is a build product, it is 836K of lwjgl.dll,
+# and it is rebuilt on demand -- committing it would put a binary in the tree
+# that no source file in the repository produces.
+.lwjgl/
 # --- AI working notes (handoffs, per-area design notes, known-issues, agent
 #     instructions like CLAUDE.md/CONTRIBUTING/SECURITY). AI-only scratch;
 #     never committed. See .ai-notes/README.md for the index. ---

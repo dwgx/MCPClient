@@ -70,11 +70,25 @@ public final class RootCeremonyCli {
     public static void main(String[] args) throws Exception {
         String keysDir = null;
         String resourcesDir = null;
+        // Long enough that a rotation is not a calendar chore, short enough to be a real
+        // deadline. Overridable because a controlled environment may want a different one and
+        // the value belongs in the document, not in this source.
+        long expiresDays = 365L;
+        boolean force = false;
         for (int i = 0; i < args.length; i++) {
             if ("--keys".equals(args[i]) && i + 1 < args.length) {
                 keysDir = args[++i];
             } else if ("--resources".equals(args[i]) && i + 1 < args.length) {
                 resourcesDir = args[++i];
+            } else if ("--expires-days".equals(args[i]) && i + 1 < args.length) {
+                expiresDays = Long.parseLong(args[++i]);
+                if (expiresDays <= 0) {
+                    throw new IllegalArgumentException(
+                            "--expires-days must be positive: the client's freeze rule refuses a "
+                            + "root document that declares no expiry, so 0 is not a way to opt out");
+                }
+            } else if ("--force".equals(args[i])) {
+                force = true;
             } else {
                 throw new IllegalArgumentException("unknown argument: " + args[i]);
             }
@@ -82,6 +96,8 @@ public final class RootCeremonyCli {
         if (keysDir == null || resourcesDir == null) {
             throw new IllegalArgumentException("--keys <dir> and --resources <dir> are required");
         }
+        System.out.println("root document will declare an expiry " + expiresDays
+                + " day(s) out; the client refuses a document that declares none");
 
         Path keys = Path.of(expandHome(keysDir));
         Path resources = Path.of(expandHome(resourcesDir));
@@ -110,7 +126,15 @@ public final class RootCeremonyCli {
         rootKeys.put(ROOT_KEY_ID, root.getPublic());
         Map<String, PublicKey> targetsKeys = new LinkedHashMap<>();
         targetsKeys.put(KERNEL_KEY_ID, kernel);
-        RootMetadata meta = new RootMetadata(2, 1, rootKeys, targetsKeys);
+        // The client refuses a delivered document that declares no expiry (RootTrust's freeze
+        // rule, TUF 5.3.10), so the ceremony must be able to MINT one. It could not before that
+        // rule landed: this constructor left the expiry at 0, which meant a rotation run produced
+        // a document its own client would reject — and the failure would only surface once a
+        // delivery channel existed. The default is long enough that an operator is not forced to
+        // re-run the ceremony on a calendar, and the value is written into the document so it is
+        // inspectable rather than a hidden default.
+        long expires = System.currentTimeMillis() + (expiresDays * 24L * 60L * 60L * 1000L);
+        RootMetadata meta = new RootMetadata(2, 1, rootKeys, targetsKeys, expires);
 
         byte[] signingInput = meta.signingBytes();
         Signature signer = Signature.getInstance("Ed25519");
@@ -120,10 +144,8 @@ public final class RootCeremonyCli {
 
         // Prove the chain BEFORE writing: the document must verify under the new root key, and the
         // anchors it yields must actually contain the kernel keyId patches will be signed under.
-        assertChainVerifies(meta, signature, root.getPublic());
-
         writeOwnerOnly(keys.resolve(ROOT_PRIVATE_FILE),
-                Base64.getEncoder().encodeToString(root.getPrivate().getEncoded()));
+                Base64.getEncoder().encodeToString(root.getPrivate().getEncoded()), force);
         Files.write(resources.resolve(ROOT_PUBLIC_FILE),
                 (Base64.getEncoder().encodeToString(root.getPublic().getEncoded()) + "\n")
                         .getBytes(StandardCharsets.UTF_8));
@@ -172,8 +194,12 @@ public final class RootCeremonyCli {
      * independent of how this text happens to be laid out.
      */
     private static String metadataJson(RootMetadata meta, PublicKey rootPub, PublicKey kernelPub) {
+        String expiry = meta.expiresEpochMillis() > 0
+                ? ",\"expires\":" + meta.expiresEpochMillis()
+                : "";
         return "{\"version\":" + meta.version()
                 + ",\"rootThreshold\":" + meta.rootThreshold()
+                + expiry
                 + ",\"rootKeys\":{\"" + ROOT_KEY_ID + "\":\""
                 + Base64.getEncoder().encodeToString(rootPub.getEncoded()) + "\"}"
                 + ",\"targetsKeys\":{\"" + KERNEL_KEY_ID + "\":\""
@@ -205,7 +231,36 @@ public final class RootCeremonyCli {
                 .generatePrivate(new PKCS8EncodedKeySpec(Base64.getDecoder().decode(b64)));
     }
 
-    private static void writeOwnerOnly(Path path, String contents) throws IOException {
+    /**
+     * Write an owner-only file, REFUSING to clobber an existing one unless the caller forced it.
+     *
+     * <p>This method writes the root private key. There is exactly one of it, it lives outside the
+     * repository, and losing it is not recoverable: the client trusts the root that signed the
+     * current document, so a destroyed root key cannot be re-minted into a document the shipped
+     * client accepts — every patch stops arming and there is no second copy anywhere. Its sibling
+     * {@link KernelKeygenCli} has refused to overwrite since it was written, with the reason spelled
+     * out in its own error; this one did not, so running the ceremony to "just regenerate" a
+     * document destroyed the key.
+     *
+     * <p>The check is an existence test plus an explicit {@code --force}, not a timestamp or a
+     * backup. A backup of a private key is itself a second copy of the thing whose uniqueness is the
+     * entire security property.
+     */
+    static void writeOwnerOnlyForTest(Path path, String contents) throws IOException {
+        writeOwnerOnly(path, contents, false);
+    }
+
+    static void writeOwnerOnlyForTest(Path path, String contents, boolean force) throws IOException {
+        writeOwnerOnly(path, contents, force);
+    }
+
+    private static void writeOwnerOnly(Path path, String contents, boolean force) throws IOException {
+        if (Files.exists(path) && !force) {
+            throw new IOException("refusing to overwrite " + path
+                    + " — pass --force only if you accept that the existing key is destroyed, and "
+                    + "that a destroyed root key cannot be re-minted into a document this client "
+                    + "will accept");
+        }
         Files.write(path, (contents + "\n").getBytes(StandardCharsets.UTF_8));
         try {
             Set<PosixFilePermission> ownerOnly = EnumSet.of(

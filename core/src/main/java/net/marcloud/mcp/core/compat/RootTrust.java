@@ -32,6 +32,16 @@ import net.marcloud.mcp.core.io.http.Json;
  *
  * <p><b>Fail-closed.</b> Every failure path — missing resource, parse error, root threshold
  * unmet — degrades to empty anchors (arm nothing), never a throw, never a silent trust.
+ *
+ * <p><b>Root replacement rules (TUF §5.3 / §5.3.10).</b> {@link #verifyRootUpdate} is the path
+ * for a DELIVERED root document (rotation/revocation): it refuses one whose version is not
+ * exactly one greater than the baked document's, refuses to update from or to a document that is
+ * already expired at verification time, and refuses a document whose declared threshold exceeds
+ * the number of root keys this client ships baked (that document could never meet its own
+ * threshold, so it would silently disarm every patch). {@link #updateRejectionReason} states
+ * those rules; the baked path ({@link #effectiveAnchors}) applies the freeze and satisfiability
+ * checks to the document it holds. The shipped document declares no expiry, so the freeze check
+ * passes for it and bites the moment a document declares one.
  */
 public final class RootTrust {
 
@@ -56,6 +66,24 @@ public final class RootTrust {
             if (meta == null) {
                 return failClosed("root metadata missing/invalid");
             }
+            // TUF §5.3.10 freeze rule, read for a client with no update cycle: there is no
+            // "update start time" here, only the moment of verification, so a baked document
+            // that is already expired at that moment is refused rather than trusted. A document
+            // that declares no expiry makes no freshness claim and passes (the shipped one
+            // declares none); a declared one is enforced.
+            long now = System.currentTimeMillis();
+            if (meta.expiredAt(now)) {
+                return failClosed("baked root document expired at " + meta.expiresEpochMillis()
+                        + " (verification time " + now + ") — this client's baked root metadata "
+                        + "is stale; update the client rather than trusting an expired root");
+            }
+            // A threshold the baked side cannot satisfy can never be met by ANY signature set,
+            // so the document silently disarms every patch. Say so explicitly instead: the fix
+            // is to ship the missing baked key(s), which is a client change (see RootMetadata).
+            String thresholdReason = thresholdRejectionReason(meta, bakedRoot.size());
+            if (thresholdReason != null) {
+                return failClosed(thresholdReason);
+            }
             Map<String, byte[]> sigs = loadSignatures();
             if (sigs.isEmpty()) {
                 return failClosed("root signatures missing");
@@ -68,6 +96,129 @@ public final class RootTrust {
         } catch (Throwable t) {
             return failClosed("root trust load error: " + t);
         }
+    }
+
+    /**
+     * Verify a DELIVERED root document — a rotation or revocation that arrived from outside
+     * this client — up to the baked root, returning the targets keys it authorizes. This is
+     * the path where TUF's replacement rules apply; {@link #effectiveAnchors()} verifies the
+     * document this client already holds, which nothing supersedes.
+     *
+     * <p>Enforces, in order: {@link #updateRejectionReason} (rollback §5.3 + freeze §5.3.10),
+     * the threshold being satisfiable by the baked key set, then the same root-signature
+     * threshold check the baked path uses. Fail-closed: any failure returns
+     * {@link TrustAnchors#empty()} after saying why.
+     *
+     * <p><b>No caller in the shipped client yet.</b> The document is baked into the jar, so
+     * today there is no delivery channel to feed this; it exists so the rules are enforced and
+     * tested at the moment a channel arrives, instead of being retrofitted onto a chain that
+     * already accepted a rolled-back document.
+     */
+    public static TrustAnchors verifyRootUpdate(RootMetadata candidate,
+                                                Map<String, byte[]> rootSignatures) {
+        try {
+            Map<String, PublicKey> bakedRoot = loadBakedRootKeys();
+            if (bakedRoot.isEmpty()) {
+                return failClosed("no baked root key");
+            }
+            RootMetadata trusted = loadMetadata();
+            if (trusted == null) {
+                return failClosed("trusted (baked) root metadata missing/invalid");
+            }
+            String reason = updateRejectionReason(trusted, candidate, System.currentTimeMillis());
+            if (reason != null) {
+                return failClosed("root update refused — " + reason);
+            }
+            String thresholdReason = thresholdRejectionReason(candidate, bakedRoot.size());
+            if (thresholdReason != null) {
+                return failClosed("root update refused — " + thresholdReason);
+            }
+            if (rootSignatures == null || rootSignatures.isEmpty()) {
+                return failClosed("root update carries no signatures");
+            }
+            TrustAnchors anchors = TufTrust.effectiveAnchors(candidate, rootSignatures, bakedRoot);
+            if (anchors.isEmpty()) {
+                return failClosed("root update signature threshold not met");
+            }
+            return anchors;
+        } catch (Throwable t) {
+            return failClosed("root update verification error: " + t);
+        }
+    }
+
+    /**
+     * The TUF replacement rules for a delivered root document, stated in one place so a refusal
+     * carries its reason instead of only an empty anchor set:
+     * <ol>
+     *   <li><b>§5.3 rollback</b> — {@code candidate.version()} must be exactly
+     *       {@code trusted.version() + 1}. Not merely newer (a skipped version hides a rotation)
+     *       and never equal or lower (that IS a rollback attack).</li>
+     *   <li><b>§5.3.10 freeze</b> — the TRUSTED document's declared expiry must be later than the
+     *       update start time, or the anchor we are updating from is itself stale.</li>
+     *   <li><b>freshness of the delivered document</b> — it must declare an expiry, and that
+     *       expiry must also be later than the update start time. Installing an already-expired
+     *       document (or one with no expiry to check) would leave the chain with no bound.</li>
+     * </ol>
+     *
+     * <p><b>What "update start time" means here.</b> TUF assumes a client with a wall clock, a
+     * persisted trusted-root file and a periodic update cycle. This client has none of those: it
+     * bakes the document into the jar and holds no independent clock. The honest reading of the
+     * rule for it is "the moment verification happens" — the instant a delivered document is
+     * presented for acceptance — so callers pass {@code System.currentTimeMillis()} at
+     * verification, and a document already expired when we look at it is refused loudly rather
+     * than installed and relied on.
+     *
+     * @return null when {@code candidate} may replace {@code trusted}, else the reason it may not
+     */
+    public static String updateRejectionReason(RootMetadata trusted, RootMetadata candidate,
+                                               long updateStartEpochMillis) {
+        if (trusted == null) {
+            return "no trusted root document to update from";
+        }
+        if (candidate == null) {
+            return "no candidate root document";
+        }
+        if (!candidate.isSuccessorOf(trusted)) {
+            return "rollback: root version " + candidate.version() + " is not exactly one greater "
+                    + "than the trusted version " + trusted.version() + " (TUF §5.3)";
+        }
+        if (trusted.expiredAt(updateStartEpochMillis)) {
+            return "freeze: the trusted root document expired at " + trusted.expiresEpochMillis()
+                    + ", before the update started at " + updateStartEpochMillis + " (TUF §5.3.10)";
+        }
+        if (candidate.expiresEpochMillis() == 0) {
+            return "freeze: the delivered root document declares no expiry, so its freshness "
+                    + "cannot be established";
+        }
+        if (candidate.expiredAt(updateStartEpochMillis)) {
+            return "freeze: the delivered root document expired at " + candidate.expiresEpochMillis()
+                    + ", before the update started at " + updateStartEpochMillis;
+        }
+        return null;
+    }
+
+    /**
+     * The reason a document's declared {@code rootThreshold} can never be met by the
+     * {@code bakedRootKeyCount} root keys this client ships, or null when it can.
+     *
+     * <p>{@link TufTrust} counts a signature only when its key is in BOTH the document's own
+     * root-key set AND the baked set, so the effective threshold is capped by the baked key
+     * count. A document declaring more than that is unsatisfiable by construction: it would
+     * silently disarm every patch, which is exactly what the "raise the threshold to 2-of-3"
+     * path documented in {@link RootMetadata} used to do (the baked side holds one key).
+     * Refusing it loudly says which side has to change.
+     */
+    public static String thresholdRejectionReason(RootMetadata document, int bakedRootKeyCount) {
+        if (document == null) {
+            return "no root document to check a threshold on";
+        }
+        if (document.rootThreshold() > bakedRootKeyCount) {
+            return "root threshold " + document.rootThreshold() + " exceeds the "
+                    + bakedRootKeyCount + " root key(s) this client ships baked — the document "
+                    + "can never meet its own threshold, so no patch could arm; ship the missing "
+                    + "baked key(s) first (a client change, not a data change)";
+        }
+        return null;
     }
 
     private static TrustAnchors failClosed(String why) {
@@ -110,9 +261,20 @@ public final class RootTrust {
             }
             int version = ((Number) m.get("version")).intValue();
             int threshold = ((Number) m.get("rootThreshold")).intValue();
+            long expiresEpochMs = 0L;
+            Object expires = m.get("expires");
+            if (expires != null) {
+                if (!(expires instanceof Number n)) {
+                    // A declared-but-unreadable expiry must not be silently ignored: it is part
+                    // of the signed bytes when present, so dropping it would verify the document
+                    // against the wrong input — and would display an expiry nothing enforces.
+                    return null;
+                }
+                expiresEpochMs = n.longValue();
+            }
             Map<String, PublicKey> rootKeys = decodeKeyMap((Map<String, Object>) m.get("rootKeys"));
             Map<String, PublicKey> targetsKeys = decodeKeyMap((Map<String, Object>) m.get("targetsKeys"));
-            return new RootMetadata(version, threshold, rootKeys, targetsKeys);
+            return new RootMetadata(version, threshold, rootKeys, targetsKeys, expiresEpochMs);
         } catch (Throwable t) {
             return null;
         }

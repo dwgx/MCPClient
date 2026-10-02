@@ -56,4 +56,44 @@ public class ValueCodecNarrowingTest {
         // long still takes any long
         assertEquals(3_000_000_000L, ValueCodec.coerce(long.class, 3_000_000_000L, null));
     }
+
+    /**
+     * The {@code long} target was the one width left with a bare
+     * {@code n.longValue()}: no integrality check, no range check. 3.7 silently
+     * became 3L, and a double above 2^63 silently became {@code Long.MAX_VALUE}
+     * (Number.longValue() CLAMPS — it does not wrap) — which then passes the
+     * [{@code Long.MIN_VALUE},{@code Long.MAX_VALUE}] check the narrower widths use.
+     * Every assertion here FAILS on the pre-fix code, which returned a value.
+     */
+    @Test
+    public void longRejectsFractionalAndOutOfRangeValuesInsteadOfClamping() {
+        assertThrows(MmAccessException.class,
+                () -> ValueCodec.coerce(long.class, 3.7d, null));
+        assertThrows(MmAccessException.class,
+                () -> ValueCodec.coerce(Long.class, 3.7d, null));
+        // 1e300 -> Long.MAX_VALUE before the fix.
+        assertThrows(MmAccessException.class,
+                () -> ValueCodec.coerce(long.class, 1e300, null));
+        assertThrows(MmAccessException.class,
+                () -> ValueCodec.coerce(long.class, -1e300, null));
+        // Exactly 2^63 — one past Long.MAX_VALUE — is the boundary the clamp hid.
+        assertThrows(MmAccessException.class,
+                () -> ValueCodec.coerce(long.class, 9.223372036854775808E18, null));
+    }
+
+    /**
+     * ...and the fix must not overshoot: every value that genuinely fits a long is
+     * still accepted, including the largest double below 2^63 (a fix that reused
+     * the int bounds would reject the whole long-only range).
+     */
+    @Test
+    public void longStillAcceptsEveryValueThatFits() {
+        assertEquals(5L, ValueCodec.coerce(long.class, 5.0d, null));
+        assertEquals(3_000_000_000L, ValueCodec.coerce(long.class, 3_000_000_000L, null));
+        assertEquals(Long.MAX_VALUE, ValueCodec.coerce(long.class, Long.MAX_VALUE, null));
+        assertEquals(Long.MIN_VALUE, ValueCodec.coerce(long.class, Long.MIN_VALUE, null));
+        double largestDoubleBelowTwoToThe63 = Math.nextDown(9.223372036854775808E18);
+        assertEquals((long) largestDoubleBelowTwoToThe63,
+                ValueCodec.coerce(long.class, largestDoubleBelowTwoToThe63, null));
+    }
 }

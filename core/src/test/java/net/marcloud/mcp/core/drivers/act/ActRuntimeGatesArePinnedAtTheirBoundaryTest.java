@@ -92,17 +92,47 @@ public class ActRuntimeGatesArePinnedAtTheirBoundaryTest {
         // (3, 4) at 5 blocks out, so the unit direction is (0.6, 0.8) and at yaw 0 the axes come out
         // forward 0.8 / strafe 0.6 -- two different non-zero values, one per axis.
         runtime.submitNav(new NavIntent(3, 64, 4, 0));
-        tick();
+        // Past the reaction delay. NavController now holds every key down for 4-8 ticks before
+        // the first step, because a human's first displacement is 214-416ms after deciding and
+        // the controller was pressing W on the intent's own tick. This test is about the
+        // PUBLISH PATH -- does what NavController computes reach ActMovementInput -- so it waits
+        // out the delay and then pins the published axes. The pre-delay state is pinned
+        // separately, and pinned as zero, because a key that is not yet down must not read down.
+        // NavController samples its reaction delay as 4 + rand(5), i.e. 4..8 ticks. The loop used
+        // to cap at 8 -- EQUAL to the top of that band -- so a delay that drew the maximum left the
+        // loop with the axes still neutral and the test failed on a coin flip. It reproduced about
+        // one run in three, which is not a flake worth living with: a boundary test whose bound is
+        // the value it is testing is not a boundary test.
+        //
+        // The bound is now comfortably above the band, and the band itself is asserted separately
+        // below, so widening this loop cannot quietly turn a 400ms human delay into a 2s one.
+        int ticksWaited = 0;
+        while (runtime.moveForward() == 0f && runtime.moveStrafe() == 0f && ticksWaited < 32) {
+            tick();
+            ticksWaited++;
+        }
+        assertTrue("the walk must START inside the human reaction band, not merely eventually: a "
+                        + "controller that pressed W on its own tick, or one that waited 2 seconds, "
+                        + "would both satisfy this test as written. Started after " + ticksWaited
+                        + " ticks; the band is 4..8",
+                ticksWaited >= 4 && ticksWaited <= 9);
 
         assertEquals("premise: the nav slot is walking", ActPhase.ACTIVE,
                 runtime.record(ActSlot.MOVE).phase());
         assertTrue("a NavIntent drives the same input override a MoveIntent does",
                 runtime.moveActive());
-        assertEquals("the forward axis NavController computed must be what ActMovementInput reads; "
+        // (3,4) at 5 blocks out is the unit direction (0.6, 0.8); at yaw 0 that is a bearing of
+        // about 37 degrees, whose nearest key pair is (forward 1, strafe 1) -- the diagonal. The
+        // axes are now a key mask rather than the exact bearing, because moveFlying normalises
+        // |input|>=1 and a person cannot press 0.8 of a key. See AMoveIsKeyPressesAndWaitsLike
+        // APersonTest, which pins that property directly.
+        assertTrue("the forward axis NavController computed must be what ActMovementInput reads; "
                 + "a neutral read here means the AI is told it is navigating while the player never "
-                + "moves an inch", 0.8f, runtime.moveForward(), 1e-6);
-        assertEquals("and the strafe axis with it, or the bot walks the wrong side of its heading",
-                0.6f, runtime.moveStrafe(), 1e-6);
+                + "moves an inch. Got forward=" + runtime.moveForward(),
+                Math.abs(runtime.moveForward()) == 1.0f);
+        assertTrue("and the strafe axis with it, or the bot walks the wrong side of its heading. "
+                + "Got strafe=" + runtime.moveStrafe(),
+                runtime.moveStrafe() == 0f || Math.abs(runtime.moveStrafe()) == 1.0f);
 
         // Arrive: the applier publishes null on a terminal outcome, so the read reverts to neutral.
         act.setPosition(3, 64, 4);

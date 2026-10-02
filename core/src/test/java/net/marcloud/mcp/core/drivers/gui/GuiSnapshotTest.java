@@ -275,8 +275,12 @@ public class GuiSnapshotTest {
         assertEquals(1L, snap.countKind(GuiElement.KIND_BUTTON));
         assertEquals(320, snap.viewport().width());
         assertEquals(2, snap.viewport().scaleFactor());
-        // fingerprint = simpleName#buttons#slots
-        assertEquals("FakeScreen#1#0", snap.fingerprint());
+        // fingerprint = simpleName#buttons#slots#structureToken. The token is a hash of the
+        // element labels, so this exact hex value pins the CURRENT button's contribution; the
+        // behaviour that matters -- two same-shaped pages differing -- is in
+        // GuiFingerprintDistinguishesSameShapedPagesTest, because a literal here can only ever
+        // assert one screen.
+        assertEquals("FakeScreen#1#0#fa437", snap.fingerprint());
         assertTrue(snap.unreadable().isEmpty());
 
         String json = snap.toJson();

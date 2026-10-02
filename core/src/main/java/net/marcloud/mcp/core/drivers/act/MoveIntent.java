@@ -26,10 +26,30 @@ public record MoveIntent(
         boolean sprint,
         int durationTicks) implements ActIntent {
 
-    /** Clamp the analog axes to the vanilla [-1, 1] range on construction. */
+    /**
+     * Put the raw axes through the SAME key snap the navigator uses, on construction.
+     *
+     * <p>They used to be clamped to [-1, 1] and published as arbitrary floats, which is the one
+     * way this project could make a player move in a way no person can. Two things follow from a
+     * float axis that a key press would not:
+     *
+     * <ul>
+     *   <li><b>It is a tell.</b> Nobody walks at 0.5 speed. A half-forward is not a slow human, it
+     *       is a machine with an analogue output.</li>
+     *   <li><b>It costs a real property, not just realism.</b> Publishing +-1 here is what lets
+     *       vanilla's OWN friction and acceleration do the ramping. Publishing +-0.3 bypasses
+     *       exactly that physics, so the player accelerates instantly to a speed no key produces.
+     *       The navigator already snapped for this reason; the raw path simply had not caught up,
+     *       and the two paths disagreed about what a movement axis is.</li>
+     * </ul>
+     *
+     * <p>Snapping is therefore free realism under ADR-0005: the constraint being imitated is one
+     * the real device imposes, and obeying it gets vanilla's physics back as a side effect.
+     */
     public MoveIntent {
-        forward = clamp(forward);
-        strafe = clamp(strafe);
+        double[] keys = NavController.nearestKeys(clamp(forward), clamp(strafe));
+        forward = (float) keys[0];
+        strafe = (float) keys[1];
     }
 
     private static float clamp(float v) {

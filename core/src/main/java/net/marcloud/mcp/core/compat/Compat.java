@@ -78,6 +78,16 @@ public final class Compat {
         // Ki11SigningContractTest proves both directions: no trusted anchor means no arming, and
         // the shipped patch arms against the real derived chain.
         db.register(new net.marcloud.mcp.core.compat.patches.Ki11DwmHotkeyPatch());
+        // GL-1: vanilla's GL_CLAMP is rejected by modern GL, so a texture that asked to clamp
+        // wraps instead. This used to be an edit inside client/src, which is contractually
+        // read-only; the vendored tree is vanilla again and the change lives here, where it is
+        // signed, registered, and reversible. Signing is the normal signature-verify path.
+        db.register(new net.marcloud.mcp.core.compat.patches.GlClampToEdgePatch());
+        // SEC-1: the level:// resource-pack branch turns a server-supplied URL into a local path
+        // with no containment check. Ships SIGNED by the kernel key and DOES arm, so a
+        // server-sent level://../../../x is refused before the client opens the file; signing
+        // is the normal signature-verify path, like every other patch above.
+        db.register(new net.marcloud.mcp.core.compat.patches.LevelSchemePathGuardPatch());
         return db;
     }
 

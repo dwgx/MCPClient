@@ -18,8 +18,9 @@ public record Stance(int x, int y, int z) {
 
     /**
      * The highest step a player can walk up without jumping, in blocks. Vanilla's step height is
-     * 0.5 for a walking player, so a full block requires a jump; a planner that assumes otherwise
-     * emits paths the executor cannot follow and blames the executor.
+     * 0.6 for a walking player ({@code EntityLivingBase.java:208}), so a full block requires a
+     * jump; a planner that assumes otherwise emits paths the executor cannot follow and blames the
+     * executor.
      */
     public static final int STEP_UP_MAX = 1;
 
@@ -34,12 +35,38 @@ public record Stance(int x, int y, int z) {
         return hasFloor(w) && hasRoom(w);
     }
 
-    /** Solid ground directly under the feet. */
+    /**
+     * Solid ground directly under the feet, and NOT a ladder.
+     *
+     * <p>Vanilla's own collision read says a ladder IS solid and the planner has to disagree.
+     * {@code Block.getCollisionBoundingBox:499-502} returns a box for every block, so
+     * {@code BlockProbe} -- correctly, as a statement about collision -- calls a ladder
+     * {@code SOLID}. But a ladder is a thin plate on a wall and a player on top of one is standing
+     * on air: nothing holds them there. {@code BlockProbe}'s own javadoc says exactly this ("vines,
+     * ladders, torches, tall grass, rails and signs are non-solid and must not read as floor") and
+     * its code does not deliver it, so the correction belongs HERE, in the one place that answers
+     * "will something hold this player's feet up", rather than in a util that is only being asked
+     * about collision.
+     *
+     * <p>What leaving it alone costs is concrete, and it is a lie in the plan. With a ladder
+     * counted as a floor, every cell of a ladder column reads as standable and
+     * {@code NeighborGen} offers {@link Move.Kind#STEP_UP} moves up it -- a jump, which vanilla
+     * only performs from the ground ({@code EntityLivingBase.onLivingUpdate:2018-2022}) and which a
+     * player hanging on a ladder cannot do. The route would be computed, offered, and then refused
+     * at execution with a message blaming geometry. A climb is the only kind that describes that
+     * transition, so a ladder is the only thing allowed to end one.
+     */
     public boolean hasFloor(BlockView w) {
-        return w.isSolid(x, y - 1, z);
+        return w.isSolid(x, y - 1, z) && !w.isClimbable(x, y - 1, z);
     }
 
-    /** The feet block and the head block are both clear. */
+    /**
+     * The feet block and the head block are both clear.
+     *
+     * <p>"Clear" is {@link BlockView#isPassable}, whose rule is vanilla's walk verdict: water is
+     * room, lava is not. Asking per cell rather than as one volume is what lets the feet be in
+     * water while the head is not.
+     */
     public boolean hasRoom(BlockView w) {
         for (int dy = 0; dy < BODY_HEIGHT; dy++) {
             if (!w.isPassable(x, y + dy, z)) {
@@ -47,6 +74,88 @@ public record Stance(int x, int y, int z) {
             }
         }
         return true;
+    }
+
+    /**
+     * Whether a player can be climbing here: a ladder or vine under the feet and room for a body.
+     *
+     * <p><b>Not {@link #isStandable}, and the difference is the whole point of the predicate.</b>
+     * {@code isStandable} asks whether the cell BELOW the feet is solid, and on a ladder four
+     * blocks up a shaft it is not. The player up there is genuinely there and genuinely held --
+     * by the ladder, which vanilla detects in {@code EntityLivingBase.isOnLadder:1134-1141} and
+     * acts on in {@code moveEntityWithHeading:1637-1662} -- but it never sets {@code onGround}, so
+     * a rule that asks "is there a floor" answers no about a position a player occupies
+     * constantly. The ladder is a legal stance and the old vocabulary had no word for it.
+     *
+     * <p>Room is still required, and asked the same way as everywhere else: the ladder holds the
+     * body up, it does not make the cell above the head disappear, and a body cannot be two blocks
+     * inside a block.
+     */
+    public boolean isClimbable(BlockView w) {
+        return w.isClimbable(x, y, z) && hasRoom(w);
+    }
+
+    /**
+     * Whether a player can be swimming here: water where the feet are and room for a body.
+     *
+     * <p>Same shape as {@link #isClimbable} and for the same reason. A cell in the middle of a
+     * lake has no solid block under it and no ladder in it, so both {@link #hasFloor} and
+     * {@link #isClimbable} answer false about a position the player is in. Vanilla holds such a
+     * body up with the water -- {@code handleWaterMovement:1111-1130} sets {@code inWater} and
+     * zeroes {@code fallDistance}, and the water branch of {@code moveEntityWithHeading:1700-1733}
+     * is what moves it -- which is a third way of being supported that the two older predicates
+     * between them do not cover.
+     *
+     * <p>The feet cell is the one that has to be water, not the body: vanilla tests an
+     * {@code AxisAlignedBB} contracted vertically by 0.4 and shrunk by 0.001
+     * ({@code Entity.handleWaterMovement:1113}), which is a statement about the lower body, so a
+     * stance at the waterline with its head in air is a stance a player holds.
+     */
+    public boolean isSwimmable(BlockView w) {
+        return w.isWater(x, y, z) && hasRoom(w);
+    }
+
+    /**
+     * Whether a body fits here and SOMETHING holds it up -- floor, ladder, or water.
+     *
+     * <p>Written as the disjunction of the three rather than as a new independent rule, because
+     * each arm is already the vanilla predicate for its own way of being held up and a fourth
+     * spelling of "is this a position a player can occupy" is exactly the second opinion this
+     * class exists to prevent.
+     *
+     * <p>Used for the two places a route may BEGIN or END anywhere, where asking only about floors
+     * would refuse to plan out of a ladder shaft or onto a boat ramp. The move generators do NOT
+     * use it, because each move has to be offered for its own reason: a swim is offered because
+     * the destination is water, not because the destination is somehow occupiable.
+     */
+    public boolean isOccupiable(BlockView w) {
+        return isStandable(w) || isClimbable(w) || isSwimmable(w);
+    }
+
+    /**
+     * Whether standing here means standing at the lip of something, so the move into it has to be
+     * crept.
+     *
+     * <p>True when at least one of the four cells BESIDE this one, at the same height, has no floor.
+     * Two boundaries matter and both are deliberate. The neighbours are the four cardinals and not
+     * the eight around them, because a diagonal cell a body never enters cannot be what stops it:
+     * vanilla's guard asks whether the bounding box one block DOWN is clear, and a 0.6-wide body
+     * walking on a 1-wide ledge has its box over the ledge for its whole length. And the test is
+     * {@link #hasFloor} on the neighbour rather than "is not standable", because a neighbour full
+     * of water is still a floor to walk beside -- a route along a lake bank is not a route that
+     * needs creeping, and treating it as one would put the key down for no reason at all.
+     *
+     * <p>This lives beside {@link #isStandable} rather than in {@link NeighborGen} because it is
+     * the same kind of question -- what does the world hold up here -- asked about the cell next
+     * door. The class doc is explicit that every "can a body be here" fact is asked in one place,
+     * and a second implementation of "is there floor" in the generator is the exact duplication
+     * that note exists to prevent.
+     */
+    public boolean isBrink(BlockView w) {
+        return !offset(1, 0, 0).hasFloor(w)
+                || !offset(-1, 0, 0).hasFloor(w)
+                || !offset(0, 0, 1).hasFloor(w)
+                || !offset(0, 0, -1).hasFloor(w);
     }
 
     /** The stance one step away on an axis, at the same height. */

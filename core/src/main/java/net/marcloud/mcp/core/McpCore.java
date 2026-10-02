@@ -16,6 +16,7 @@ import net.marcloud.mcp.core.flt.seam.SeamController;
 import net.marcloud.mcp.core.flt.seam.SeamTools;
 import net.marcloud.mcp.core.se.AccessGate;
 import net.marcloud.mcp.core.se.AllowAllGate;
+import net.marcloud.mcp.core.se.MonitorAccessGate;
 import net.marcloud.mcp.core.ps.PsSynthesizer;
 import net.marcloud.mcp.core.ps.SynthTools;
 import net.marcloud.mcp.core.io.http.HttpFacade;
@@ -70,6 +71,19 @@ public final class McpCore {
     // MEDIUM#8: kept as a field so stop() can revert dynamic hooks before the
     // transports go down, instead of letting installed advice outlive the server.
     private net.marcloud.mcp.core.flt.FltDynamicManager dynHooks;
+
+    /**
+     * The game façade this Core is wired around — the SAME instance
+     * {@link #registerBuiltins} hands to every tool provider.
+     *
+     * <p>Exists so a caller driving {@link #registerBuiltins} outside {@link #start()} (the
+     * gate-coverage test) passes the real collaborators rather than substituting stand-ins
+ * and hoping the providers treat them alike. Reading it is safe with no game running:
+     * {@link GameAccess} resolves the singleton per call and every accessor is null-tolerant.
+     */
+    public GameAccess gameAccess() {
+        return game;
+    }
 
     /**
      * Assemble and start Core. Installs runtime hooks (if Instrumentation is
@@ -138,62 +152,17 @@ public final class McpCore {
         IoManager registry = new IoManager(executor, engine);
 
         // Register the built-in game tools through the registry (supervised).
-        ToolRegistry builtins = new ToolRegistry(ctx);
-        builtins.registerAll(registry);
+        //
+        // The whole built-in surface is ONE call into registerBuiltins(...) at the end of
+        // this method. There is deliberately no second registration site: what a test can
+        // drive is then exactly what production registers, which is the invariant
+        // RegisteredBuiltinGateCoverageTest exists to police.
 
-        // Register the self-referential meta-tools (introspect + self-extend +
-        // redefine_class hypervisor tool).
-        DynamicToolFactory factory = new DynamicToolFactory(hotLoad);
-        MetaTools meta = new MetaTools(registry, factory, hotLoad);
-        meta.registerAll(registry);
-
-        // Privilege tools (7-layer model): drop/restore/list clearance. Driven
-        // through the same engine the gate reads, so a drop takes effect at once.
-        new PermissionTools(engine, registry).registerAll(registry);
-        // L4/L5 self-management (GAP-2): enable/disable_privilege + grant/revoke_capability.
-        // Mutations bite only when engine is SeLocalMonitor; under P-SECURE the
-        // interface defaults return false and the tools report "not locally owned".
-        new net.marcloud.mcp.core.se.PrivilegeControlTools(engine).registerAll(registry);
-
-        // Durable memory (persists across restarts) — the knowledge counterpart
-        // to create_tool's capabilities. Stored under the game working dir.
-        MemoryStore memory = new MemoryStore(java.nio.file.Path.of("mcp_memory.json"));
-        new MemoryTools(memory).registerAll(registry);
-
-        // Narrative/intent (the "fable" layer): goal stack + story log.
-        GoalStack goalStack = new GoalStack(200);
-        new NarrativeTools(goalStack).registerAll(registry);
-
-        // ---- Phase 2 capability layers (C1/C3/C5/C7/C8) ----
-        // Each tool is registered through the same supervised registry, so the
-        // 7-layer reference monitor gates it exactly like every other tool.
-        AccessGate gate = new AllowAllGate();
-
-        // C1 INTROSPECT: read-only self-model. list_hooks aggregates both the
-        // fixed network hooks and the dynamic ones via the HookSource SPI.
-        CmQuery introspect = new CmQuery(
-                getClass().getClassLoader(), java.util.List.of(hooks, dynHooks));
-        new IntrospectionTools(introspect).registerAll(registry);
-
-        // C3 INTERCEPT: runtime install/uninstall/reset of ByteBuddy hooks.
-        new HookTools(dynHooks, gate).registerAll(registry);
-
-        // C5 MUTATE-STATE: read/write any field, invoke private methods, open
-        // modules. Instrumentation reached through the gated AgentAccess seam.
-        MmAccess deep = new MmAccess(game, gate,
-                net.marcloud.mcp.core.boot.AgentAccess::instrumentation);
-        // Invalidate MmAccess's layout-dependent caches after any redefine
-        // (a DCEVM structural redefine can move field offsets → stale VarHandle).
-        hotLoad.setOnRedefined(deep::invalidate);
-        new MutateStateTools(deep, game).registerAll(registry);
-
-        // C7 SYNTHESIZE: one-shot GC-able hidden-class tools.
-        new SynthTools(new PsSynthesizer()).registerAll(registry);
-
-        // C8 SEAM: Netty pipeline MITM / GLFW input / tick injection. Kept as a
-        // field so stop() can tear the seams down.
+        // C8 SEAM: Netty pipeline MITM / GLFW input / tick injection. Built before the
+        // tick-injector arming below and before registerBuiltins(...), which hands the same
+        // controller to SeamTools/ChatTools/ObserveTools. Kept as a field so stop() can
+        // tear the seams down.
         seams = new SeamController(bus, game);
-        new SeamTools(seams).registerAll(registry);
 
         // PHASE T: arm the tick injector by DEFAULT so the single GameClock actually
         // advances (tickId is the spine every observation stamps itself with). Opt-OUT
@@ -216,25 +185,6 @@ public final class McpCore {
             }
         }
 
-        // PHASE T: Timeline ring — fold every EventBus event onto the GameClock as a
-        // safe {tickId, kind, summary} entry, and expose clock_now / timeline_tail.
-        // Attach BEFORE nothing-else-matters ordering; subscribing to the GameEvent
-        // base type captures all present + future event subclasses in one hook.
-        net.marcloud.mcp.core.ke.Timeline timeline =
-                new net.marcloud.mcp.core.ke.Timeline(
-                        Integer.getInteger("mcp.core.timelineCap", 512));
-        timeline.attach(bus);
-
-        // PHASE P: PacketJournal — a packet-only ring fed from the Netty-tap
-        // Seam packet events, addressable per-packet (seq) for packet_get.
-        net.marcloud.mcp.core.ke.PacketJournal packetJournal =
-                new net.marcloud.mcp.core.ke.PacketJournal(
-                        Integer.getInteger("mcp.core.packetJournalCap", 1024));
-        packetJournal.attach(bus);
-
-        new net.marcloud.mcp.core.drivers.observe.ObserveTools(
-                net.marcloud.mcp.core.ke.GameClock.INSTANCE, timeline, packetJournal,
-                seams).registerAll(registry);
 
         // PHASE T (T.8): fan the ONE clock out to board's TickSignal by reflection —
         // zero compile-time board dependency (core never imports board). Board present
@@ -278,7 +228,6 @@ public final class McpCore {
         // report ACTIVE while the player never actually moved (fake success). The
         // installer no-ops until the player exists and re-swaps across world-join/respawn.
         moveInstaller.arm();
-        new net.marcloud.mcp.core.drivers.action.ActTools(actRuntime).registerAll(registry);
 
         // PHASE E: fan whitelisted world GameEvents out to board Signals (disconnect,
         // inbound chat, block-change). Board absent ⇒ silent no-op, like the clock bridge.
@@ -295,42 +244,29 @@ public final class McpCore {
         // -agentpath:core-jvmti.dll — the debug_* tools still register and report
         // honestly (no dead tools). Debug events also flow onto the EventBus.
         net.marcloud.mcp.core.kd.DebugEventQueue.INSTANCE.addListener(bus::publish);
-        if (objects != null) {
-            // L6 wired: debug ops can bind to a frozen thread handle; the subject
-            // supplier ties a minted handle's owner to the gate's principal.
-            new net.marcloud.mcp.core.kd.DebugTools(gate, objects, engine::currentSubject)
-                    .registerAll(registry);
-        } else {
-            new net.marcloud.mcp.core.kd.DebugTools(gate).registerAll(registry);
-        }
         if (!net.marcloud.mcp.core.kd.KdBridge.isAvailable()) {
             System.err.println("[MCP Core] JVMTI debugger absent — "
                     + net.marcloud.mcp.core.kd.KdBridge.unavailableReason()
                     + " (debug_* tools registered, return isError until the agent is present).");
         }
 
-        // Structured GUI interaction: expose the whole clickable GUI (buttons,
-        // slots, text fields) to the LLM as addressable elements and drive the
-        // real vanilla handlers by element id. gui_snapshot is R2 (game-thread
-        // read); the action tools are R1 (server-visible effects) + SE_GUI_INTERACT.
-        new net.marcloud.mcp.core.drivers.gui.GuiTools(game, new net.marcloud.mcp.core.drivers.gui.GuiSnapshotService())
-                .registerAll(registry);
+        // ---- THE built-in surface ----
+        // SeamController must exist before this call: SeamTools, ChatTools and ObserveTools
+        // all take it, and so does the tick injector above.
+        registerBuiltins(registry, engine, objects, ctx, hotLoad, hooks, dynHooks, seams,
+                actRuntime);
 
-        // dev_probe (R2 read-only): one-call live-game diagnostic — connection/world
-        // presence + GL context (version/vendor/profile) — marshalled onto the game
-        // thread. The development-time "what is the running game actually doing" probe
-        // and the carrier for KI-1's GL-context evidence. Degrades to absent headless.
-        new net.marcloud.mcp.core.drivers.video.DevTools(game).registerAll(registry);
-
-        // Compat patch observability (R3 read-only): list_compat_patches reports the
-        // startup patches armed by the engine at premain (NT AppCompat analogue).
-        // Application is kernel-automatic at premain; only the read-only state view
-        // passes through the tool gate. The engine/database are null-safe here (a
-        // headless run without -javaagent reports an empty catalog).
-        new net.marcloud.mcp.core.compat.CompatTools(
-                net.marcloud.mcp.core.compat.Compat.database(),
-                net.marcloud.mcp.core.compat.Compat.engine())
-                .registerAll(registry);
+        // Startup self-check: cross-check the LIVE registry against the gate tables and
+        // say so out loud. This is the same audit the test suite runs
+        // (net.marcloud.mcp.core.se.BuiltinGateAudit), so the runtime diagnostic and the CI
+        // gate cannot drift apart — but it runs where the truth is: on the registry that is
+        // about to be served. A builtin wired into a provider that start() never reaches
+        // cannot hide here, because start() IS the only registration site.
+        //
+        // Warn-only by design: a gate-table gap must never keep the game from starting.
+        // Set -Dmcp.core.gateAudit=fail to make it abort startup instead, for a hardened
+        // deployment that would rather refuse to serve than serve an ungated tool.
+        reportGateGaps(registry);
 
         // Socket transport (not stdio): the game owns the console, so a stdio
         // MCP server would corrupt the JSON-RPC stream. An AI client connects to
@@ -373,6 +309,193 @@ public final class McpCore {
                 }
             }
         }
+    }
+
+    /**
+     * THE built-in surface — the one and only place a built-in tool is registered.
+     *
+     * <p><b>Why this is a method and not inline in {@link #start()}.</b> The gate tables
+     * ({@link Ring} BUILTIN_RINGS, {@link SeToolRequirement} L3_WRITES/L4_PRIVILEGE) have to
+     * cover every tool that actually exists at runtime, and the only readable truth about
+     * that is the live registry. When the registrations were inline in {@code start()},
+     * {@code RegisteredBuiltinGateCoverageTest} had to keep its own hand-written copy of the
+     * provider list — and that copy drifts: a provider wired into the test but never into
+     * {@code start()} leaves the suite green on a build where the tool does not exist.
+     * {@code chat_read} sat in exactly that state. With one registration method there is no
+     * copy to drift, so the gap cannot reopen.
+     *
+     * <p>Every collaborator here is the one production passes. Constructing a provider and
+     * calling its {@code registerAll} builds tool specs and never dereferences the
+     * collaborators, so this is drivable headless with trivial stand-ins.
+     */
+    public void registerBuiltins(IoManager registry, SeReferenceMonitor engine,
+                                 net.marcloud.mcp.core.ob.ObManager objects, ToolContext ctx,
+                                 LdrEngine hotLoad, FltManager hooks,
+                                 net.marcloud.mcp.core.flt.FltDynamicManager dynHooks,
+                                 net.marcloud.mcp.core.flt.seam.SeamController seams,
+                                 net.marcloud.mcp.core.drivers.act.ActRuntime actRuntime) {
+        // L4/L5 defense-in-depth against the LIVE monitor (was new AllowAllGate(), an
+        // empty method body, so the documented second term of the AND did not exist).
+        AccessGate gate = new MonitorAccessGate(engine);
+
+        ToolRegistry builtins = new ToolRegistry(ctx);
+        builtins.registerAll(registry);
+        // C11 (the enchant-table lapis spend). Separate from ToolRegistry because that file is
+        // under concurrent edit; same ToolContext, same veto-guarded send path, same ring.
+        new net.marcloud.mcp.core.io.transport.EnchantTools(ctx).registerAll(registry);
+
+        // KI-12: the ESC door. Separate file and separate registration because the ESC key is a
+        // raw LWJGL event handled inside Minecraft.runTick's keyboard loop, not a KeyBinding, so
+        // no existing tool can deliver it -- see EscMenu, which calls
+        // Minecraft.displayInGameMenu(), the same method the key calls. R3, like open_overlay: it
+        // changes what is on screen and nothing else (no packet leaves the client).
+        new net.marcloud.mcp.core.io.transport.EscPanelTools().registerAll(registry);
+
+        // Register the self-referential meta-tools (introspect + self-extend +
+        // redefine_class hypervisor tool).
+        DynamicToolFactory factory = new DynamicToolFactory(hotLoad);
+        MetaTools meta = new MetaTools(registry, factory, hotLoad);
+        meta.registerAll(registry);
+
+        // Privilege tools (7-layer model): drop/restore/list clearance. Driven
+        // through the same engine the gate reads, so a drop takes effect at once.
+        new PermissionTools(engine, registry).registerAll(registry);
+        // L4/L5 self-management (GAP-2): enable/disable_privilege + grant/revoke_capability.
+        // Mutations bite only when engine is SeLocalMonitor; under P-SECURE the
+        // interface defaults return false and the tools report "not locally owned".
+        new net.marcloud.mcp.core.se.PrivilegeControlTools(engine).registerAll(registry);
+
+        // Durable memory (persists across restarts) — the knowledge counterpart
+        // to create_tool's capabilities. Stored under the game working dir.
+        MemoryStore memory = new MemoryStore(java.nio.file.Path.of("mcp_memory.json"));
+        new MemoryTools(memory).registerAll(registry);
+
+        // Narrative/intent (the "fable" layer): goal stack + story log.
+        GoalStack goalStack = new GoalStack(200);
+        new NarrativeTools(goalStack).registerAll(registry);
+
+        // ---- Phase 2 capability layers (C1/C3/C5/C7/C8) ----
+        // Each tool is registered through the same supervised registry, so the
+        // 7-layer reference monitor gates it exactly like every other tool.
+
+        // C1 INTROSPECT: read-only self-model. list_hooks aggregates both the
+        // fixed network hooks and the dynamic ones via the HookSource SPI.
+        CmQuery introspect = new CmQuery(
+                getClass().getClassLoader(), java.util.List.of(hooks, dynHooks));
+        new IntrospectionTools(introspect).registerAll(registry);
+
+        // C3 INTERCEPT: runtime install/uninstall/reset of ByteBuddy hooks.
+        new HookTools(dynHooks, gate).registerAll(registry);
+
+        // C5 MUTATE-STATE: read/write any field, invoke private methods, open
+        // modules. Instrumentation reached through the gated AgentAccess seam.
+        MmAccess deep = new MmAccess(game, gate,
+                net.marcloud.mcp.core.boot.AgentAccess::instrumentation);
+        // Invalidate MmAccess's layout-dependent caches after any redefine
+        // (a DCEVM structural redefine can move field offsets → stale VarHandle).
+        hotLoad.setOnRedefined(deep::invalidate);
+        new MutateStateTools(deep, game).registerAll(registry);
+
+        // C7 SYNTHESIZE: one-shot GC-able hidden-class tools.
+        new SynthTools(new PsSynthesizer()).registerAll(registry);
+
+        // C8 SEAM: Netty pipeline MITM / GLFW input / tick injection.
+        new net.marcloud.mcp.core.flt.seam.SeamTools(seams).registerAll(registry);
+
+        // PHASE T: Timeline ring — fold every EventBus event onto the GameClock as a
+        // safe {tickId, kind, summary} entry. Subscribe to the GameEvent base type to
+        // capture all present + future event subclasses in one hook.
+        net.marcloud.mcp.core.ke.Timeline timeline =
+                new net.marcloud.mcp.core.ke.Timeline(
+                        Integer.getInteger("mcp.core.timelineCap", 512));
+        timeline.attach(bus);
+
+        // PHASE P: PacketJournal — a packet-only ring fed from the Netty-tap
+        // Seam packet events, addressable per-packet (seq) for packet_get.
+        net.marcloud.mcp.core.ke.PacketJournal packetJournal =
+                new net.marcloud.mcp.core.ke.PacketJournal(
+                        Integer.getInteger("mcp.core.packetJournalCap", 1024));
+        packetJournal.attach(bus);
+
+        // Inbound chat. Fed from the SAME SeamPacketInboundEvent as PacketJournal so
+        // there is one place the wire is observed, and reference-free so the ring
+        // cannot pin objects.
+        net.marcloud.mcp.core.ke.ChatLog chatLog =
+                new net.marcloud.mcp.core.ke.ChatLog(
+                        Integer.getInteger("mcp.core.chatLogCap", 256));
+        chatLog.attach(bus);
+        new net.marcloud.mcp.core.drivers.observe.ChatTools(chatLog, seams,
+                () -> game.player() == null ? null : game.player().getName())
+                .registerAll(registry);
+
+        new net.marcloud.mcp.core.drivers.observe.ObserveTools(
+                net.marcloud.mcp.core.ke.GameClock.INSTANCE, timeline, packetJournal,
+                seams).registerAll(registry);
+
+        new net.marcloud.mcp.core.drivers.action.ActTools(actRuntime).registerAll(registry);
+
+        // C6 CONTROL-EXEC: native JVMTI debugger. Graceful no-op without
+        // -agentpath:core-jvmti.dll — the debug_* tools still register and report
+        // honestly (no dead tools).
+        if (objects != null) {
+            // L6 wired: debug ops can bind to a frozen thread handle; the subject
+            // supplier ties a minted handle's owner to the gate's principal.
+            new net.marcloud.mcp.core.kd.DebugTools(gate, objects, engine::currentSubject)
+                    .registerAll(registry);
+        } else {
+            new net.marcloud.mcp.core.kd.DebugTools(gate).registerAll(registry);
+        }
+
+        // Structured GUI interaction: expose the whole clickable GUI (buttons,
+        // slots, text fields) to the LLM as addressable elements and drive the
+        // real vanilla handlers by element id. gui_snapshot is R2 (game-thread
+        // read); the action tools are R1 (server-visible effects) + SE_GUI_INTERACT.
+        new net.marcloud.mcp.core.drivers.gui.GuiTools(game, new net.marcloud.mcp.core.drivers.gui.GuiSnapshotService())
+                .registerAll(registry);
+
+        // dev_probe (R2 read-only): one-call live-game diagnostic — connection/world
+        // presence + GL context (version/vendor/profile) — marshalled onto the game
+        // thread. Degrades to absent headless.
+        new net.marcloud.mcp.core.drivers.video.DevTools(game).registerAll(registry);
+
+        // Compat patch observability (R3 read-only): list_compat_patches reports the
+        // startup patches armed by the engine at premain. The engine/database are
+        // null-safe (a headless run without -javaagent reports an empty catalog).
+        new net.marcloud.mcp.core.compat.CompatTools(
+                net.marcloud.mcp.core.compat.Compat.database(),
+                net.marcloud.mcp.core.compat.Compat.engine())
+                .registerAll(registry);
+    }
+
+    /**
+     * Cross-check the LIVE registry against the three gate tables and report loudly, naming
+     * the specific tools, when a registered built-in has no gate row or a declared row names
+     * nothing that was registered.
+     *
+     * <p>This is a runtime assertion, not a second copy of the inventory: it reads the
+     * registry {@link #registerBuiltins} just filled. That is the whole point — before the
+     * registrations were factored into one method, a provider could be wired into the TEST's
+     * copy of the list and never into {@code start()}, and the suite stayed green on a build
+     * where the tool did not exist ({@code chat_read} did exactly this).
+     *
+     * <p>Warn-only by default: a missing gate row is a security defect to fix, not a reason to
+     * leave the player without an MCP endpoint. {@code -Dmcp.core.gateAudit=fail} promotes it
+     * to a startup abort for hardened deployments.
+     */
+    static void reportGateGaps(IoManager registry) {
+        net.marcloud.mcp.core.se.BuiltinGateAudit.Report report =
+                net.marcloud.mcp.core.se.BuiltinGateAudit.audit(registry);
+        if (report.clean()) {
+            return;
+        }
+        String detail = report.message();
+        if ("fail".equalsIgnoreCase(System.getProperty("mcp.core.gateAudit", "warn"))) {
+            throw new IllegalStateException("[SECURITY] built-in gate coverage is incomplete, "
+                    + "refusing to serve (-Dmcp.core.gateAudit=fail): " + detail);
+        }
+        System.err.println("[SECURITY] built-in gate coverage is INCOMPLETE. A registered tool "
+                + "with no gate row is enforced at the R3 fallback with no L3/L4 gate while every "
+                + "visible surface reports the ring it was registered with: " + detail);
     }
 
     /**

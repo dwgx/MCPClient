@@ -3,6 +3,7 @@ package net.marcloud.mcp.core.drivers.act;
 import net.marcloud.mcp.core.GameAccess;
 import net.marcloud.mcp.core.LiveGameGate;
 import org.junit.Test;
+import net.marcloud.mcp.core.util.Graded;
 
 import static org.junit.Assert.assertTrue;
 
@@ -33,7 +34,7 @@ public class DigLiveIT {
 
     private static void requireBlockAtCrosshair(ActActuator act) {
         LiveGameGate.require("player in a world aiming at a block",
-                () -> act.inWorld() && act.mouseOver().kind() == ActActuator.Target.Kind.BLOCK);
+                () -> act.inWorld() && act.mouseOver().value().kind() == ActActuator.Target.Kind.BLOCK);
     }
 
     @Test
@@ -41,7 +42,13 @@ public class DigLiveIT {
         ActActuator act = new LivePlayerActuator(new GameAccess());
         requireBlockAtCrosshair(act);
 
-        ActActuator.Target t = act.mouseOver();
+        // The grade is read, not assumed: the crosshair here is traced against the previous frame's
+        // rotation, and a live run is the only place that claim can be checked against a real
+        // client rather than against this file's own reasoning about the phase order.
+        Graded<ActActuator.Target> graded = act.mouseOver();
+        assertTrue("a live crosshair must be a traced ray, not an absent client: " + graded.belief(),
+                graded.mayActOn());
+        ActActuator.Target t = graded.value();
         DigController c = new DigController(
                 InteractIntent.dig(t.x(), t.y(), t.z(), t.side() == null ? 1 : t.side().index()));
         ActOutcome out = null;

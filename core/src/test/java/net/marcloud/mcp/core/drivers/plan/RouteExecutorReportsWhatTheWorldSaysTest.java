@@ -242,38 +242,75 @@ public class RouteExecutorReportsWhatTheWorldSaysTest {
     }
 
     /**
-     * Arrival is proximity to the target centre, and this is the case that taught it.
+     * Arrival is the destination's own cell AND proximity to its centre -- two questions, not one.
      *
-     * <p>This test used to assert the opposite. It nudged the player to 1.95 while the plan required
-     * block 2, and demanded a FAILURE on the grounds that floor(1.95) is 1. Live measurement showed
-     * that reasoning was wrong: the steering aims at the block CENTRE (2.5) with a 0.6-block
-     * tolerance, so 1.95 is arrival as far as every component in the chain is concerned, and a
-     * floored-coordinate check rejects moves nothing can deliver. The route died on its first move
-     * because of it.
+     * <p><b>This test used to pin the wrong half, and said so in its own name.</b> It read
+     * {@code arrivalIsProximityToTheTargetCentreNotEqualityOfBlockCoordinates}, teleported the body
+     * to x=1.95 against a plan requiring cell x=2, and demanded that be ARRIVAL -- on the reasoning
+     * that floor(1.95) is 1 and "a floored-coordinate check rejects moves nothing can deliver".
      *
-     * <p>So the assertion is inverted from what it was, and the honest description of the rule is:
-     * near enough to the centre, AND standing on something.
+     * <p>The premise was true and the conclusion was not. A live player really does stop 0.56 from
+     * a stance's centre -- but that was a fact about a steering controller that stopped there
+     * because its only cell test was on the Y axis, not a limit the steering could not deliver. The
+     * executor then believed the stop. Half a cell of early credit on every move is what put a
+     * ten-block walk ten blocks short: a move credited at z=-4.24 was 0.28 from the centre of the
+     * stance it claimed to have reached and the feet were still in cell z=-4, which left the body
+     * 0.06 blocks too far north to clear the log the next move had to pass.
+     *
+     * <p>So both halves are pinned here, each by a body that differs from the other by nothing but
+     * which cell it stands in. {@code 2.30} is inside cell 2 and 0.20 from its centre: arrival, and
+     * demanding the exact centre would be demanding a precision vanilla's own GCD quantisation
+     * does not offer. {@code 1.95} is 0.55 from the same centre -- closer to nothing, but in the
+     * cell before: not arrival, and the message has to name that rather than only the distance.
      */
     @Test
-    public void arrivalIsProximityToTheTargetCentreNotEqualityOfBlockCoordinates() {
+    public void arrivalIsTheDestinationsOwnCellAndNotMerelyNearItsCentre() {
         FakeActuator act = groundedAt(0, 64, 0);
         Move walk = Move.walk(new Stance(0, 64, 0), new Stance(2, 64, 0));
         RouteExecutor ex = new RouteExecutor(planOf(walk), 64);
 
+        ActOutcome out = driveAfterNudgingTo(ex, act, 2.30D);
+
+        assertTrue("0.20 blocks off the centre and inside the destination's own cell is arrival -- "
+                + "demanding the exact centre is stricter than a GCD-quantised step can deliver: "
+                + out.message(), out.ok());
+        assertEquals("and the move counts", 1, ex.movesDone());
+
+        // And the same body one cell back, which the old test asserted WAS arrival.
+        FakeActuator back = groundedAt(0, 64, 0);
+        RouteExecutor ex2 = new RouteExecutor(planOf(walk), 64);
+
+        ActOutcome shortOut = driveAfterNudgingTo(ex2, back, 1.95D);
+
+        assertFalse("0.55 from the centre is CLOSER than the case above and still not arrival: the "
+                + "feet are in cell 1 and the plan said cell 2, and no tolerance can make a body in "
+                + "the neighbouring cell into a body in this one. This is the assertion the old "
+                + "test pinned the other way round: " + shortOut.message(), shortOut.ok());
+        assertEquals("no move may be counted", 0, ex2.movesDone());
+        assertTrue("and the message must name WHICH cell the feet are in, because a bare distance "
+                + "cannot tell 'a third of a block off and in the right place' from 'in the next "
+                + "cell along' -- those are the same number and opposite outcomes: "
+                + shortOut.message(),
+                shortOut.message().contains("feet in cell (1,0)")
+                        && shortOut.message().contains("destination's own cell (2,0)"));
+    }
+
+    /** Teleport the body once the move is being walked, then drive to terminal. */
+    private static ActOutcome driveAfterNudgingTo(RouteExecutor ex, FakeActuator act, double x) {
         ActOutcome out = null;
         boolean nudged = false;
         for (int i = 0; i < 400 && (out == null || !out.terminal()); i++) {
             out = ex.tick(act);
             if (!nudged && ex.phase() == RouteExecutor.Phase.WALKING) {
-                act.setPosition(1.95D, 64.0D, 0.5D); // 0.55 from centre 2.5: inside tolerance
+                // Nothing moves this fake, so the position is scripted rather than walked. That is
+                // what isolates the arrival RULE under test from NavController's steering, which
+                // has its own tests -- but it also means the scripted position has to be one the
+                // steering could actually deliver, or the test pins a body no controller produces.
+                act.setPosition(x, 64.0D, 0.5D);
                 nudged = true;
             }
         }
-
-        assertTrue("0.55 blocks from the target centre is arrival -- demanding the floored block "
-                + "match is stricter than the steering can deliver, and that mismatch killed a live "
-                + "route on its first move: " + out.message(), out.ok());
-        assertEquals("and the move counts", 1, ex.movesDone());
+        return out;
     }
 
     /**

@@ -121,7 +121,7 @@ public final class Ki11DwmHotkeyPatch implements CompatPatch {
      */
     static final String KERNEL_SIGNATURE =
             "ed25519:v1:mcp-kernel-ed25519-v1:"
-            + "-ePOfZdeKv45chiVC41Eqn0VhF23-7ZTRbDUmAm2NmkUHDauSaiAR86AQS1agWEh1OGpqfV67WeMEYh-zOV3AA";
+            + "SLVMFRlwNEVM2NWSh8aPo17swpsRjRGxYpXCdLD2lot6HEkKhOxIb5FTAK7w6w8cUQb17vlGfDtT9wuslL-mDg";
 
     private final PatchManifest manifest;
 

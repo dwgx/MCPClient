@@ -20,6 +20,16 @@ import net.marcloud.mcp.core.ke.event.events.TickEvent;
  * marks only that slot {@link ActPhase#FAILED} and the loop moves on. This mirrors
  * {@link EventBus#publish}'s own subscriber isolation but is done per-slot here so
  * one bad slot cannot starve the others.
+ *
+ * <p><b>Concurrent writes.</b> A worker thread may submit or cancel any slot at any
+ * moment — that is the point of the runtime's lock-free design — and the applier's
+ * window is a whole tick of real work. So every store below goes through
+ * {@link ActRuntime#compareAndStore} against the record this tick read at the top:
+ * a write that arrived during the window leaves a different record in the slot, the
+ * compare fails, and the loop DROPS its own superseded result instead of writing it
+ * back over the caller's. Without that guard {@code act_set} answered
+ * {@code accepted:true} for an intent the slot did not hold, and {@code act_cancel}
+ * reported a cancel that had been written away.
  */
 public final class ActTickLoop {
 
@@ -73,9 +83,12 @@ public final class ActTickLoop {
         }
         // Not yet eligible — leave it IDLE until its effective tick arrives.
         if (tick < rec.effectiveTick()) {
-            // A cancel before the intent ever started needs no teardown: end now.
+            // A cancel before the intent ever started needs no teardown: end now. Guarded like every
+            // other store here -- a submit that landed since the read above must not be ended by this
+            // record's cancellation.
             if (rec.cancelRequested()) {
-                runtime.store(slot, rec.withPhase(ActPhase.CANCELLED, "cancelled before start"));
+                runtime.compareAndStore(slot, rec,
+                        rec.withPhase(ActPhase.CANCELLED, "cancelled before start"));
             }
             return;
         }
@@ -83,7 +96,7 @@ public final class ActTickLoop {
         if (applier == null) {
             // A live intent with no applier can never progress. If a cancel is
             // pending, honor it; otherwise fail honestly rather than spinning IDLE.
-            runtime.store(slot, rec.cancelRequested()
+            runtime.compareAndStore(slot, rec, rec.cancelRequested()
                     ? rec.withPhase(ActPhase.CANCELLED, "cancelled (no applier)")
                     : rec.withPhase(ActPhase.FAILED, "no applier registered for slot " + slot));
             return;
@@ -93,11 +106,18 @@ public final class ActTickLoop {
         SlotRecord stamped = rec.stampTick(tick);
         try {
             SlotRecord next = applier.apply(stamped);
-            runtime.store(slot, next == null ? stamped : next);
+            // Commit only while the slot STILL HOLDS the record `next` was derived from: a submit or
+            // cancel that landed anywhere inside apply() leaves a different record there, and writing
+            // this continuation of the old one back would both resurrect the superseded intent and
+            // discard the caller's write. A failed compare means exactly that, and the loop moves on --
+            // retrying would replay the applier's side effects for an intent that is already gone.
+            runtime.compareAndStore(slot, rec, next == null ? stamped : next);
         } catch (Throwable t) {
-            // Fault-isolated: this slot fails, the tick and the other slots survive.
-            runtime.store(slot, rec.withPhase(ActPhase.FAILED,
-                    "applier threw: " + t));
+            // Fault-isolated: this slot fails, the tick and the other slots survive. Guarded like the
+            // success path, so a throw cannot roll back a submit or cancel either -- that FAILED record
+            // describes an intent the slot may no longer hold.
+            runtime.compareAndStore(slot, rec,
+                    rec.withPhase(ActPhase.FAILED, "applier threw: " + t));
         }
     }
 }

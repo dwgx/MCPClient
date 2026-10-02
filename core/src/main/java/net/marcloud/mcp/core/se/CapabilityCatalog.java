@@ -43,6 +43,11 @@ public final class CapabilityCatalog {
             Map.entry("packets_tail", Set.of(CAP_NETWORK_RECV_TAP)),
             Map.entry("packet_get", Set.of(CAP_NETWORK_RECV_TAP)),
             Map.entry("packet_view", Set.of(CAP_NETWORK_RECV_TAP)),
+            // chat_read reads the tap's typed S02PacketChat projection out of the
+            // ChatLog ring -- the same gated feed packet_view reads, so revoking the
+            // tap must shut it off too. Declared, not inferred: an unlisted builtin
+            // requires nothing.
+            Map.entry("chat_read", Set.of(CAP_NETWORK_RECV_TAP)),
             // outward network effects
             Map.entry("send_chat", Set.of(CAP_NETWORK_SEND)),
             // send_raw_packet compiles + runs caller Java (eval-class) → CAP_TOOL_CREATE
@@ -59,6 +64,9 @@ public final class CapabilityCatalog {
             Map.entry("do_set_creative_slot", Set.of(CAP_NETWORK_SEND)),
             Map.entry("do_use_entity", Set.of(CAP_NETWORK_SEND)),
             Map.entry("do_entity_action", Set.of(CAP_NETWORK_SEND)),
+            // Sends C11, spends the player's lapis and XP and writes an enchantment into the
+            // item the server holds: a network send like every other typed do_* tool.
+            Map.entry("do_enchant_item", Set.of(CAP_NETWORK_SEND)),
             // GUI action tools drive real click/type/key handlers = world/UI mutation
             // (server-visible effects). Without an L5 entry a builtin needs no capability,
             // so caps=strict default-deny would be bypassed. See CAP_WORLD_WRITE.
@@ -100,6 +108,14 @@ public final class CapabilityCatalog {
             Map.entry("seam_tick_enable", Set.of(CapabilitySid.CAP_SEAM_INJECT)),
             Map.entry("seam_tick_disable", Set.of(CapabilitySid.CAP_SEAM_INJECT)),
             // C6 debugger — all require CAP_DEBUG_CONTROL
+            // Folded manifest entries (ADR-0004). CAP_DEBUG_CONTROL is uniform across all
+            // eleven, so both clusters declare the same single capability -- the fold costs
+            // nothing at L5. The concrete names stay below for the same reason they stay in
+            // Ring.BUILTIN_RINGS: an unlisted name resolves to the empty set, which would let
+            // a capability-revoked agent still reach a hypervisor tool by calling the old
+            // name directly.
+            Map.entry("debug_manage", Set.of(CapabilitySid.CAP_DEBUG_CONTROL)),
+            Map.entry("debug_handle", Set.of(CapabilitySid.CAP_DEBUG_CONTROL)),
             Map.entry("debug_suspend_thread", Set.of(CapabilitySid.CAP_DEBUG_CONTROL)),
             Map.entry("debug_pop_frame", Set.of(CapabilitySid.CAP_DEBUG_CONTROL)),
             Map.entry("debug_force_return", Set.of(CapabilitySid.CAP_DEBUG_CONTROL)),
@@ -108,7 +124,12 @@ public final class CapabilityCatalog {
             Map.entry("debug_single_step", Set.of(CapabilitySid.CAP_DEBUG_CONTROL)),
             Map.entry("debug_read_local", Set.of(CapabilitySid.CAP_DEBUG_CONTROL)),
             Map.entry("debug_write_local", Set.of(CapabilitySid.CAP_DEBUG_CONTROL)),
-            Map.entry("debug_watch_field", Set.of(CapabilitySid.CAP_DEBUG_CONTROL)));
+            Map.entry("debug_watch_field", Set.of(CapabilitySid.CAP_DEBUG_CONTROL)),
+            // C6 L6 handle lifecycle: the same CAP_DEBUG_CONTROL the nine ops above carry. A
+            // handle over a live thread is the object the debugger ops act through, so revoking
+            // the capability has to close the minting surface too (audit H9).
+            Map.entry("debug_open_thread", Set.of(CapabilitySid.CAP_DEBUG_CONTROL)),
+            Map.entry("debug_close_handle", Set.of(CapabilitySid.CAP_DEBUG_CONTROL)));
 
     /** AI-authored tools default to observe-tier (they reach state via GameBridge at R2). */
     public static final Set<CapabilitySid> DEFAULT_GENERATED = Set.of(CAP_WORLD_READ, CAP_MEMORY_READ);

@@ -39,7 +39,7 @@ public final class SelfAirSeparatesUnreadableFromDrowningTest {
     /** Identical in every field but air, so a key diff can only be about air. */
     private static SelfView selfWithAir(Integer air) {
         return new SelfView(0, 64, 0, 0, 0, 0, 0f, 0f, 20f, 20, 5f,
-                0, 0f, 0, air, "SURVIVAL", false, false, true, List.of());
+                0, 0f, 0, air, "SURVIVAL", false, false, true, List.of(), 0.0, 0, false);
     }
 
     /**

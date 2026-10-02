@@ -1,5 +1,9 @@
 package net.marcloud.mcp.core.drivers.act;
 
+
+import net.marcloud.mcp.core.drivers.world.Daylight;
+import net.marcloud.mcp.core.util.Graded;
+
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -37,6 +41,68 @@ public class FakeActuator implements ActActuator {
     final double[] pos = {0, 0, 0};
     public boolean onGround = true;
     boolean collidedHorizontally = false;
+    /**
+     * Whether the fake player is on a ladder. Independent of {@link #onGround} on purpose: vanilla
+     * never sets the two together on a ladder, and a fake that tied them would make a climb test
+     * pass for the wrong reason and hide exactly the defect these controllers exist to avoid.
+     */
+    public boolean onClimbable = false;
+    /** Whether the fake player is in water. Likewise independent of {@link #onGround}. */
+    public boolean inWater = false;
+    /** Remaining air in ticks; -1 is the honest "unreadable", matching the live actuator. */
+    public int air = 300;
+    /** Vanilla's {@code Entity.fallDistance}; 0.0 = standing, as on a live client. */
+    public double fallDistance = 0.0;
+    /**
+     * Whether the fake player is BLOCKING. Kept separate from {@link #usingItem} for vanilla's own
+     * reason: a held meal is a use and not a block, and a test that tied them would let a blocking
+     * assertion pass on an eating fake.
+     */
+    public boolean blocking = false;
+
+    /**
+     * The world's clock, scriptable, and the reason {@link #isDaytime()} is a computation rather
+     * than a second field.
+     *
+     * <p>There is deliberately no {@code daytime} boolean here to set. A fake that let a test
+     * write "it is night" directly would agree with any {@code isDaytime()} implementation,
+     * including the frozen one this seam exists to replace -- and the test would pass while
+     * proving nothing. Deriving the answer from the clock is what makes the fake and the
+     * production actuator comparable at all.
+     */
+    public long worldTime = 0L;
+    /** Vanilla's {@code doDaylightCycle}; false freezes the clock, as the game rule does. */
+    public boolean doDaylightCycle = true;
+
+
+    // ---- inventory / drop ----
+    //
+    // A stack count per PLAYER inventory slot, 0-35, which is what a drop reads and a drop
+    // changes. Scriptable as plain counts rather than ItemStacks because nothing at this seam
+    // knows WHAT an item is: DropController's whole contract is "this number went away", and a
+    // fake that modelled items would be able to pass a drop test for reasons the controller does
+    // not have.
+    final java.util.Map<Integer, Integer> stacks = new java.util.HashMap<>();
+    /**
+     * Make a successful {@link #dropStack} change NOTHING -- the mode-4 click that the container
+     * accepts and applies to no slot.
+     *
+     * <p>The defect the read-back exists to catch. A controller that reported the drop from the
+     * return value of the send would report success here, and a caller freeing a slot in a full
+     * bag would believe it had room while the bag was unchanged.
+     */
+    public boolean dropIsANoOp = false;
+    /** Make {@link #dropStack} refuse outright, the way a spectator's or absent controller's does. */
+    public boolean dropRefused = false;
+
+    /** Put {@code count} items in a player inventory slot. */
+    public void putStack(int slot, int count) {
+        if (count <= 0) {
+            stacks.remove(slot);
+        } else {
+            stacks.put(slot, count);
+        }
+    }
 
     // ---- programmable results ----
     /** startDig returns false this many times, then true. */
@@ -205,8 +271,11 @@ public class FakeActuator implements ActActuator {
     }
 
     @Override
-    public Target mouseOver() {
-        return mouseOver;
+    public Graded<Target> mouseOver() {
+        // The same grade the live seam hands out, and deliberately so: this fake stands in for
+        // LivePlayerActuator, so a scripted crosshair models a ray traced against the previous
+        // frame's rotation rather than pretending this seam can do better than the real one.
+        return ActActuator.tracedLastFrame(mouseOver);
     }
 
     @Override
@@ -390,6 +459,34 @@ public class FakeActuator implements ActActuator {
     public int maxItemUseDuration() {
         return maxUseDuration;
     }
+    @Override
+    public double fallDistance() {
+        return fallDistance;
+    }
+
+    @Override
+    public boolean blocking() {
+        return blocking;
+    }
+
+    @Override
+    public long worldTime() {
+        return worldTime;
+    }
+
+    @Override
+    public boolean isDaytime() {
+        // Daylight, exactly as the live actuator does it -- so a test that compares the two is
+        // comparing two answers to the same question rather than two implementations' opinions.
+        return Daylight.isDaytime(worldTime);
+    }
+
+    /** Pin the clock, the way a test would set up "it is night" without asserting it. */
+    public FakeActuator atWorldTime(long t) {
+        worldTime = t;
+        return this;
+    }
+
 
     /**
      * The rest of the game tick, AFTER the controller ran. Call this between controller ticks or every
@@ -551,6 +648,21 @@ public class FakeActuator implements ActActuator {
         return collidedHorizontally;
     }
 
+    @Override
+    public boolean onClimbable() {
+        return onClimbable;
+    }
+
+    @Override
+    public boolean inWater() {
+        return inWater;
+    }
+
+    @Override
+    public int air() {
+        return air;
+    }
+
     /**
      * Move the fake player, the way a test scripts a dig breaking.
      *
@@ -589,5 +701,29 @@ public class FakeActuator implements ActActuator {
         if (slot >= 0 && slot <= 8) {
             this.heldSlot = slot;
         }
+    }
+
+    // ---- inventory / drop ----
+
+    @Override
+    public int slotStackSize(int playerSlot) {
+        return playerSlot < 0 || playerSlot >= DropController.SLOT_COUNT ? 0
+                : stacks.getOrDefault(playerSlot, 0);
+    }
+
+    @Override
+    public boolean dropStack(int playerSlot) {
+        calls.add("dropStack(" + playerSlot + ")");
+        if (dropRefused || playerSlot < 0 || playerSlot >= DropController.SLOT_COUNT
+                || stacks.getOrDefault(playerSlot, 0) <= 0) {
+            return false;
+        }
+        if (!dropIsANoOp) {
+            // Whole stack, as Container.slotClick:452 does with clickedButton 1: the slot is
+            // EMPTIED, not decremented. A partial drop is a different click and this one does not
+            // ask for it.
+            stacks.remove(playerSlot);
+        }
+        return true;
     }
 }

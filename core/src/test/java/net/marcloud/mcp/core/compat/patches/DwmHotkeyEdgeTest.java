@@ -149,7 +149,15 @@ public final class DwmHotkeyEdgeTest {
             java.nio.charset.StandardCharsets.UTF_8);
         int body = src.indexOf("public static void onKeyEvent()");
         assertTrue("onKeyEvent must exist", body > 0);
-        String method = src.substring(body, src.indexOf("private static void toggleScreen"));
+        // The end of onKeyEvent is found by BRACE MATCHING, not by searching for the next
+        // method's name. It used to search for "private static void toggleScreen", and when that
+        // method was made public (so an agent tool could reach the same path) the search
+        // returned -1 and substring threw StringIndexOutOfBounds -- a guard that crashes on a
+        // rename instead of reporting one is a guard that will be deleted rather than fixed.
+        int end = methodEnd(src, body);
+        assertTrue("onKeyEvent must be brace-balanced in the source, or this guard cannot bound "
+                + "itself and would silently search the whole file", end > body);
+        String method = src.substring(body, end);
 
         int boundCheck = method.indexOf("key != BOUND_KEY");
         int downCheck = method.indexOf("if (!down)");
@@ -171,4 +179,25 @@ public final class DwmHotkeyEdgeTest {
         assertTrue("boundKey must be -1 (disabled) or a real scancode, never anything else",
             bound == -1 || (bound >= 0 && bound < 256));
     }
+    /** Index just past the closing brace of the method whose signature starts at {@code from}. */
+    private static int methodEnd(String src, int from) {
+        int open = src.indexOf('{', from);
+        if (open < 0) {
+            return -1;
+        }
+        int depth = 0;
+        for (int i = open; i < src.length(); i++) {
+            char c = src.charAt(i);
+            if (c == '{') {
+                depth++;
+            } else if (c == '}') {
+                depth--;
+                if (depth == 0) {
+                    return i + 1;
+                }
+            }
+        }
+        return -1;
+    }
+
 }

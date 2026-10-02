@@ -49,7 +49,7 @@ public class GuiSnapshotImageAssemblyTest {
 
     private static GuiSnapshot snapshotWith(List<GuiElement> els) {
         Viewport vp = GuiSnapshotService.viewport(400, 300, 1, 400, 300);
-        return new GuiSnapshot(1, "GuiTestScreen", true, false, "Test", vp, els, "fp", List.of());
+        return new GuiSnapshot(1, "GuiTestScreen", true, false, "Test", vp, els, null, "fp", List.of());
     }
 
     @Test
@@ -94,7 +94,7 @@ public class GuiSnapshotImageAssemblyTest {
     public void assembleResultWithoutImageIsTextOnly() {
         // Mirrors the live guard: no screen open → png is null → text-only result.
         GuiSnapshot snap = new GuiSnapshot(0, null, false, false, null,
-                GuiSnapshotService.viewport(400, 300, 1, 400, 300), List.of(), "fp", List.of());
+                GuiSnapshotService.viewport(400, 300, 1, 400, 300), List.of(), null, "fp", List.of());
         CallToolResult r = GuiTools.assembleResult(snap, null);
         long images = r.content().stream().filter(c -> c instanceof ImageContent).count();
         assertEquals("no image when frame is absent", 0, images);

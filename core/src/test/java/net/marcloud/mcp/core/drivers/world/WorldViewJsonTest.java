@@ -27,7 +27,7 @@ public final class WorldViewJsonTest {
     public void selfProjectionIsReferenceFreeScalars() {
         SelfView self = new SelfView(1.234, 64, -5.678, 0, 0, 0, 90f, 10f, 20f, 18, 4f,
                 5, 0.3f, 4, 300, "CREATIVE", true, false, true,
-                List.of(new SelfView.Effect(1, "speed", 0, 200)));
+                List.of(new SelfView.Effect(1, "speed", 0, 200)), 0.0, 0, false);
         Map<String, Object> m = WorldViewJson.selfMap(self);
         // pos rounded to 2dp and is a List of scalars, not an object
         assertTrue(m.get("pos") instanceof List);

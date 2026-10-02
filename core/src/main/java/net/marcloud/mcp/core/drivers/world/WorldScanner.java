@@ -116,7 +116,7 @@ public final class WorldScanner {
 
     /**
      * Block registry name with the namespace stripped, or {@link LocalGrid#NAME_UNREADABLE} when the
-     * registry could not be read.
+     * block could not be read -- an unloaded chunk or a failed registry lookup.
      *
      * <p>The two failures used to answer differently -- {@code "unknown"} for a registry miss, null
      * for a throw -- and the first spelling let an unreadable position merge into the census as a
@@ -125,6 +125,13 @@ public final class WorldScanner {
      */
     private static String blockName(WorldClient w, BlockPos pos) {
         try {
+            // Loaded first, the same order BlockProbe.at documents: getBlockState answers air for a
+            // position it cannot see, so reading first manufactures the air and the census then
+            // counts a volume nobody looked at. The unread answer is the sentinel either way --
+            // which {@link LocalGrid#countable} keeps out of the histogram.
+            if (!w.isBlockLoaded(pos)) {
+                return LocalGrid.NAME_UNREADABLE;
+            }
             Block b = w.getBlockState(pos).getBlock();
             return LocalGrid.wireName(Block.blockRegistry.getNameForObject(b));
         } catch (Throwable t) {
@@ -169,13 +176,15 @@ public final class WorldScanner {
         }
     }
 
+    /**
+     * The time-of-day bucket for the world's own clock.
+     *
+     * <p>Delegates to {@link WorldViewCapture#timeBucket} rather than keeping a second copy: the two
+     * copies used to disagree on every negative world time, so {@code scan_surroundings} and
+     * {@code world_view} contradicted each other about the same instant and nothing on the wire said
+     * which to believe. One copy, both tools.
+     */
     private static String timeOfDay(WorldClient w) {
-        long t = w.getWorldTime() % 24000L;
-        if (t < 1000) return "sunrise";
-        if (t < 6000) return "day";
-        if (t < 12000) return "noon-afternoon";
-        if (t < 13000) return "sunset";
-        if (t < 23000) return "night";
-        return "sunrise";
+        return WorldViewCapture.timeBucket(w.getWorldTime());
     }
 }

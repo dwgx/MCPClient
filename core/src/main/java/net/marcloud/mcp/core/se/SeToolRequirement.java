@@ -96,7 +96,15 @@ public record SeToolRequirement(Ring requiredRing,
             "do_click_slot",
             "do_set_creative_slot",
             "do_use_entity",
-            "do_entity_action");
+            "do_entity_action",
+            // Moves items through the same C0E path as do_click_slot, so it belongs to the same
+            // network-write surface. Leaving it out would let it run at the R3 fallback with no
+            // SE_NET_RAW row -- the exact gap RegisteredBuiltinGateCoverageTest exists to close.
+            "transfer_item",
+            // Sends C11 over the same open channel as the rest of the typed senders, and the
+            // spend is irreversible server-side (lapis and XP are gone either way), so it
+            // belongs to the same kill-switch surface.
+            "do_enchant_item");
 
     /**
      * The declared network-send tool set (see {@link #NETWORK_SEND_TOOLS}). Public
@@ -125,14 +133,22 @@ public record SeToolRequirement(Ring requiredRing,
             java.util.Map.entry("do_set_abilities", IntegrityLevel.HIGH),
             java.util.Map.entry("do_place_block", IntegrityLevel.HIGH),
             java.util.Map.entry("do_click_slot", IntegrityLevel.HIGH),
+            // Moves the player's own items: the resource written is the inventory the server
+            // holds, which is the same HIGH tier as the click that starts it. Confirming the
+            // result against that container is honesty about the write, not a different write.
+            java.util.Map.entry("transfer_item", IntegrityLevel.HIGH),
             java.util.Map.entry("do_set_creative_slot", IntegrityLevel.HIGH),
             java.util.Map.entry("do_use_entity", IntegrityLevel.HIGH),
             java.util.Map.entry("do_entity_action", IntegrityLevel.HIGH),
+            // Writes an enchantment into the item the server holds, and spends the player's
+            // lapis and XP: the same HIGH inventory tier as the slot clicks it reads back.
+            java.util.Map.entry("do_enchant_item", IntegrityLevel.HIGH),
             // GUI interaction drives real handlers (windowClick → server, button actions)
             java.util.Map.entry("gui_click_element", IntegrityLevel.HIGH),
             java.util.Map.entry("gui_type_text", IntegrityLevel.HIGH),
             java.util.Map.entry("gui_press_key", IntegrityLevel.HIGH),
             java.util.Map.entry("act_set", IntegrityLevel.HIGH),
+            java.util.Map.entry("press_key_binding", IntegrityLevel.HIGH),
             java.util.Map.entry("act_plan", IntegrityLevel.HIGH),
             java.util.Map.entry("act_cancel", IntegrityLevel.HIGH),
             java.util.Map.entry("create_tool", IntegrityLevel.MEDIUM_PLUS),
@@ -158,6 +174,12 @@ public record SeToolRequirement(Ring requiredRing,
             java.util.Map.entry("seam_tick_enable", IntegrityLevel.HIGH),
             java.util.Map.entry("seam_tick_disable", IntegrityLevel.HIGH),
             // C6 native debugger — thread control is the most invasive write class
+            // Folded manifest entries (ADR-0004). IntegrityLevel is SYSTEM for all eleven, so
+            // both clusters declare SYSTEM and the fold is a no-op at L3. The concrete names
+            // stay below: an unlisted name resolves to the L3 default, which is exactly the
+            // "convenient" downgrade this table exists to prevent.
+            java.util.Map.entry("debug_manage", IntegrityLevel.SYSTEM),
+            java.util.Map.entry("debug_handle", IntegrityLevel.SYSTEM),
             java.util.Map.entry("debug_suspend_thread", IntegrityLevel.SYSTEM),
             java.util.Map.entry("debug_pop_frame", IntegrityLevel.SYSTEM),
             java.util.Map.entry("debug_force_return", IntegrityLevel.SYSTEM),
@@ -166,7 +188,13 @@ public record SeToolRequirement(Ring requiredRing,
             java.util.Map.entry("debug_single_step", IntegrityLevel.SYSTEM),
             java.util.Map.entry("debug_read_local", IntegrityLevel.SYSTEM),
             java.util.Map.entry("debug_write_local", IntegrityLevel.SYSTEM),
-            java.util.Map.entry("debug_watch_field", IntegrityLevel.SYSTEM));
+            java.util.Map.entry("debug_watch_field", IntegrityLevel.SYSTEM),
+            // C6 L6 handle lifecycle: minting/closing a frozen READ|WRITE|EXECUTE handle over a
+            // live thread is the same invasive write class as the nine ops above — it just does
+            // it through the object-handle layer. They were declared only in Ring (R0), so the
+            // L3/L4/L5 rows the siblings carry were missing (audit H9).
+            java.util.Map.entry("debug_open_thread", IntegrityLevel.SYSTEM),
+            java.util.Map.entry("debug_close_handle", IntegrityLevel.SYSTEM));
 
     // ---- L4: the privilege each dangerous verb requires enabled ----
     private static final java.util.Map<String, Privilege> L4_PRIVILEGE = java.util.Map.ofEntries(
@@ -190,6 +218,12 @@ public record SeToolRequirement(Ring requiredRing,
             java.util.Map.entry("do_set_creative_slot", Privilege.SE_NET_RAW),
             java.util.Map.entry("do_use_entity", Privilege.SE_NET_RAW),
             java.util.Map.entry("do_entity_action", Privilege.SE_NET_RAW),
+            // Shift-click moves items, which is a world-state write over the wire: the same
+            // privilege do_click_slot needs. Without this row drop_privilege(SE_NET_RAW) would
+            // leave transfer_item able to keep moving items, which is exactly the gap
+            // PolicySideTableDriftTest names.
+            java.util.Map.entry("transfer_item", Privilege.SE_NET_RAW),
+            java.util.Map.entry("do_enchant_item", Privilege.SE_NET_RAW),
             java.util.Map.entry("gui_click_element", Privilege.SE_GUI_INTERACT),
             java.util.Map.entry("gui_type_text", Privilege.SE_GUI_INTERACT),
             java.util.Map.entry("gui_press_key", Privilege.SE_GUI_INTERACT),
@@ -200,6 +234,9 @@ public record SeToolRequirement(Ring requiredRing,
             // the actuation surface. SE_NET_RAW is wrong here (that gates raw packet
             // crafting); SE_GUI_INTERACT is wrong too (that gates the GUI-widget surface).
             java.util.Map.entry("act_set", Privilege.SE_WORLD_WRITE),
+            // A key press reaches every bound action, not just movement, so it needs the same
+            // world-write privilege act_set holds -- and nothing weaker.
+            java.util.Map.entry("press_key_binding", Privilege.SE_WORLD_WRITE),
             java.util.Map.entry("act_plan", Privilege.SE_WORLD_WRITE),
             java.util.Map.entry("act_cancel", Privilege.SE_WORLD_WRITE),
             java.util.Map.entry("create_tool", Privilege.SE_CREATE_TOOL),
@@ -220,6 +257,12 @@ public record SeToolRequirement(Ring requiredRing,
             java.util.Map.entry("seam_tick_enable", Privilege.SE_SEAM_INJECT),
             java.util.Map.entry("seam_tick_disable", Privilege.SE_SEAM_INJECT),
             // C6 native debugger — all require SE_DEBUG_CONTROL enabled
+            // Folded manifest entries (ADR-0004). SE_DEBUG_CONTROL is uniform across all
+            // eleven, so both clusters declare it and disabling it still shuts the whole
+            // debugger surface off, folded entries included. The concrete names stay below so
+            // a caller naming one directly cannot dodge the privilege check.
+            java.util.Map.entry("debug_manage", Privilege.SE_DEBUG_CONTROL),
+            java.util.Map.entry("debug_handle", Privilege.SE_DEBUG_CONTROL),
             java.util.Map.entry("debug_suspend_thread", Privilege.SE_DEBUG_CONTROL),
             java.util.Map.entry("debug_pop_frame", Privilege.SE_DEBUG_CONTROL),
             java.util.Map.entry("debug_force_return", Privilege.SE_DEBUG_CONTROL),
@@ -228,5 +271,10 @@ public record SeToolRequirement(Ring requiredRing,
             java.util.Map.entry("debug_single_step", Privilege.SE_DEBUG_CONTROL),
             java.util.Map.entry("debug_read_local", Privilege.SE_DEBUG_CONTROL),
             java.util.Map.entry("debug_write_local", Privilege.SE_DEBUG_CONTROL),
-            java.util.Map.entry("debug_watch_field", Privilege.SE_DEBUG_CONTROL));
+            java.util.Map.entry("debug_watch_field", Privilege.SE_DEBUG_CONTROL),
+            // C6 L6 handle lifecycle — the handle-op family's privilege, so
+            // disable_privilege(SE_DEBUG_CONTROL) shuts the handle surface off exactly like the
+            // nine ops it feeds (audit H9; the rows were missing, not merely mislabelled).
+            java.util.Map.entry("debug_open_thread", Privilege.SE_DEBUG_CONTROL),
+            java.util.Map.entry("debug_close_handle", Privilege.SE_DEBUG_CONTROL));
 }

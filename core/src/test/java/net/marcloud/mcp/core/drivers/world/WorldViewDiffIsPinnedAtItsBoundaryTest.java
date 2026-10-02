@@ -38,7 +38,7 @@ public class WorldViewDiffIsPinnedAtItsBoundaryTest {
     /** A player standing still at (x,y,z) -- same shape as {@code WorldViewDiffTest#idle}. */
     private static SelfView selfAt(double x, double y, double z) {
         return new SelfView(x, y, z, 0, 0, 0, 0f, 0f, 20f, 20, 5f,
-                3, 0.5f, 0, 300, "SURVIVAL", false, false, true, List.of());
+                3, 0.5f, 0, 300, "SURVIVAL", false, false, true, List.of(), 0.0, 0, false);
     }
 
     /** Only the self section is populated, so nothing else can put a key in the diff. */

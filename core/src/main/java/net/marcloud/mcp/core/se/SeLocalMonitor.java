@@ -31,6 +31,26 @@ import java.util.Set;
  * (SYSTEM integrity, all privileges enabled, wildcard caps) so every existing
  * tool passes L3-L5 untouched. Strict per-resource-class default-deny is opt-in:
  * construct with an explicit granted capability set instead of wildcard.
+ *
+ * <p><b>This default is now a decision rather than an accident, and it is worth being honest
+ * about why it is still wide open.</b> Until 2026-10-02 the AccessGate wired into
+ * {@code McpCore} was {@code AllowAllGate}, whose {@code require()} was an empty method body —
+ * so every {@code gate.require(...)} call in production was a no-op and this default was not
+ * merely permissive, it was <i>unreachable</i>. Widening or narrowing it changed nothing at
+ * all. It is now wired to {@link MonitorAccessGate}, which re-reads
+ * {@link #currentSubject()} per call and enforces L5 and L4 for real.
+ *
+ * <p>So the posture became an answerable question at exactly the moment it stopped mattering,
+ * and it is still left at wide open. The reason is ordering: a strict per-resource default-deny
+ * removes capabilities the agent needs to survive a night, and the decision layer that would
+ * choose <i>what</i> to do with them does not exist in {@code main} yet. Tightening first would
+ * make the agent unable to act at all, which is a worse failure than being too permissive, and
+ * it would do so at the least informative possible moment.
+ *
+ * <p>What changed is that the question can now be asked and answered with evidence. Anyone
+ * tightening this should first measure which operations are newly denied — a gate loosened
+ * until it never refuses is the same defect as the empty method body it replaced, and this
+ * project has shipped that shape more than once.
  */
 public final class SeLocalMonitor implements SeReferenceMonitor {
 

@@ -57,13 +57,53 @@ public final class ObManager {
      * a tool not present defaults to {@link ObAccessMask#READ}. The {@code "handle"}
      * arg key is reserved — non-handle tools must not declare it.
      */
-    private static final Map<String, Integer> HANDLE_OPS = Map.ofEntries(
+    static final Map<String, Integer> HANDLE_OPS = Map.ofEntries(
             Map.entry("debug_read_local",    ObAccessMask.READ.bit()),
             Map.entry("debug_write_local",   ObAccessMask.WRITE.bit()),
             Map.entry("debug_force_return",  ObAccessMask.WRITE.bit()),
             Map.entry("debug_suspend_thread", ObAccessMask.EXECUTE.bit()),
             Map.entry("debug_pop_frame",     ObAccessMask.EXECUTE.bit()),
             Map.entry("debug_single_step",   ObAccessMask.EXECUTE.bit()));
+
+    /**
+     * The tools whose separate operations were folded into one name by ADR-0004, so a call names
+     * the concrete operation in an {@code action} argument. This is the ONLY condition under which
+     * {@code action} means "which handle-op is this" -- see {@link #checkRequest} for why asking
+     * "was an argument called action passed" instead denied two unrelated actuation tools on every
+     * call.
+     *
+     * <p>Mirrors {@code DebugTools.FOLDED_TOOL_NAMES} rather than importing it: {@code ob} must
+     * not depend on {@code kd}. A test keeps the two lists equal, because a rule that names half
+     * of a pair drifts silently and then denies the wrong half.
+     */
+    static final java.util.Set<String> FOLDED_DEBUG_TOOLS =
+            java.util.Set.of("debug_manage", "debug_handle");
+
+    /**
+     * The two operations that CREATE and DESTROY handles, and therefore cannot require one.
+     *
+     * <p>{@link #HANDLE_OPS} is the table of operations that consume an existing handle. The handle
+     * LIFECYCLE is not in it and cannot be: {@code debug_open_thread} is what mints the handle every
+     * other entry needs. Without this exemption the rule "an unrecognised action is refused" refuses
+     * those two as well, and the gate becomes unpassable -- no handle can ever be minted through the
+     * tool surface, so the whole L6 frozen-target protection is inert in the only configuration that
+     * enables it, and under strict handles every debugger op is unusable.
+     *
+     * <p>The refusal message made this visible out loud: it told the caller to "open one with
+     * debug_handle action=debug_open_thread first" -- naming, as the remedy, the exact call being
+     * refused.
+     *
+     * <p>Mirrors {@code DebugTools.HANDLE_ACTIONS} rather than importing it, for the same reason as
+     * {@link #FOLDED_DEBUG_TOOLS}: {@code ob} must not depend on {@code kd}. The drift guard is in
+     * ANonDebuggerActionIsNotAHandleOpTest.
+     */
+    static final java.util.Set<String> HANDLE_LIFECYCLE_ACTIONS =
+            java.util.Set.of("debug_open_thread", "debug_close_handle");
+
+    /** Whether this operation consumes an existing handle, as opposed to creating one. */
+    private static boolean needsHandle(String op) {
+        return HANDLE_OPS.containsKey(op);
+    }
 
     public ObManager(TargetResolver r, int cap, long idleTtlMillis) {
         this(r, cap, idleTtlMillis, System::nanoTime, false);
@@ -182,13 +222,64 @@ public final class ObManager {
      * silently bypass L6.
      */
     public SeAccessCheck checkRequest(SeToken s, IoRequestPacket req) {
+        // Which OPERATION this is. ADR-0004 folded eleven debug tools into two manifest
+        // entries, so toolName() is now "debug_manage" or "debug_handle" and the name that
+        // actually selects the access mask lives in the "action" argument. Reading toolName()
+        // alone SILENTLY DISABLED this check: the folded names are absent from HANDLE_OPS, so
+        // strictHandles stopped denying handle-less calls, and a handle-bearing call fell
+        // through to the READ default -- which would have let a READ-only handle suspend a
+        // thread. L6DebugGateThroughRegistryTest caught it; nothing else would have.
+        //
+        // The concrete operation wins whenever the caller named one, and the tool name remains
+        // the fallback for every unfolded caller. An action the table does not know is NOT
+        // downgraded to READ: it is denied, because an unrecognised operation reaching a
+        // debugger must never be the weak case.
+        //
+        // `folded` means "this tool's operations were folded into one name", and the ONLY
+        // tools in that state are the two below. It used to mean "the caller passed an argument
+        // called action", which is a different question with the same word: do_use_entity and
+        // do_entity_action both take an `action`, so every call to them landed here with
+        // folded=true and an op the handle table has never heard of, and was refused with
+        // "action 'ATTACK' on tool 'do_use_entity' is not a recognised handle-op" -- two shipped
+        // R1 actuation tools, unusable on every call, naming a concept the caller never used.
+        // The gate is fail-closed and that is why it shipped: it denied correctly, just far too
+        // much. The rule has to ask who the tool is, not what the caller typed.
+        //
+        // The names are mirrored from DebugTools.FOLDED_TOOL_NAMES rather than imported:
+        // ob must not depend on kd, and ANameListMatchesTheFoldedDebugTools keeps the two in
+        // step, because a rule that names half of a pair drifts silently.
+        boolean folded = FOLDED_DEBUG_TOOLS.contains(req.toolName());
+        String op = req.toolName();
+        Object action = folded ? req.arguments().get("action") : null;
+        if (action != null) {
+            op = String.valueOf(action);
+        }
         Object hv = req.arguments().get("handle");
-        if (hv == null) {
-            if (strictHandles && HANDLE_OPS.containsKey(req.toolName())) {
+        // A LIFECYCLE action is not a handle-op that failed the table; it is not a handle-op at
+        // all. `debug_open_thread` is how a handle comes into existence, so routing it through a
+        // table of handle-consuming operations makes the gate unpassable: nothing can ever be
+        // minted, and the refusal message names this very call as the remedy.
+        if (HANDLE_LIFECYCLE_ACTIONS.contains(op)) {
+            return hv == null
+                    ? SeAccessCheck.allowed()
+                    : SeAccessCheck.deny("L6 handle",
+                            "action '" + op + "' creates or destroys the handle itself and takes "
+                                    + "no 'handle' argument, but one was supplied (id " + hv + ")");
+        }
+        Object hv2 = hv;
+        if (hv2 == null) {
+            // An action the table does not know is refused outright, handle or no handle. Only
+            // an action that IS a known handle-op is allowed to fall through to the name-based
+            // path, and then only when the posture is not strict.
+            if (folded && !needsHandle(op)) {
+                return denyUnknownAction(op, req.toolName(), "no 'handle' was supplied");
+            }
+            if (strictHandles && needsHandle(op)) {
                 return SeAccessCheck.deny("L6 handle",
-                        "tool '" + req.toolName() + "' is a handle-op and strict-handle posture "
-                        + "(-Dmcp.core.hardened=true) requires an explicit 'handle' arg — open one "
-                        + "with debug_open_thread first (refusing the name-based TOCTOU fallback).");
+                        "tool '" + req.toolName() + "' (action '" + op + "') is a handle-op and "
+                        + "strict-handle posture (-Dmcp.core.hardened=true) requires an explicit "
+                        + "'handle' arg -- open one with debug_handle action=debug_open_thread "
+                        + "first (refusing the name-based TOCTOU fallback).");
             }
             return SeAccessCheck.allowed();
         }
@@ -198,7 +289,18 @@ public final class ObManager {
         } catch (NumberFormatException e) {
             return SeAccessCheck.deny("L6 handle", "malformed handle id '" + hv + "'");
         }
-        return require(id, s, HANDLE_OPS.getOrDefault(req.toolName(), ObAccessMask.READ.bit()));
+        if (folded && !needsHandle(op)) {
+            return denyUnknownAction(op, req.toolName(), "handle id " + hv + " was supplied");
+        }
+        return require(id, s, HANDLE_OPS.getOrDefault(op, ObAccessMask.READ.bit()));
+    }
+
+    private static SeAccessCheck denyUnknownAction(String op, String tool, String what) {
+        return SeAccessCheck.deny("L6 handle",
+                "action '" + op + "' on tool '" + tool + "' is not a recognised handle-op ("
+                        + what + "); refusing rather than falling back to the least-privileged "
+                        + "mask, which would let an unknown debugger operation through on a "
+                        + "read-only handle");
     }
 
     /** Close every handle idle longer than the TTL; returns the count reaped. */

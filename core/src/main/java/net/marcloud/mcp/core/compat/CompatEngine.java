@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import net.marcloud.mcp.core.se.SeProtectedObjects;
 
@@ -41,8 +42,78 @@ import net.marcloud.mcp.core.se.SeProtectedObjects;
  */
 public final class CompatEngine {
 
+    /**
+     * Per-patch record of what the transform ACTUALLY did, keyed by content-addressed patchId.
+     *
+     * <p><b>These are measurements, not authorisations.</b> {@link #armedPatchIds()} answers
+     * "was this patch permitted to run"; this record answers "when it ran, did it do
+     * anything". The two are independent, and conflating them is how a patch armed, verified
+     * and silently changed nothing — {@code GlClampToEdgePatch} matched {@code LDC} where javac
+     * emits {@code SIPUSH}, so its transform returned null on every load and the only
+     * observable was {@code armed: true}.
+     *
+     * <p><b>Per-process.</b> Counters start at zero when the engine is built and reset on
+     * restart. They are not fleet history and must not be presented as an attestation that a
+     * patch is correct: {@code targetsChanged > 0} says the engine handed the JVM a different
+     * byte array, not that the rewrite was semantically right.
+     *
+     * <p><b>{@code targetsChanged} counts invocations, not distinct classes.</b> The engine
+     * installs with {@code addTransformer(..., false)} (no retransformation), so today the two
+     * coincide; if redefine-time application is ever added, this number becomes "times" and a
+     * caller must not read it as a class count.
+     *
+     * @param patchId           the content-addressed patch id, never null
+     * @param transformRuns     times {@link CompatPatch#transform(byte[])} was invoked
+     * @param targetsChanged    of those, how many returned bytes different from what they were
+     *                          given (reference inequality — what the JVM acts on)
+     * @param unauthorizedAtUse times the live lease refused the patch at the moment of use
+     * @param applyFailures     of those runs, how many threw
+     * @param lastApplyError    {@code ""} when none, else {@code "<internalName>: <throwable>"}
+     */
+    public record ApplyRecord(String patchId,
+                              int transformRuns,
+                              int targetsChanged,
+                              int unauthorizedAtUse,
+                              int applyFailures,
+                              String lastApplyError) {
+
+        /** The all-zero record: never executed, never refused, never failed. */
+        public static ApplyRecord none(String patchId) {
+            return new ApplyRecord(patchId, 0, 0, 0, 0, "");
+        }
+    }
+
+    /**
+     * Mutable, thread-safe accumulator. Identity is SHARED between the dispatch index and
+     * the reporter, so the two can never disagree. {@code apply} runs on class-loading
+     * threads, so the counters are atomics and the error string is volatile; no reader needs
+     * a cross-patch consistent snapshot, so there is deliberately no lock on the class-load
+     * path.
+     */
+    private static final class ApplyCounter {
+        private final String patchId;
+        private final AtomicInteger transformRuns = new AtomicInteger();
+        private final AtomicInteger targetsChanged = new AtomicInteger();
+        private final AtomicInteger unauthorizedAtUse = new AtomicInteger();
+        private final AtomicInteger applyFailures = new AtomicInteger();
+        private volatile String lastApplyError = "";
+
+        ApplyCounter(String patchId) {
+            this.patchId = patchId;
+        }
+
+        ApplyRecord snapshot() {
+            return new ApplyRecord(patchId, transformRuns.get(), targetsChanged.get(),
+                    unauthorizedAtUse.get(), applyFailures.get(), lastApplyError);
+        }
+    }
+
+    /** One entry in the dispatch index: the patch plus the counter that measures it. Carrying
+     *  the counter INSIDE the index entry is what keeps the hot path map-lookup-free. */
+    private record Armed(CompatPatch patch, ApplyCounter counter) { }
+
     /** Applicable, verified patches indexed by JVM internal class name (slashes). */
-    private final Map<String, List<CompatPatch>> byInternalName;
+    private final Map<String, List<Armed>> byInternalName;
 
     /** Content-addressed ids of the patches that passed the BUILD-time gauntlet
      *  (offline verify + protected-class + runtime + optional online snapshot).
@@ -50,16 +121,23 @@ public final class CompatEngine {
      *  time is additionally gated by the live {@link #lease} when present. */
     private final java.util.Set<String> armedPatchIds;
 
+    /** One pre-created accumulator per armed patch, in build-time registration order.
+     *  Populated in {@link #build} alongside {@link #armedPatchIds} so that "armed but never
+     *  recorded" is not representable — absence is never a state here. */
+    private final Map<String, ApplyCounter> counters;
+
     /** OPTIONAL live authorization lease (BLUE-1 fix). When non-null, {@link #apply}
      *  additionally requires each patch to be authorized RIGHT NOW — so a de-listed
      *  or lease-expired patch is disarmed at the moment of use, not frozen at build.
      *  Null = offline-only / static snapshot behavior (unchanged). */
     private volatile PatchLease lease;
 
-    private CompatEngine(Map<String, List<CompatPatch>> byInternalName,
-                         java.util.Set<String> armedPatchIds) {
+    private CompatEngine(Map<String, List<Armed>> byInternalName,
+                         java.util.Set<String> armedPatchIds,
+                         Map<String, ApplyCounter> counters) {
         this.byInternalName = byInternalName;
         this.armedPatchIds = armedPatchIds;
+        this.counters = java.util.Collections.unmodifiableMap(counters);
     }
 
     /**
@@ -98,7 +176,8 @@ public final class CompatEngine {
      */
     public static CompatEngine build(
             CompatDatabase db, PatchSigner signer, java.util.Set<String> authorizedIds) {
-        Map<String, List<CompatPatch>> index = new LinkedHashMap<>();
+        Map<String, List<Armed>> index = new LinkedHashMap<>();
+        Map<String, ApplyCounter> counters = new LinkedHashMap<>();
         java.util.Set<String> armed = new java.util.LinkedHashSet<>();
         int applied = 0;
         int skipped = 0;
@@ -218,29 +297,30 @@ public final class CompatEngine {
                 continue;
             }
             // TUF L0 — content binding (UNSIGNED equality check, not a signature over
-            // behavior). If the patch provides a behavior anchor (canaryClassBytes), the
-            // hash recomputed from transform(canary) MUST equal the patch's constant
-            // expectedCanaryHash(). NOTE: the Ed25519 signature does NOT cover this hash —
-            // it covers a stable manifest label (PatchCanonicalizer). Both transform() and
+            // behavior). If the patch DECLARES a behavior anchor (a pinned
+            // expectedCanaryHash), the hash recomputed from transform(canary) MUST equal
+            // it. NOTE: the Ed25519 signature does NOT cover this hash — it covers a
+            // stable manifest label (PatchCanonicalizer). Both transform() and
             // expectedCanaryHash live in the same patch class, so L0 is drift-detection
             // (catches accidental/version changes), NOT adversarial binding — an attacker
             // with code-exec can edit both together. See known-issues KI-10 for the full
-            // boundary. A patch with NO canary (legacy / the harmless IdentityProbe) is
-            // exempt — signature-only, as before — so this is additive and never breaks an
-            // anchor-less patch. Guard
-            // the recompute so a bad canary can never break the boot transformer.
-            boolean hasCanary;
-            try {
-                byte[] c = patch.canaryClassBytes();
-                hasCanary = c != null && c.length > 0;
-            } catch (Throwable t) {
-                hasCanary = false;
-            }
-            if (hasCanary && !ContentHash.matchesExpected(patch)) {
+            // boundary. A patch that declares NO hash (legacy / the harmless
+            // IdentityProbe) is exempt — signature-only, as before — so this is additive
+            // and never breaks an anchor-less patch.
+            //
+            // The exemption is decided from the DECLARATION, never from whether the
+            // canary happens to materialise. Deriving it from canaryClassBytes() (and
+            // from a catch that also cleared the flag) meant a patch that pins a hash but
+            // ships a null/empty/throwing canary armed with ZERO behavior verification —
+            // the gate failed OPEN on exactly the patches it exists to stop. That is the
+            // opposite of ContentHash.matchesExpected's stated rule: a patch that
+            // DECLARES a fingerprint and cannot match it does not arm.
+            if (ContentHash.declaresExpectedHash(patch) && !ContentHash.matchesExpected(patch)) {
                 System.err.println("[MCP Compat] REJECT patch " + m.code()
-                        + ": L0 content binding failed — the behavior hash recomputed from its "
-                        + "canary does not match the author-pinned expectedCanaryHash (transform "
-                        + "swapped/mutated since the fingerprint was pinned).");
+                        + ": L0 content binding failed — the patch pins an expectedCanaryHash "
+                        + "but the behavior hash recomputed from its canary does not match it "
+                        + "(transform swapped/mutated since the fingerprint was pinned, or the "
+                        + "canary is missing/empty/throwing, so the binding is unprovable).");
                 skipped++;
                 continue;
             }
@@ -254,13 +334,19 @@ public final class CompatEngine {
                 skipped++;
                 continue;
             }
-            index.computeIfAbsent(internal, k -> new ArrayList<>()).add(patch);
+            // The accumulator is created HERE, beside the arming, not lazily at apply time: an
+            // armed patch always has a record, so "no record" can never be mistaken for "no
+            // evidence that it failed". The SAME instance travels in the index entry and in
+            // the counters map, so dispatch and report cannot drift apart.
+            ApplyCounter counter = new ApplyCounter(m.patchId());
+            index.computeIfAbsent(internal, k -> new ArrayList<>()).add(new Armed(patch, counter));
+            counters.put(m.patchId(), counter);
             armed.add(m.patchId());
             applied++;
         }
         System.err.println("[MCP Compat] engine built: " + applied + " patch(es) armed, "
                 + skipped + " skipped.");
-        return new CompatEngine(index, java.util.Set.copyOf(armed));
+        return new CompatEngine(index, java.util.Set.copyOf(armed), counters);
     }
 
     /**
@@ -329,40 +415,87 @@ public final class CompatEngine {
     }
 
     /**
+     * Immutable snapshot of every ARMED patch's runtime record, in build-time registration
+     * order. {@code keySet()} is exactly {@link #armedPatchIds()}.
+     *
+     * <p>Allocates; call it from a reporter, never from the class-load path. Counts are
+     * per-process and reset on restart. A snapshot taken while classes are loading may mix
+     * a pre-increment and a post-increment reading of the same patch — that is intentional,
+     * and no reader needs a cross-patch consistent view.
+     */
+    public java.util.Map<String, ApplyRecord> applyRecords() {
+        java.util.LinkedHashMap<String, ApplyRecord> out = new java.util.LinkedHashMap<>();
+        for (ApplyCounter c : counters.values()) {
+            out.put(c.patchId, c.snapshot());
+        }
+        return java.util.Collections.unmodifiableMap(out);
+    }
+
+    /**
+     * The runtime record for one patchId. <b>Never null</b>: an unknown, unarmed or never-run
+     * patchId yields an all-zero {@link ApplyRecord}, so a missing record is never readable
+     * as "no evidence of failure". An unarmed patch and an armed-but-never-executed one do
+     * report the same zeros here — {@link #armedPatchIds()} is what separates them.
+     */
+    public ApplyRecord applyRecord(String patchId) {
+        ApplyCounter c = counters.get(patchId);
+        return c == null ? ApplyRecord.none(patchId) : c.snapshot();
+    }
+
+    /**
      * Apply all armed patches for {@code internalName} to {@code original}, chaining
      * each patch's output into the next. Returns null if nothing changed (JDK
      * transformer convention). Package-visible so tests can exercise the dispatch
      * without a live Instrumentation.
      */
     byte[] apply(String internalName, byte[] original) {
-        List<CompatPatch> patches = byInternalName.get(internalName);
+        List<Armed> patches = byInternalName.get(internalName);
         if (patches == null || patches.isEmpty()) {
             return null;
         }
         byte[] current = original;
         boolean changed = false;
         PatchLease live = lease;
-        for (CompatPatch patch : patches) {
+        for (Armed armed : patches) {
+            CompatPatch patch = armed.patch();
+            ApplyCounter c = armed.counter();
             // BLUE-1: authorization is evaluated at the MOMENT OF USE, not frozen at
             // build. A live lease that has expired, or that no longer lists this
             // patchId (authority de-listed it), disarms the patch here — even though
             // it passed the build-time gauntlet. Null lease = offline-only static
-            // behavior (unchanged).
+            // behavior (unchanged). The refusal is counted, so "authorised at build,
+            // refused at use" is a state a caller can see.
             if (live != null && !live.isAuthorized(patch.manifest().patchId())) {
+                c.unauthorizedAtUse.incrementAndGet();
                 continue;
             }
             try {
+                c.transformRuns.incrementAndGet();
                 byte[] out = patch.transform(current);
                 if (out != null && out != current) {
                     current = out;
                     changed = true;
+                    c.targetsChanged.incrementAndGet();
                 }
             } catch (Throwable t) {
-                // A buggy patch must never corrupt the class or break loading.
+                // A buggy patch must never corrupt the class or break loading — fail-open
+                // stays fail-open, because throwing out of a ClassFileTransformer would drop
+                // the class. What changes is that it is no longer SILENT and no longer
+                // unattributable: the throw is counted against this patchId and the last
+                // one is recorded, so "armed and then threw" is a third state, distinct
+                // from both "ran and changed nothing" and "never ran".
+                c.applyFailures.incrementAndGet();
+                c.lastApplyError = internalName + ": " + t;
+                // patchId is in the line because patchId — not code() — is the key the
+                // report is keyed on; without it this line cannot be joined back to a row.
                 System.err.println("[MCP Compat] patch " + patch.manifest().code()
-                        + " threw on " + internalName + "; keeping unpatched bytes: " + t);
+                        + " (patchId " + patch.manifest().patchId() + ") threw on " + internalName
+                        + "; keeping unpatched bytes: " + t);
             }
         }
+        // UNCHANGED, and must stay so: the ClassFileTransformer contract. Null means "no
+        // change"; a non-null return makes the JVM install these bytes, which for an
+        // unchanged class would be pointless work.
         return changed ? current : null;
     }
 

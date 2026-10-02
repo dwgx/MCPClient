@@ -37,7 +37,7 @@ public class ResourceTapReaderDriftTest {
     private static final Map<CapabilitySid, Set<String>> RESOURCE_TAP = Map.of(
             CapabilitySid.CAP_NETWORK_RECV_TAP, Set.of(
                     "recent_packets", "disconnect_report",
-                    "packets_tail", "packet_get", "packet_view"),
+                    "packets_tail", "packet_get", "packet_view", "chat_read"),
             CapabilitySid.CAP_SCREEN_CAP, Set.of(
                     "capture_screen", "gui_snapshot_image"));
 

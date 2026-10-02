@@ -223,11 +223,12 @@ public final class ObserveTools {
         return PacketFilter.of(dir, include, exclude, dropNoise);
     }
 
-    private SyncToolSpecification packetsTail() {
+    /** Package-private for direct handler testing (mirrors {@link #packetView()}). */
+    SyncToolSpecification packetsTail() {
         Tool tool = Tool.builder()
                 .name("packets_tail")
                 .title("Recent packets")
-                .description("[requires: netty-tap] Read-only: the most recent network packets on the "
+                .description("[requires: seam_netty_install] Read-only: the most recent network packets on the "
                         + "game-clock timeline, oldest first. Each: {id, tickId, dir(IN/OUT), class, "
                         + "simpleName, summary}. Filter with 'dir' (IN|OUT), 'include'/'exclude' "
                         + "(class-name substrings or globs), and 'limit' (default 50). High-noise "
@@ -271,7 +272,7 @@ public final class ObserveTools {
             if (entries.isEmpty() && journal.size() == 0 && !tapInstalled()) {
                 return CallToolResult.builder().addTextContent(
                         "packet tap not installed — this is NOT an authoritative 'no packets'. "
-                        + "Install it via the seam netty-tap tool first.").isError(true).build();
+                        + "Install it with the seam_netty_install tool first.").isError(true).build();
             }
             Map<String, Object> out = new LinkedHashMap<>();
             out.put("count", entries.size());
@@ -286,7 +287,7 @@ public final class ObserveTools {
         Tool tool = Tool.builder()
                 .name("packet_get")
                 .title("Get one packet")
-                .description("[requires: netty-tap] Read-only: fetch one journaled packet by its 'id' "
+                .description("[requires: seam_netty_install] Read-only: fetch one journaled packet by its 'id' "
                         + "(the stable seq from packets_tail). Returns {id, tickId, dir, class, "
                         + "simpleName, byteLen, summary} or an error if that id was evicted from the ring "
                         + "or never existed.")
@@ -324,7 +325,7 @@ public final class ObserveTools {
         Tool tool = Tool.builder()
                 .name("packet_view")
                 .title("Structured packet view")
-                .description("[requires: netty-tap] Read-only: recent packets that carry a STRUCTURED, "
+                .description("[requires: seam_netty_install] Read-only: recent packets that carry a STRUCTURED, "
                         + "typed projection, oldest first. Each: {seq, tickId, dir(IN/OUT), class, "
                         + "simpleName, fields:{...typed key/values...}}. Unlike packets_tail (a String "
                         + "summary per packet), this hands you parsed fields you can read directly — no "
@@ -389,7 +390,7 @@ public final class ObserveTools {
             if (entries.isEmpty() && journal.size() == 0 && !tapInstalled()) {
                 return CallToolResult.builder().addTextContent(
                         "packet tap not installed — this is NOT an authoritative 'no packets'. "
-                        + "Install it via the seam netty-tap tool first.").isError(true).build();
+                        + "Install it with the seam_netty_install tool first.").isError(true).build();
             }
             Map<String, Object> out = new LinkedHashMap<>();
             out.put("count", entries.size());

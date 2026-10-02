@@ -87,16 +87,29 @@ public final class KeGameDispatcher {
      * {@link ListenableFuture} no-ops once cancelled; one already draining cannot
      * be stopped — game-thread work should be kept bounded.
      *
-     * <p>Package-visible and Minecraft-free so the cancel-on-failure contract is
-     * unit-testable without a live game (the bug this guards, finding H7, was that
-     * only TimeoutException triggered cancel — an interrupt leaked the task).
+     * <p>Package-visible and Minecraft-free so the timeout contract is unit-testable without a
+     * live game. It deliberately does NOT cancel: see the comment in the body, which is the
+     * reason a change here should not be made casually.
      */
     static <V> V awaitOrCancel(ListenableFuture<V> future, long timeoutMillis)
             throws InterruptedException, ExecutionException, TimeoutException {
         try {
             return future.get(timeoutMillis, TimeUnit.MILLISECONDS);
         } catch (TimeoutException | InterruptedException e) {
-            future.cancel(false);
+            // DELIBERATELY NOT CANCELLED.
+            //
+            // This future is a vanilla `MinecraftFuture`: addScheduledTask wraps the callable and
+            // pushes it onto Minecraft.scheduledTasks, and there is no way to take it back off.
+            // Cancelling it therefore leaves a CANCELLED FutureTask sitting in the game's own
+            // queue, which the next runGameLoop drains through Util.runTask ->
+            // FutureTask.get() -- and vanilla does not catch CancellationException there, so the
+            // client dies with "Unreported exception thrown: java.util.concurrent.
+            // CancellationException" at Minecraft.java:1105.
+            //
+            // That crash was observed live three times before this was understood, and it is
+            // strictly worse than the timeout it was trying to avoid: a slow tool call took the
+            // whole client down. The task still runs; we simply stop waiting for it and report
+            // the timeout. Its result is discarded by the caller, which is the honest outcome.
             throw e;
         }
     }

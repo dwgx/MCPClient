@@ -88,7 +88,7 @@ public final class SelfEffectsSeparateUnreadFromNoneTest {
     /** Identical in every field but effects, so a key diff can only be about effects. */
     private static SelfView selfWithEffects(List<SelfView.Effect> effects) {
         return new SelfView(0, 64, 0, 0, 0, 0, 0f, 0f, 20f, 20, 5f,
-                0, 0f, 0, 300, "SURVIVAL", false, false, true, effects);
+                0, 0f, 0, 300, "SURVIVAL", false, false, true, effects, 0.0, 0, false);
     }
 
     private static SelfView.Effect fireResistance(int durationTicks) {

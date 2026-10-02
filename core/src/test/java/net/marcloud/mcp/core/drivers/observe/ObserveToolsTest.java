@@ -3,6 +3,7 @@ package net.marcloud.mcp.core.drivers.observe;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -192,5 +193,57 @@ public class ObserveToolsTest {
                 Boolean.TRUE.equals(r.isError()));
         assertTrue("message says the tap is not installed",
                 text(r).contains("tap not installed"));
+    }
+
+    /**
+     * The tap-absent REPLY -- not the source string -- must not tell the agent to install a tool
+     * that does not exist. Live, this was exactly what came back on both tools:
+     *
+     * <pre>"packet tap not installed - this is NOT an authoritative 'no packets'.
+     *  Install it via the seam netty-tap tool first."</pre>
+     *
+     * <p>There is no {@code netty-tap}. The real names are {@code seam_netty_install} /
+     * {@code seam_netty_uninstall}, so the agent was handed an instruction it could not possibly
+     * carry out, at the precise moment it needed to know how to start seeing packets.
+     *
+     * <p>Non-vacuous in both directions: the reply must still REFUSE (an empty entry list would
+     * read as "no packets", which is the opposite of the truth), and it must name a tool that is
+     * registered.
+     */
+    @Test
+    public void theTapAbsentReplyNamesAnInstallerThatExists() {
+        List<SyncToolSpecification> both =
+                List.of(tools.packetsTail(), tools.packetView());
+        for (SyncToolSpecification spec : both) {
+            String name = spec.tool().name();
+            CallToolResult r = call(spec, Map.of());
+            assertTrue(name + " must refuse when the tap is absent", Boolean.TRUE.equals(r.isError()));
+            String msg = text(r);
+            assertFalse(name + " names 'netty-tap', which is not a tool in this surface; the real "
+                    + "names are seam_netty_install / seam_netty_uninstall. Live, this was the "
+                    + "exact string the agent received:\n" + msg,
+                    msg.contains("netty-tap"));
+            assertTrue(name + " must name the tool that actually installs the tap, or the agent "
+                    + "is told to install a tap and given no way to do it:\n" + msg,
+                    msg.contains("seam_netty_install"));
+        }
+    }
+
+    /**
+     * The named installer is registered under exactly that name. Without this, naming
+     * {@code seam_netty_install} would be a fresh phantom of the same shape as the one it replaced.
+     */
+    @Test
+    public void theToolTheTapAbsentReplyNamesIsRegisteredUnderThatName() {
+        net.marcloud.mcp.core.io.IoManager reg = new net.marcloud.mcp.core.io.IoManager(
+                new net.marcloud.mcp.core.io.IoSupervisor(4, 2000L),
+                new net.marcloud.mcp.core.se.SeClearancePolicy(
+                        net.marcloud.mcp.core.se.Ring.R_MINUS_1, "tok"));
+        new net.marcloud.mcp.core.flt.seam.SeamTools(null).registerAll(reg);
+        assertNotNull("seam_netty_install must be a real registered tool: the tap-absent reply "
+                + "now names it as the way out",
+                reg.get("seam_netty_install"));
+        assertNull("and 'netty-tap' must not be: nothing may point at it",
+                reg.get("netty-tap"));
     }
 }

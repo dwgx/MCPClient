@@ -29,6 +29,48 @@ public final class WorldViewCapture {
     private WorldViewCapture() {
     }
 
+    private static final String SECTION_SELF = "self";
+    private static final String SECTION_GRID = "grid";
+    private static final String SECTION_ENTITIES = "entities";
+    private static final String SECTION_INVENTORY = "inventory";
+    private static final String SECTION_TARGET = "target";
+    private static final String SECTION_ENV = "env";
+
+    /**
+     * The names {@code sections} accepts -- one list, and the same names the six {@link #want} call
+     * sites below gate on.
+     *
+     * <p>Shared rather than written twice because the two halves of a misspelling are the schema that
+     * offers the name and the sampler that looks for it, and they must not be able to drift apart. A
+     * caller that names something else is REFUSED at the tool boundary rather than silently ignored:
+     * an unrecognised name used to reach {@link #want}, match nothing and produce a view with that
+     * section missing -- which mode=diff then reported as "unchanged", the exact quiet wrongness the
+     * unsampled tokens were added to remove.
+     */
+    public static final List<String> SECTIONS = List.of(SECTION_SELF, SECTION_GRID, SECTION_ENTITIES,
+            SECTION_INVENTORY, SECTION_TARGET, SECTION_ENV);
+
+    /**
+     * The names in {@code sections} that name no section, in the order they were given; empty when
+     * every one is known (and for a null or empty list, which means "the default", not "nothing").
+     *
+     * <p>Public so the tool boundary can turn a typo into an error naming the offender instead of a
+     * view that quietly lacks the section -- which is what {@code want} would have produced, since a
+     * name nothing matches simply samples nothing.
+     */
+    public static List<String> unknownSections(List<String> sections) {
+        if (sections == null || sections.isEmpty()) {
+            return List.of();
+        }
+        List<String> unknown = new ArrayList<>();
+        for (String s : sections) {
+            if (!SECTIONS.contains(s)) {
+                unknown.add(s);
+            }
+        }
+        return unknown;
+    }
+
     public static WorldView capture(GameAccess game, ObserveProfile prof, int radius,
                                     List<String> sections) {
         EntityPlayerSP p = game.player();
@@ -41,11 +83,11 @@ public final class WorldViewCapture {
         long tickId = GameClock.INSTANCE.tickId();
         BlockPos feet = new BlockPos(p.posX, p.posY, p.posZ);
 
-        SelfView self = want(all, sections, "self") ? self(p, mc) : null;
+        SelfView self = want(all, sections, SECTION_SELF) ? self(p, mc) : null;
         // The player goes in so each column can carry vanilla's own passability verdict: its
         // func_176170_a sizes the probe from the entity and derefences it on the first line, so
         // there is no null-entity shortcut.
-        LocalGrid grid = want(all, sections, "grid")
+        LocalGrid grid = want(all, sections, SECTION_GRID)
                 ? LocalGrid.sampleColumnar(w, feet, radius, prof, p) : null;
         // Null, NOT List.of(), when the section was not requested. An empty list is a claim about
         // the world ("nothing nearby"); null is a statement about the sampling ("nobody looked").
@@ -55,13 +97,13 @@ public final class WorldViewCapture {
         //
         // Scanned ONCE and the cap flag taken from that same scan, so the flag cannot disagree with
         // the list it describes.
-        List<EntityView> found = want(all, sections, "entities")
+        List<EntityView> found = want(all, sections, SECTION_ENTITIES)
                 ? entitiesInRange(p, w, prof, radius) : null;
         List<EntityView> entities = entitiesSection(found, prof.maxEntities);
         boolean entitiesCapped = capTruncated(found, prof.maxEntities);
-        InventoryView inv = want(all, sections, "inventory") ? inventory(p) : null;
-        TargetView target = want(all, sections, "target") ? target(mc, w, p) : null;
-        EnvView env = want(all, sections, "env") ? env(w, feet) : null;
+        InventoryView inv = want(all, sections, SECTION_INVENTORY) ? inventory(p) : null;
+        TargetView target = want(all, sections, SECTION_TARGET) ? target(mc, w, p) : null;
+        EnvView env = want(all, sections, SECTION_ENV) ? env(w, feet) : null;
 
         return new WorldView(true, tickId, prof.name().toLowerCase(java.util.Locale.ROOT),
                 self, grid, entities, entitiesCapped, inv, target, env);
@@ -86,6 +128,27 @@ public final class WorldViewCapture {
             }
         } catch (Throwable ignored) {
         }
+        // The Jump potion decides how much of a fall the body gets back, so the arithmetic has to
+        // read it rather than assume none: -1 is the honest "no Jump effect", which is the value
+        // FallDamage folds into "subtract 0".
+        int jumpAmp = -1;
+        try {
+            var jump = p.getActivePotionEffect(net.minecraft.potion.Potion.jump);
+            if (jump != null) {
+                jumpAmp = jump.getAmplifier();
+            }
+        } catch (Throwable ignored) {
+        }
+        float fall = 0f;
+        boolean blocking = false;
+        try {
+            fall = p.fallDistance;
+        } catch (Throwable ignored) {
+        }
+        try {
+            blocking = p.isBlocking();
+        } catch (Throwable ignored) {
+        }
         List<SelfView.Effect> effects = effectsOrNull(p::getActivePotionEffects);
         return new SelfView(
                 p.posX, p.posY, p.posZ,
@@ -95,7 +158,8 @@ public final class WorldViewCapture {
                 safeInt(() -> p.experienceLevel), safeFloat(() -> p.experience),
                 safeInt(p::getTotalArmorValue), boxedInt(p::getAir),
                 gamemode, p.isSneaking(), p.isSprinting(), p.onGround,
-                effects);
+                effects,
+                fall, FallDamage.damageFor(fall, jumpAmp, 1.0F), blocking);
     }
 
     /**
@@ -240,40 +304,117 @@ public final class WorldViewCapture {
         return out;
     }
 
-    private static InventoryView inventory(EntityPlayerSP p) {
-        List<InventoryView.Slot> slots = new ArrayList<>();
-        int selected = 0;
+    /**
+     * The inventory section, or {@code null} when it could not be READ.
+     *
+     * <p>All-or-nothing, exactly like {@link #effectsOrNull} and for the same reason. This used to
+     * accumulate slots inside one try and return whatever had collected when a throw landed, and
+     * {@link WorldViewDiff} compares slot INDEX sets -- so every slot after the failure point
+     * reported {@code cleared}, which a model reads as "these slots are empty". A half list is the
+     * dangerous case rather than the safe one: the caller is told it lost the pickaxe it is holding,
+     * and the next thing it does is plan around a kit it never lost. Null says "could not read",
+     * which is a state the differ already knows how to carry.
+     *
+     * <p>Takes a supplier rather than the player so the failure branch is reachable without a live
+     * one -- the same reason {@link #effectsOrNull}, {@link #nearestWithinCap} and {@link #boxedInt}
+     * are package-private. The real trigger is a {@code mainInventory} in a state the getters throw
+     * on (a {@code ReportedException} out of a corrupt stack), which a test can hand over verbatim
+     * instead of approximating.
+     *
+     * <p>The supplier yields the WHOLE array, empty slots included, because the slot index is the
+     * differ's key: a source that skipped its nulls would renumber the kit and report every slot
+     * after the first gap as changed.
+     *
+     * @param selectedSlot the held hotbar index, read by the caller -- it comes from a different
+     *                     field than the array, and is passed in so this method owns one decision
+     */
+    static InventoryView inventoryOrNull(java.util.function.Supplier<Iterable<ItemStack>> src,
+                                         int selectedSlot) {
+        return inventoryOrNull(src, selectedSlot, null);
+    }
+
+    /**
+     * As above, and additionally reading the four worn armour pieces.
+     *
+     * <p>The armour block is supplied separately and labelled with vanilla's OWN indices
+     * ({@code 36 + armourType}), not with a renumbered 0..3. Renumbering would make the field look
+     * like a fifth kind of main-inventory slot and invite a caller to treat 0 as "the first
+     * armour slot", which is the helmet in {@code armorInventory} but the BOOTS as a window-0
+     * container slot -- see {@link ArmourSlots}. Keeping vanilla's index makes the two answers
+     * reconcilable against {@code InventoryPlayer.getStackInSlot} by anyone who checks.
+     *
+     * @param armourSupplier yields {@code armorInventory} in armourType order, or {@code null}
+     *                       when the caller did not read it
+     */
+    static InventoryView inventoryOrNull(java.util.function.Supplier<Iterable<ItemStack>> src,
+                                         int selectedSlot,
+                                         java.util.function.Supplier<Iterable<ItemStack>> armourSrc) {
         try {
-            selected = p.inventory.currentItem;
-            ItemStack[] main = p.inventory.mainInventory;
-            for (int i = 0; i < main.length; i++) {
-                ItemStack st = main[i];
+            List<InventoryView.Slot> slots = new ArrayList<>();
+            int index = 0;
+            for (ItemStack st : src.get()) {
                 if (st == null) {
+                    index++;
                     continue;
                 }
-                Item it = st.getItem();
-                String name = "unknown";
-                try {
-                    var rl = Item.itemRegistry.getNameForObject(it);
-                    if (rl != null) {
-                        String s = rl.toString();
-                        int colon = s.indexOf(':');
-                        name = colon >= 0 ? s.substring(colon + 1) : s;
-                    }
-                } catch (Throwable ignored) {
+                slots.add(slot(index, st));
+                index++;
+            }
+            List<InventoryView.Slot> armour = null;
+            if (armourSrc != null) {
+                armour = new ArrayList<>(ArmourSlots.COUNT);
+                for (ItemStack st : armourSrc.get()) {
+                    // Every cell is published, occupied or not: four entries is the shape, and a
+                    // sparse list would make the absent cell and the unread cell indistinguishable.
+                    armour.add(st == null
+                            ? new InventoryView.Slot(ArmourSlots.inventoryIndexFor(armour.size()),
+                                    null, 0, 0, null)
+                            : slot(ArmourSlots.inventoryIndexFor(armour.size()), st));
                 }
-                Integer maxDmg = null;
-                try {
-                    if (st.isItemStackDamageable()) {
-                        maxDmg = st.getMaxDamage();
-                    }
-                } catch (Throwable ignored) {
-                }
-                slots.add(new InventoryView.Slot(i, name, st.stackSize, st.getItemDamage(), maxDmg));
+            }
+            return new InventoryView(selectedSlot, slots, armour);
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    private static InventoryView.Slot slot(int index, ItemStack st) {
+        Item it = st.getItem();
+        String name = "unknown";
+        try {
+            var rl = Item.itemRegistry.getNameForObject(it);
+            if (rl != null) {
+                String s = rl.toString();
+                int colon = s.indexOf(':');
+                name = colon >= 0 ? s.substring(colon + 1) : s;
             }
         } catch (Throwable ignored) {
         }
-        return new InventoryView(selected, slots);
+        Integer maxDmg = null;
+        try {
+            if (st.isItemStackDamageable()) {
+                maxDmg = st.getMaxDamage();
+            }
+        } catch (Throwable ignored) {
+        }
+        return new InventoryView.Slot(index, name, st.stackSize, st.getItemDamage(), maxDmg);
+    }
+
+    private static InventoryView inventory(EntityPlayerSP p) {
+        try {
+            // Arrays.asList, not List.of: the array holds null for every empty slot and List.of
+            // refuses them, which would make "most of the inventory is empty" read as a failed read.
+            // The armour block is read from the SAME array by vanilla's own index arithmetic
+            // (getStackInSlot:639-650 subtracts mainInventory.length past 36), so it is captured
+            // from armorInventory directly rather than by re-deriving it here.
+            return inventoryOrNull(() -> java.util.Arrays.asList(p.inventory.mainInventory),
+                    p.inventory.currentItem,
+                    () -> java.util.Arrays.asList(p.inventory.armorInventory));
+        } catch (Throwable t) {
+            // Same all-or-nothing answer when even the array or the held-slot index was unreachable:
+            // a defaulted selectedSlot beside a full kit would be a second, quieter lie.
+            return null;
+        }
     }
 
     private static TargetView target(Minecraft mc, WorldClient w, EntityPlayerSP p) {
@@ -331,17 +472,86 @@ public final class WorldViewCapture {
             time = w.getWorldTime();
         } catch (Throwable ignored) {
         }
-        return new EnvView(dim, biome, timeBucket(time), time);
+        // Weather and the light at the player's own cell. Each read is isolated: a world that
+        // throws on one of them must still produce the others rather than an EnvView full of
+        // zeroes, which would read as "clear noon" and be exactly the wrong answer in a storm.
+        boolean raining = false;
+        boolean thundering = false;
+        boolean daytime = false;
+        int lightAtPlayer = -1;
+        try {
+            raining = w.isRaining();
+        } catch (Throwable ignored) {
+        }
+        try {
+            thundering = w.isThundering();
+        } catch (Throwable ignored) {
+        }
+        try {
+            // Daylight.isDaytime(worldTime), NOT World.isDaytime(). The rule is still
+            // `skylightSubtracted < 4` -- World.isDaytime is not an hour test, and this is not one
+            // either -- but it is DERIVED from the clock above rather than read off the world.
+            //
+            // Why that matters, measured: World.isDaytime is `skylightSubtracted < 4` against a
+            // field with exactly two writers in the whole vendored tree, and on a client only one
+            // of them ever runs -- calculateInitialSkylight() in the WorldClient constructor
+            // (WorldClient.java:59). WorldServer.tick's refresh (WorldServer.java:197-202) is
+            // server-side. So a client world built at worldTime 0 holds skylightSubtracted 0 and
+            // answers "day" at worldTime 18000, where vanilla's own curve says 11. This line was
+            // the only production read of "is it night", and it said no, forever.
+            daytime = Daylight.isDaytime(time);
+        } catch (Throwable ignored) {
+        }
+        try {
+            // The same conjunction the spawn gate compares: getLightSubtracted(pos,
+            // skylightSubtracted). The player's own position, floored -- int() and floor() differ
+            // for negative coordinates and this repo has shipped that bug once.
+            var feet = new BlockPos(Math.floor(base.getX()), Math.floor(base.getY()),
+                    Math.floor(base.getZ()));
+            int storedSky = w.getLightFor(net.minecraft.world.EnumSkyBlock.SKY, feet);
+            int storedBlock = w.getLightFromNeighbors(feet);
+            lightAtPlayer = BlockInspector.lightAtPosition(storedSky, storedBlock,
+                    BlockInspector.skylightAmountFor(w, thundering));
+        } catch (Throwable ignored) {
+        }
+        return new EnvView(dim, biome, timeBucket(time), time, raining, thundering, daytime,
+                lightAtPlayer);
     }
 
-    private static String timeBucket(long t) {
-        long d = ((t % 24000L) + 24000L) % 24000L;
+    /**
+     * The time-of-day bucket for a world time -- the ONE copy, shared with {@code WorldScanner}.
+     *
+     * <p>There were two, and they disagreed on every negative instant: this one normalises the
+     * modulus, the scanner's took {@code t % 24000} raw. Java's remainder keeps the sign of the
+     * dividend, so a world time of {@code -6000} bucketed here as 18000 ("night") and there as
+     * -6000 ("sunrise") -- the two observation tools contradicting each other about the same
+     * instant, with nothing on the wire saying which to believe. {@code /time set} and a restored
+     * save can both put the counter below zero, so this is a real world time rather than a
+     * hypothetical one. One copy, called by both, makes disagreement unrepresentable.
+     */
+    static String timeBucket(long t) {
+        long d = timeOfDay(t);
         if (d < 1000) return "sunrise";
         if (d < 6000) return "day";
         if (d < 12000) return "noon-afternoon";
         if (d < 13000) return "sunset";
         if (d < 23000) return "night";
         return "sunrise";
+    }
+
+    /**
+     * The tick within the 24000-tick day, normalised into {@code [0, 24000)}.
+     *
+     * <p>The reduction itself, split out so every reader of world time shares it. A third copy
+     * turned up in {@code HighValueSummarizers}, which used {@code Math.abs(wt) % 24000}: that is
+     * not a modular reduction at all. {@code Math.abs} folds the sign before the modulus, so world
+     * time -1 reports {@code tod=1} — the same instant as world time +1, and 23999 ticks away from
+     * where it actually is in the cycle. The packet summariser is the tool an operator reads to
+     * see what the server is doing, and it was answering a different question from the two
+     * observation tools beside it.
+     */
+    public static long timeOfDay(long t) {
+        return ((t % 24000L) + 24000L) % 24000L;
     }
 
     private static String blockName(WorldClient w, BlockPos pos) {

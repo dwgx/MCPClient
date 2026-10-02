@@ -60,8 +60,21 @@ public final class GuiReflect {
      * @param onlyInteractable when true, skip elements that are invisible or disabled
      */
     public static Extraction extract(GuiScreen screen, boolean onlyInteractable) {
+        return extract(screen, onlyInteractable, new ArrayList<>());
+    }
+
+    /**
+     * Extract every clickable element from {@code screen}, recording read failures
+     * into a caller-supplied sink so one snapshot can report the drift of both the
+     * element pass and the panel pass in a single {@code unreadable} list.
+     *
+     * @param screen           the open GuiScreen (must not be null)
+     * @param onlyInteractable when true, skip elements that are invisible or disabled
+     * @param unreadable       sink for "why is this field missing" notes
+     */
+    public static Extraction extract(GuiScreen screen, boolean onlyInteractable,
+                                     List<String> unreadable) {
         List<GuiElement> out = new ArrayList<>();
-        List<String> unreadable = new ArrayList<>();
 
         extractButtons(screen, onlyInteractable, out, unreadable);
         extractTextFields(screen, onlyInteractable, out, unreadable);
@@ -69,6 +82,12 @@ public final class GuiReflect {
             extractSlots(gc, onlyInteractable, out, unreadable);
         }
         extractLabels(screen, onlyInteractable, out, unreadable);
+        // Every vanilla list lives in its own field, never in buttonList: the Controls
+        // screen's key bindings, the resource-pack screen's two pack lists, the video
+        // settings rows, the statistics grid. Without this pass they are invisible to
+        // both the snapshot and GuiActions.resolve, which is why a GuiListExtended row
+        // had no id and no way to be scrolled to.
+        GuiListReflect.extract(screen, out, unreadable);
 
         return new Extraction(out, unreadable);
     }
@@ -166,33 +185,23 @@ public final class GuiReflect {
             // enabled+visible while a container screen is open.
             State state = new State(true, true, false, false);
 
-            String itemName = "";
+            // The item, read the way every other tool in this codebase names an item:
+            // registry name, display name, count, metadata and an NBT summary. This
+            // used to publish the numeric item id and the count only, and a
+            // save-format number is something an agent cannot match against the
+            // inventory world_view prints. Read ONCE: extract() is re-run on every
+            // click to re-resolve an element, so this is the hottest read here.
+            GuiStack view = GuiStack.of(stack, unreadable);
             java.util.Map<String, Object> attrs = new java.util.LinkedHashMap<>();
             attrs.put("slotNumber", slotNumber);
             attrs.put("windowId", windowId);
             attrs.put("hasStack", hasStack);
             if (hasStack) {
-                int count = stack.stackSize;
-                int itemId = -1;
-                try {
-                    Item item = stack.getItem();
-                    if (item != null) {
-                        itemId = Item.getIdFromItem(item);
-                    }
-                } catch (Throwable t) {
-                    unreadable.add("Slot[" + slotNumber + "].getItem: " + t.getClass().getSimpleName());
-                }
-                try {
-                    itemName = stack.getDisplayName();
-                } catch (Throwable t) {
-                    unreadable.add("Slot[" + slotNumber + "].getDisplayName: " + t.getClass().getSimpleName());
-                }
-                attrs.put("itemId", itemId);
-                attrs.put("count", count);
+                attrs.put("item", view.toMap());
             }
 
             out.add(new GuiElement(id, GuiElement.KIND_SLOT, GuiElement.ROLE_CELL,
-                    itemName == null ? "" : itemName, "", bounds, click, state,
+                    hasStack ? view.displayName() : "", "", bounds, click, state,
                     List.of("click"), attrs));
         }
     }

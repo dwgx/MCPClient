@@ -1,10 +1,14 @@
 package net.marcloud.mcp.core.drivers.act;
 
+import net.marcloud.mcp.core.util.Belief;
+import net.marcloud.mcp.core.util.Graded;
+
 /**
  * The client-free seam between the pure controller state machines
  * ({@link LookController}, {@link DigController}, {@link InteractController},
- * {@link HoldController}, {@link HotbarController}) and the live game. Every game touch a controller
- * needs is a method here; the sole {@code net.minecraft} implementation is
+ * {@link HoldController}, {@link HotbarController}, {@link DropController}) and the live game.
+ * Every game touch a controller needs is a method here; the sole {@code net.minecraft}
+ * implementation is
  * {@link LivePlayerActuator}, and tests drive the controllers through a
  * scriptable {@code FakeActuator}. This is the wedge that makes the whole
  * action layer headlessly testable.
@@ -34,8 +38,75 @@ public interface ActActuator {
     /** Player block-reach distance (game-mode dependent). */
     double reachDistance();
 
-    /** What the player is currently looking at (crosshair ray), never null. */
-    Target mouseOver();
+    /**
+     * What the player is currently looking at (crosshair ray), and how well-earned that is.
+     *
+     * <p><b>This declaration used to be the cleanest structural lie in this project, and now says
+     * so in its own type.</b> It read "What the player is currently looking at (crosshair ray),
+     * never null", and the only production implementation satisfied it by returning
+     * {@code mc.objectMouseOver}. That field has exactly two writers -- {@code Minecraft.runTick}
+     * and {@code EntityRenderer.renderWorld} -- and this act loop fires at {@code runTick} ENTRY,
+     * so every act-layer reader has been handed a ray traced against the PREVIOUS frame's
+     * rotation, with nothing at the seam able to say so.
+     *
+     * <p><b>Why the method changed shape instead of gaining a sibling.</b> A second
+     * {@code mouseOverGraded()} beside the old one would leave the ungraded door standing open, and
+     * the next caller would walk through it and be lied to exactly as before -- while the diff that
+     * added the honest one reads like a feature. There are no production consumers to migrate, so
+     * the change is clean: the method is not deleted, and it becomes an honest measurement instead
+     * of a silent one.
+     *
+     * <p><b>What a reader can now ask that they could not before:</b> "is the thing I aimed at
+     * computed from the rotation I JUST made?" {@code mayActOn()} answers the half of that with an
+     * answer available today, and {@link #STALE_ROTATION} says the other half out loud. Before this
+     * change the question had no shape to be asked in.
+     */
+    Graded<Target> mouseOver();
+
+    // ===== the two grades a crosshair read may carry =====
+    //
+    // Two, and there is no third door. Every implementation reaches its answer through one of these,
+    // so no implementation can invent a grade, and a reader comparing two implementations is
+    // comparing the same two derivations rather than two private opinions about them.
+
+    /**
+     * Why a traced crosshair is {@link Belief#INFERRED} and not {@link Belief#OBSERVED}.
+     *
+     * <p>A derivation, not a hedge. The value is real -- vanilla traced it -- but the rotation it
+     * was traced against is the one the PREVIOUS frame wrote, because this act loop runs at the
+     * entry of {@code runTick} and {@code objectMouseOver} is assigned inside {@code runTick}
+     * (:1751) and again in {@code renderWorld} ({@code EntityRenderer}:1299), both after we return.
+     */
+    String STALE_ROTATION = "ray traced against the PREVIOUS frame's rotation: objectMouseOver is "
+            + "written inside Minecraft.runTick and EntityRenderer.renderWorld, and this act loop "
+            + "fires at runTick entry, so the crosshair predates the rotation this client just "
+            + "wrote";
+
+    /**
+     * Why a missing client is {@link Belief#UNKNOWN} and not a miss.
+     *
+     * <p>This is the distinction the old signature could not make at all: {@code Target.miss()} was
+     * returned both when the ray genuinely hit nothing and when there was no client to trace with,
+     * so a caller could not tell "I looked and it is empty" from "there was nothing to look
+     * through". The two answer opposite questions and must not be one value.
+     */
+    String NO_RAY = "there is no client to trace a crosshair through, so nothing was looked at: "
+            + "this is an absence of observation, not a ray that hit nothing";
+
+    /**
+     * A crosshair this client traced -- against the rotation of one frame ago.
+     *
+     * <p>Accepts a {@link Target#miss()} deliberately: a ray that traced and hit nothing is a real
+     * observation with a stale aim behind it, which is not the same fact as having no client.
+     */
+    static Graded<Target> tracedLastFrame(Target traced) {
+        return Graded.inferred(traced, STALE_ROTATION);
+    }
+
+    /** No client, so no ray was traced at all and nothing about the crosshair is known. */
+    static Graded<Target> noRay() {
+        return Graded.unknown(Target.miss(), NO_RAY);
+    }
 
     /**
      * True if a (non-air) block is present at the given coords.
@@ -174,6 +245,121 @@ public interface ActActuator {
      */
     boolean collidedHorizontally();
 
+    /**
+     * Whether the player is on a ladder or a vine right now -- vanilla's
+     * {@code EntityLivingBase.isOnLadder}, unchanged.
+     *
+     * <p>Exists because {@link #onGround()} cannot answer the question a climb has to ask. A
+     * ladder holds a player up without ever setting {@code onGround}, so "is the world holding
+     * this player up" and "is the player standing on something" are the same question on the
+     * ground and different questions four blocks up a shaft. A route onto a ladder cell is
+     * executable and verifiable only if the seam can say which of the two is true.
+     *
+     * <p>Not defaulted, for the reason {@link LocomotionController#jump()} is not: a default of
+     * false here would be a hardcoded "never climbing" that every future implementation would
+     * inherit silently, and the failure it produces is a controller that can never complete a
+     * climb while reporting a plausible-looking reason.
+     */
+    boolean onClimbable();
+
+    /**
+     * Whether the player is in water right now -- vanilla's {@code Entity.isInWater}, which is the
+     * {@code inWater} flag {@code handleWaterMovement} maintains.
+     *
+     * <p>The same gap as {@link #onClimbable()}, and the same reason it cannot be inferred: a
+     * swimmer is not on the ground, and "supported" for a swimmer means the water, which nothing
+     * else on this interface reports.
+     */
+    boolean inWater();
+
+    /**
+     * Vanilla's remaining air, in ticks, or {@code -1} when it cannot be read.
+     *
+     * <p>Not a convenience. This is the number a route spends as it swims, and a controller that
+     * guessed at it would be reporting on a resource it never observed: vanilla fills it to 300 out
+     * of water and drains one per tick submerged
+     * ({@code EntityLivingBase:301,326,439}), and {@code -1} is the honest "unknown", which is why
+     * it is not 0 -- 0 would read as "drowning" and drive a caller to cancel a swim that is fine.
+     */
+    int air();
+    /**
+     * Vanilla's {@code Entity.fallDistance}, in blocks.
+     *
+     * <p>Maintained by the client alone ({@code Entity.updateFallState:1034-1055}: it accumulates
+     * downward motion, is zeroed the tick the body lands, and is halved in water at {@code
+     * Entity.java:511}), so unlike health or damage this is a fact the seam can state outright.
+     * It is the input to two things vanilla decides with it: {@link CritWindow}'s conjunction and
+     * {@link net.marcloud.mcp.core.drivers.world.FallDamage}'s arithmetic.
+     *
+     * <p>Not defaulted, for {@link #onGround()}'s reason: a default of 0.0 here reads as "never
+     * falling", which is a hardcoded "a crit is impossible" every implementation would inherit
+     * silently.
+     */
+    double fallDistance();
+
+    /**
+     * Whether the player is BLOCKING right now — vanilla's {@code EntityPlayer.isBlocking()},
+     * unchanged.
+     *
+     * <p>Distinct from {@link #isUsingItem()} on purpose and not a convenience: a shield's use and
+     * a bread's use are both {@code isUsingItem() == true}, and only one of them is a block. A
+     * caller that checked {@code isUsingItem} to answer "am I blocking" would be right about food
+     * and wrong about every other held item. {@code isBlocking} is
+     * {@code isUsingItem() && itemInUse.getItem().getItemUseAction(itemInUse) == EnumAction.BLOCK}
+     * ({@code EntityPlayer.java:257-260}).
+     *
+     * <p>The use ACTION is not on this seam either, for the same reason the crit's blindness term
+     * is not: the item's own declaration is the client's to read and vanilla's to apply, and an
+     * interface that held it would hold an {@code net.minecraft} type.
+     */
+    boolean blocking();
+
+    // ===== the clock =====
+    //
+    // Two reads, and the pairing is the point. `isDaytime()` on its own would be a boolean with
+    // no evidence behind it; `worldTime()` on its own is a number no caller can interpret without
+    // re-deriving the curve. A reader that wants to know WHY it is night, or to check the answer
+    // against its own arithmetic, needs both, and the seam that has only one of them forces one of
+    // those two failures.
+    //
+    // What this is NOT: a decision input. Nothing in a controller may branch on these. The Owner's
+    // acceptance object is the weak model's decision, and a Java component that chooses an action
+    // because the clock says so replaces that decision with an arithmetic fact
+    // (2026-10-01-northstar-intent.md:557 -- 策略不许写进 Java). A clock is an OBSERVATION: it is
+    // reportable, measurable and assertable, and the model decides what to do about it. That is
+    // why both reads are plain accessors in the same shape as `air()` and `fallDistance()` and not
+    // something a controller is handed a "safe until dawn" verdict by.
+
+    /**
+     * Vanilla's {@code World.getWorldTime}, the tick within the day since the epoch (NOT
+     * {@code getTotalWorldTime}, which counts from world creation and is a different number).
+     *
+     * <p>One tick per game tick while {@code doDaylightCycle} holds, on the client as well as the
+     * server ({@code WorldClient.java:71-74}), and corrected by the server's
+     * {@code S03PacketTimeUpdate} about once a second. So it is a live clock on a multiplayer
+     * client -- which is exactly what makes the frozen {@code isDaytime} a defect rather than a
+     * design: the world knows what time it is and the day/night read was not consulting it.
+     *
+     * <p>May be negative: {@code /time set} and a restored save both reach it, and the
+     * normalisation that makes it comparable with a clock reading lives in
+     * {@link net.marcloud.mcp.core.drivers.world.WorldViewCapture#timeOfDay(long)} rather than
+     * here, so a caller cannot quietly apply it twice.
+     */
+    long worldTime();
+
+    /**
+     * Whether the world is in daylight, computed from {@link #worldTime()}.
+     *
+     * <p><b>The one thing an implementation must not do here is delegate to
+     * {@code World.isDaytime()}.</b> That is the frozen read this pair exists to replace: on a
+     * multiplayer client it is {@code skylightSubtracted < 4} against a field written once in the
+     * {@code WorldClient} constructor and never again, so it answers "day" at midnight, forever.
+     * A production implementation that delegated would be correct-looking and identically broken,
+     * which is worse than the original defect because it would look fixed.
+     */
+    boolean isDaytime();
+
+
     /** Swing the held item (animation + packet). */
     void swing();
 
@@ -262,6 +448,48 @@ public interface ActActuator {
 
     /** Select hotbar {@code slot} (0-8). */
     void setHeldSlot(int slot);
+
+    // ===== inventory / drop =====
+    //
+    // What a DROP controller reads and writes, in the same spirit as the locomotion and
+    // sustained-use blocks above. A drop is not an event either: `Container.slotClick` mode 4
+    // (Container.java:445-457) decrements the slot and hands the stack to
+    // `dropPlayerItemWithRandomChoice`, so the only confirmable fact is what the slot reads
+    // AFTERWARDS -- and `PlayerControllerMP.windowClick` applies the click to the client's own
+    // container before the packet is even queued (:534-539), so a send that is never read back
+    // is a claim about nothing.
+
+    /**
+     * How many items are in player inventory slot {@code playerSlot} (0-35, vanilla's
+     * {@code InventoryPlayer.mainInventory} indexing, so 0-8 is the hotbar), or 0 when the slot
+     * is empty, out of range, or unreadable.
+     *
+     * <p>The index is the INVENTORY's, not a container's. Every container numbers the same 36
+     * stacks differently -- {@code ContainerPlayer} puts them at 9..44, main inventory before
+     * hotbar -- and that inversion is what {@code SimCraftWindow}'s own javadoc exists to warn
+     * about. Doing the translation inside the actuator keeps a caller from having to know which
+     * window is open, or whether one is.
+     *
+     * <p>0 rather than -1 for unreadable, because 0 is also what an empty slot says and a drop
+     * has to treat the two the same way: there is nothing there to throw.
+     */
+    int slotStackSize(int playerSlot);
+
+    /**
+     * Throw the whole stack in player inventory slot {@code playerSlot} out onto the floor, as
+     * vanilla's drop-from-a-slot click does ({@code SlotClickMode#DROP_SLOT}, mode 4, with
+     * {@code clickedButton} 1 -- {@code Container.java:452} decrements by
+     * {@code slot.getStack().stackSize}, the whole stack, and calls
+     * {@code dropPlayerItemWithRandomChoice}).
+     *
+     * <p>The return value answers "was the click ISSUED", not "did the stack leave": a mode-4
+     * click on a window whose slot refuses the pickup, on a spectator, or with no
+     * {@code PlayerControllerMP} at all, is accepted and does nothing, which is the same
+     * silently-ignored state {@code SlotClickMode#CREATIVE_TAKE_STACK} describes. So the return
+     * is never the whole answer, and {@link DropController} re-reads {@link #slotStackSize} to
+     * get the rest of it.
+     */
+    boolean dropStack(int playerSlot);
 
     // ===== value types =====
 

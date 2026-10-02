@@ -133,15 +133,48 @@ public class ClickSlotDescriptionMatchesVanillaTest {
         }
     }
 
-    /** The tool reports "sent", never "accepted" -- so the description must not promise more. */
+    /**
+     * The tool reports "sent", never "accepted" -- so the description must not promise more, and
+     * must hand the caller a confirmation path that EXISTS.
+     *
+     * <p>This assertion used to be {@code desc.contains("read_inventory")}, and that made the test
+     * pass <em>because</em> the defect was present: there is no {@code read_inventory} among the
+     * 81 tools, so the one check guarding this tool's most dangerous property was pinned to a
+     * phantom. It could not fail while the defect existed. It is rewritten to assert the REAL
+     * paths, and to assert the phantom is gone.
+     *
+     * <p>The real paths, each verified by calling it on the live server: {@code world_view} with
+     * {@code sections:["inventory"]} reports the player's own slots (that is windowId 0), and
+     * {@code gui_snapshot} reports every slot of an open container screen. Neither needs the netty
+     * tap; {@code packet_view} carries the S32 accept/reject verdict but only once the tap is in.
+     */
     @Test
     public void theDescriptionAdmitsItOnlyReportsThePacketWasSent() {
         String desc = tool("do_click_slot").description();
         assertTrue("sendTyped returns ok(\"sent ...\") with no server acknowledgement, so a "
                 + "success result is not evidence the click landed",
                 desc.contains("SENT"));
-        assertTrue("the caller needs a stated way to actually check",
-                desc.contains("read_inventory"));
+        assertTrue("the caller needs a stated way to actually check the player's own slots",
+                desc.contains("world_view"));
+        assertTrue("named with the argument that reads them, or the tool cannot be called with it",
+                desc.contains("sections=['inventory']"));
+        assertTrue("and a stated way to check an open container, which is the other windowId case",
+                desc.contains("gui_snapshot"));
+    }
+
+    /**
+     * The phantom itself. Asserted negatively so the name can never come back, in any tool, as a
+     * confirmation path -- an agent that follows it has no way to check the one operation whose
+     * two failure modes are both silent by protocol (the window lock, and a windowId mismatch).
+     */
+    @Test
+    public void noToolDescriptionNamesTheNonExistentReadInventory() {
+        ToolRegistry reg = new ToolRegistry(new ToolContext(null, null, null, null, null));
+        for (SyncToolSpecification spec : reg.all()) {
+            assertFalse("'" + spec.tool().name() + "' points the reader at read_inventory, which "
+                    + "is not a tool in this surface",
+                    String.valueOf(spec.tool().description()).contains("read_inventory"));
+        }
     }
 
     /**

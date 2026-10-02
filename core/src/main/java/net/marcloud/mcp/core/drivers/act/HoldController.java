@@ -179,23 +179,25 @@ public final class HoldController {
         // cancellation, and the outcome is discarded by the caller anyway -- inventing a fifth state
         // for a value nobody reads would be vocabulary without a consumer.
         finish(act, ActOutcome.cancelled(
-                "hold cancelled after " + heldTicks + " ticks: the interact slot was rebound"));
+                "hold cancelled after " + heldTicks + " ticks: the interact slot was rebound",
+                ActOutcome.READ_DIRECTLY));
     }
 
     /** Advance one tick against {@code act}. */
     public ActOutcome tick(ActActuator act) {
         if (done) {
-            return ActOutcome.done("already finished");
+            return ActOutcome.done("already finished", ActOutcome.READ_DIRECTLY);
         }
         if (cancelRequested) {
             // Release rather than just walking away: a hold left asserted would keep the player
             // eating or blocking with nothing driving it, and for a bow the release IS the shot, so
             // the cancel must go through vanilla's stop path to end the draw.
             act.releaseUseKey();
-            return finish(act, ActOutcome.cancelled("hold cancelled after " + heldTicks + " ticks"));
+            return finish(act, ActOutcome.cancelled("hold cancelled after " + heldTicks + " ticks",
+                    ActOutcome.READ_DIRECTLY));
         }
         if (!act.inWorld()) {
-            return finish(act, ActOutcome.failed("not in world"));
+            return finish(act, ActOutcome.failed("not in world", ActOutcome.READ_DIRECTLY));
         }
         return switch (state) {
             case STARTING -> start(act);
@@ -208,14 +210,19 @@ public final class HoldController {
         if (mode == InteractIntent.HoldMode.THEN_RELEASE && holdTicks <= 0) {
             return finish(act, ActOutcome.failed("hold mode THEN_RELEASE needs holdTicks >= 1, got "
                     + holdTicks + "; a bow needs at least " + BOW_MIN_CHARGE_TICKS
-                    + " draw ticks to fire anything"));
+                    + " draw ticks to fire anything", ActOutcome.READ_DIRECTLY));
         }
         if (!act.holdUseKey()) {
             // The write itself could not be made -- no client, or the use binding is missing from
             // KeyBinding's static keyCode hash. Retrying does not fix either, so fail on tick one
             // rather than pumping a key that is not there.
+            //
+            // READ_DIRECTLY and not READ_CAME_BACK_EMPTY: this read returned FALSE, which is an
+            // answer, and the sentence is about THIS controller's own ability to write -- a fact
+            // about the client process rather than about a world cell. The design's UNKNOWN is for a
+            // read that could not see; a boolean that came back and said no is the opposite case.
             return finish(act, ActOutcome.failed("could not assert vanilla's use key, so a hold is not "
-                    + "possible; nothing was started"));
+                    + "possible; nothing was started", ActOutcome.READ_DIRECTLY));
         }
         heldTicks = 1;
 
@@ -226,16 +233,24 @@ public final class HoldController {
             if (!act.useItemInAir()) {
                 act.releaseUseKey();
                 return finish(act, ActOutcome.failed("use rejected in air, so there is nothing to hold "
-                        + "(empty hand, no arrows for a bow, or already-full hunger)"));
+                        + "(empty hand, no arrows for a bow, or already-full hunger)",
+                        ActOutcome.READ_DIRECTLY));
             }
             if (!act.isUsingItem()) {
                 // The stack changed but no use is in progress: an instant item -- a snowball, an
                 // ender pearl. The side effect HAPPENED, which is why this says so rather than
                 // pretending nothing did, but there is no state to hold and the caller asked for a
                 // hold, so this is not the success they requested.
+                //
+                // DERIVED_FROM_READS, and it is the one start-path site that is: the sentence
+                // concludes from a SEQUENCE -- useItemInAir returned true AND isUsingItem is still
+                // false -- that the item was instant. Both reads are live and neither is stale, so
+                // the derivation is honest, but a conclusion drawn across two reads is a derivation
+                // and not a single observation.
                 act.releaseUseKey();
                 return finish(act, ActOutcome.failed("the item used instantly and has no use duration to "
-                        + "hold; the use did happen, but HOLD is for food, a bow or blocking"));
+                        + "hold; the use did happen, but HOLD is for food, a bow or blocking",
+                        ActOutcome.DERIVED_FROM_READS));
             }
         }
 
@@ -250,14 +265,30 @@ public final class HoldController {
             act.releaseUseKey();
             return finish(act, ActOutcome.failed("this item does not self-terminate: vanilla gave the use "
                     + initialCount + " ticks, so UNTIL_DONE would hold indefinitely -- use "
-                    + "THEN_RELEASE with a tick count instead (a bow fires on release)"));
+                    + "THEN_RELEASE with a tick count instead (a bow fires on release)",
+                    ActOutcome.READ_DIRECTLY));
+        }
+
+        if (mode == InteractIntent.HoldMode.WHILE_BLOCKING && !act.blocking()) {
+            // The use is running and it is not a BLOCK use. Releasing matters more than usual here:
+            // an abandoned indefinite hold is an item being used forever with nothing driving it,
+            // and for a bow that is a drawn bow nobody let go of.
+            act.releaseUseKey();
+            return finish(act, ActOutcome.failed("the held item is in use but vanilla does not say "
+                    + "it is a BLOCK use (EntityPlayer.isBlocking is false), so there is nothing to "
+                    + "block with -- hold an item whose use action is BLOCK (a sword or a shield). "
+                    + "The use was released rather than left running", ActOutcome.READ_DIRECTLY));
         }
 
         initialSlot = act.heldSlot();
         state = State.HOLDING;
+        // READ_DIRECTLY for the count, which is a live read of `EntityPlayer.itemInUseCount`, and the
+        // 0.2x movement clause is a documented constant of vanilla rather than a claim about this
+        // player's world. Nothing here is derived and nothing is stale.
         return ActOutcome.running("holding the use key, use count " + initialCount
                 + "; note vanilla scales movement to 0.2x while an item is in use, unless riding "
-                + "(EntityPlayerSP:788-792), so a walk running alongside this will be slow");
+                + "(EntityPlayerSP:788-792), so a walk running alongside this will be slow",
+                ActOutcome.READ_DIRECTLY);
     }
 
     private ActOutcome hold(ActActuator act) {
@@ -279,9 +310,15 @@ public final class HoldController {
                 // stop branch runs later in it, so isUsingItem() is still true either way. Waiting one
                 // tick turns a guess into an observation -- the same trade confirmRelease makes.
                 // Stop re-asserting meanwhile: re-pressing the key would fight whatever cleared it.
+                //
+                // The sentence makes no claim about the world -- it is about this controller's own
+                // tick counter and a key state read this tick -- so READ_DIRECTLY. What it
+                // deliberately does NOT say is which ending it will turn out to be, and that
+                // restraint is why the grade is honest here rather than merely convenient.
                 keyLost = true;
                 return ActOutcome.running("the use key was cleared after " + heldTicks
-                        + " ticks; waiting one tick to see whether vanilla ends the use");
+                        + " ticks; waiting one tick to see whether vanilla ends the use",
+                        ActOutcome.READ_DIRECTLY);
             }
             if (act.isUsingItem()) {
                 return finish(act, ActOutcome.failed("the use key was cleared after " + heldTicks
@@ -290,12 +327,12 @@ public final class HoldController {
                         + "allowUserInput (Minecraft.java:1829), so a screen that clears the key also "
                         + "stops vanilla ending the use -- the item keeps being used, and a drawn bow "
                         + "will fire when that screen closes. Close the screen and read act_status, or "
-                        + "submit a fresh hold to take the use back over"));
+                        + "submit a fresh hold to take the use back over", ActOutcome.READ_DIRECTLY));
             }
             return finish(act, ActOutcome.failed("the use key was cleared after " + heldTicks
                     + " ticks and the use has ended with it -- most likely the window lost focus "
                     + "while in-game (Minecraft.java:1467-1469 clears every binding, but only when "
-                    + "the game had focus)"));
+                    + "the game had focus)", ActOutcome.READ_DIRECTLY));
         }
 
         if (!act.isUsingItem()) {
@@ -306,6 +343,14 @@ public final class HoldController {
             // names, and checking it directly is what closes the window the count band leaves open:
             // in the last few ticks of a meal an interruption and a completion both leave a small
             // count, and picking "completed" there is a false success in the direction that matters.
+            //
+            // Design 2.A #6 and 2.A #4, graded at the site that makes the claim. `act.heldSlot()`
+            // reads `EntityPlayer.inventory.currentItem` -- the client's own copy, local, and C09 is
+            // sent lazily, so the read is OBSERVED and never on the wire. But the sentence below
+            // says the use ended BECAUSE the slot changed, which is a claim about VANILLA's reaction,
+            // reached by comparing this tick's read against a sample taken when the hold started.
+            // Both reads are live and neither is stale, so the derivation is honest -- which is
+            // exactly what DERIVED_FROM_READS is for.
             int slotNow = act.heldSlot();
             boolean switched = initialSlot >= 0 && slotNow != initialSlot;
             // Only then the clock, for interruptions with no slot change (the stack ran out, was
@@ -316,22 +361,45 @@ public final class HoldController {
                 return finish(act, ActOutcome.failed("the use ended after " + heldTicks
                         + " ticks because the held slot changed from " + initialSlot + " to " + slotNow
                         + ", which clears vanilla's use -- interrupted, not finished, whatever the "
-                        + "remaining count (" + lastCount + ") suggests"));
+                        + "remaining count (" + lastCount + ") suggests",
+                        ActOutcome.DERIVED_FROM_READS));
             }
             if (!ranOut) {
                 return finish(act, ActOutcome.failed("the use ended after " + heldTicks + " ticks with "
                         + lastCount + " ticks still on its clock, so it was interrupted rather than "
-                        + "finished -- something took the item away mid-use"));
+                        + "finished -- something took the item away mid-use",
+                        ActOutcome.DERIVED_FROM_READS));
             }
             if (mode == InteractIntent.HoldMode.THEN_RELEASE) {
                 // Asked to hold N ticks and vanilla finished early: honest success, but the caller's
                 // release never happened, and for a bow that is the difference between a shot and a
                 // meal, so the message must not read like a release.
+                //
+                // DERIVED_FROM_READS for the same reason as the branches above: "the use completed on
+                // its own" is a conclusion from a count falling into the slack band, not a read of a
+                // completion event. Vanilla sends no such event, which is the whole reason the band
+                // exists at all.
                 return finish(act, ActOutcome.done("the use completed on its own after " + heldTicks
                         + " ticks, before the requested " + holdTicks
-                        + "; no release was needed"));
+                        + "; no release was needed", ActOutcome.DERIVED_FROM_READS));
             }
-            return finish(act, ActOutcome.done("use completed after " + heldTicks + " ticks of holding"));
+            if (mode == InteractIntent.HoldMode.WHILE_BLOCKING) {
+                // Unreachable while the count is honest -- a BLOCK use carries the 72000 sentinel
+                // and so cannot pass COMPLETION_COUNT_SLACK -- but naming it here means the branch
+                // cannot quietly become reachable: if vanilla ever gave a block a short duration,
+                // "you are no longer blocking" must not be reported as "use completed".
+                return finish(act, ActOutcome.failed("the block ended after " + heldTicks
+                        + " ticks because the use ran down to " + lastCount
+                        + ", which a BLOCK use should never do -- the caller is no longer blocking",
+                        ActOutcome.READ_DIRECTLY));
+            }
+            // The one success in this class, and it earns the same DERIVED_FROM_READS as the branches
+            // above it. A caller acting on "use completed" is acting on a count that ran down, which
+            // is the strongest evidence this seam can produce and is still not an event the server
+            // reported. That it is the strongest AVAILABLE is not the same as it being OBSERVED, and
+            // that difference is exactly what `mayActOn()` exists to keep visible.
+            return finish(act, ActOutcome.done("use completed after " + heldTicks + " ticks of holding",
+                    ActOutcome.DERIVED_FROM_READS));
         }
 
         if (mode == InteractIntent.HoldMode.THEN_RELEASE && heldTicks >= holdTicks) {
@@ -340,14 +408,21 @@ public final class HoldController {
 
         int deadline = initialCount + SERVER_FINISH_SLACK_TICKS;
         if (mode == InteractIntent.HoldMode.UNTIL_DONE && heldTicks > deadline) {
+            // DERIVED_FROM_READS, and the `whyNotFinishing()` clause is why it cannot be higher. The
+            // message picks between "the client is paused" and "the server never sent the finish" by
+            // comparing a FROZEN COUNT STREAK against a threshold, and that streak is evidence about
+            // the client's own tick loop -- the count stops moving because `updateEntities` is gated
+            // behind `!isGamePaused`. Both candidate causes are live and the clause is the honest
+            // answer, but it is a conclusion drawn over several ticks rather than one read.
             act.releaseUseKey();
             return finish(act, ActOutcome.failed("still using after " + heldTicks + " ticks, but vanilla "
-                    + "gave this use only " + initialCount + " ticks -- " + whyNotFinishing()));
+                    + "gave this use only " + initialCount + " ticks -- " + whyNotFinishing(),
+                    ActOutcome.DERIVED_FROM_READS));
         }
 
         if (!act.holdUseKey()) {
             return finish(act, ActOutcome.failed("lost the ability to assert the use key after "
-                    + heldTicks + " ticks; the hold cannot continue"));
+                    + heldTicks + " ticks; the hold cannot continue", ActOutcome.READ_DIRECTLY));
         }
         heldTicks++;
         int countNow = act.itemInUseCount();
@@ -356,9 +431,15 @@ public final class HoldController {
         // cannot be extended by the zero an ended use reports.
         frozenCountTicks = countNow == lastCount ? frozenCountTicks + 1 : 0;
         lastCount = countNow;
+        // READ_DIRECTLY: every clause is a value read this tick or a counter incremented this tick,
+        // and the sentence claims nothing about a world cell.
         return ActOutcome.running("holding the use key, " + heldTicks + " ticks, use count "
                 + lastCount + (mode == InteractIntent.HoldMode.THEN_RELEASE
-                        ? " (releasing at " + holdTicks + ")" : ""));
+                        ? " (releasing at " + holdTicks + ")"
+                        : mode == InteractIntent.HoldMode.WHILE_BLOCKING
+                                ? " (still blocking; no tick limit, end it with "
+                                        + "interact kind=release)" : ""),
+                ActOutcome.READ_DIRECTLY);
     }
 
     /**
@@ -451,11 +532,16 @@ public final class HoldController {
         drawnAtRelease = baseline - act.itemInUseCount();
         if (!act.releaseUseKey()) {
             return finish(act, ActOutcome.failed("held " + heldTicks + " ticks but the use key could not "
-                    + "be released, so vanilla will not end the use"));
+                    + "be released, so vanilla will not end the use", ActOutcome.READ_DIRECTLY));
         }
         state = State.RELEASING;
+        // DERIVED_FROM_READS: the draw count is `maxItemUseDuration` minus a count sampled this tick,
+        // and the sentence reports that subtraction as a number. It is the arithmetic that decides
+        // whether an arrow exists, so it is worth being explicit that the number is derived rather
+        // than reported by the game.
         return ActOutcome.running("released the use key after " + heldTicks
-                + " ticks (" + drawnAtRelease + " draw ticks), waiting for vanilla to end the use");
+                + " ticks (" + drawnAtRelease + " draw ticks), waiting for vanilla to end the use",
+                ActOutcome.DERIVED_FROM_READS);
     }
 
     /**
@@ -470,15 +556,20 @@ public final class HoldController {
         if (act.isUsingItem()) {
             return finish(act, ActOutcome.failed("released the use key after " + heldTicks
                     + " ticks but the player is still using the item, so vanilla did not end the use "
-                    + "-- a bow would not have fired"));
+                    + "-- a bow would not have fired", ActOutcome.READ_DIRECTLY));
         }
+        // The whole point of this method is the extra tick, and the grade says what it bought: the
+        // "use has ended" half is OBSERVED -- `isUsingItem()` went false, read this tick, one tick
+        // after the release rather than inferred from the key. The draw count is derived, and the
+        // charge clause is a comparison against two constants. A caller acting on this sentence is
+        // acting on both, so the sentence takes the weaker: DERIVED_FROM_READS.
         String charge = drawn < BOW_MIN_CHARGE_TICKS
                 ? "; below the " + BOW_MIN_CHARGE_TICKS + " draw ticks a bow needs to fire anything"
                 : drawn >= BOW_FULL_CHARGE_TICKS
                         ? "; a bow would be at full charge (" + BOW_FULL_CHARGE_TICKS + "+ ticks)"
                         : "";
         return finish(act, ActOutcome.done("held " + heldTicks + " ticks then released, " + drawn
-                + " draw ticks counted by vanilla" + charge));
+                + " draw ticks counted by vanilla" + charge, ActOutcome.DERIVED_FROM_READS));
     }
 
     /**

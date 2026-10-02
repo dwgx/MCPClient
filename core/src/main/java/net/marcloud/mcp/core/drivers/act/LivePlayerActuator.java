@@ -1,6 +1,8 @@
 package net.marcloud.mcp.core.drivers.act;
 
 import net.marcloud.mcp.core.GameAccess;
+import net.marcloud.mcp.core.drivers.world.Daylight;
+import net.marcloud.mcp.core.util.Graded;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.entity.EntityPlayerSP;
 import net.minecraft.client.multiplayer.PlayerControllerMP;
@@ -70,25 +72,27 @@ public final class LivePlayerActuator implements ActActuator {
     }
 
     @Override
-    public Target mouseOver() {
+    public Graded<Target> mouseOver() {
         Minecraft mc = game.mc();
         if (mc == null) {
-            return Target.miss();
+            // No client, so no ray was traced. This is NOT the same answer as the MISS below, and
+            // before the grade existed both of them were the same Target.miss() value.
+            return ActActuator.noRay();
         }
         MovingObjectPosition mop = mc.objectMouseOver;
         if (mop == null || mop.typeOfHit == MovingObjectPosition.MovingObjectType.MISS) {
-            return Target.miss();
+            return ActActuator.tracedLastFrame(Target.miss());
         }
         double[] hit = mop.hitVec == null ? null
                 : new double[] {mop.hitVec.xCoord, mop.hitVec.yCoord, mop.hitVec.zCoord};
         double dist = distEye(hit);
         if (mop.typeOfHit == MovingObjectPosition.MovingObjectType.ENTITY) {
             int id = mop.entityHit == null ? -1 : mop.entityHit.getEntityId();
-            return Target.entity(id, hit, dist);
+            return ActActuator.tracedLastFrame(Target.entity(id, hit, dist));
         }
         BlockPos bp = mop.getBlockPos();
         Face side = faceOf(mop.sideHit);
-        return Target.block(bp.getX(), bp.getY(), bp.getZ(), side, hit, dist);
+        return ActActuator.tracedLastFrame(Target.block(bp.getX(), bp.getY(), bp.getZ(), side, hit, dist));
     }
 
     @Override
@@ -173,6 +177,72 @@ public final class LivePlayerActuator implements ActActuator {
         EntityPlayerSP p = game.player();
         return p != null && p.isCollidedHorizontally;
     }
+
+    @Override
+    public boolean onClimbable() {
+        EntityPlayerSP p = game.player();
+        // isOnLadder, not a block read: vanilla's own test already floors the bounding box and
+        // checks the cell the FEET are in, and re-deriving that here would be a second copy of
+        // the rule that decides whether a player is climbing.
+        return p != null && p.isOnLadder();
+    }
+
+    @Override
+    public boolean inWater() {
+        EntityPlayerSP p = game.player();
+        return p != null && p.isInWater();
+    }
+
+    @Override
+    public int air() {
+        EntityPlayerSP p = game.player();
+        // -1 for "no player to ask", never 0. Vanilla's own value is a short from a data watcher
+        // (Entity:2229) and 0 means the player is at the drowning threshold, so a reader that got 0
+        // back from "there is no player here" would report an emergency that does not exist.
+        return p == null ? -1 : p.getAir();
+    }
+    @Override
+    public double fallDistance() {
+        EntityPlayerSP p = game.player();
+        return p == null ? 0.0D : p.fallDistance;
+    }
+
+    @Override
+    public boolean blocking() {
+        EntityPlayerSP p = game.player();
+        // EntityPlayer.isBlocking(), not isUsingItem(): vanilla's own predicate already asks for the
+        // use AND for the item's use ACTION to be BLOCK, and the second half is what makes it a
+        // block rather than a meal.
+        return p != null && p.isBlocking();
+    }
+
+    @Override
+    public long worldTime() {
+        WorldClient w = game.world();
+        // 0 rather than a sentinel: this is the value a client world is CONSTRUCTED with
+        // (WorldInfo.populateFromWorldSettings assigns no worldTime, so the field keeps its
+        // default), and "no world" and "a world at sunrise" are the same instant to a caller
+        // asking whether it is safe to act -- so the honest answer for the first is the second.
+        // The -1 convention belongs to air(), where 0 is a live reading meaning "drowning".
+        return w == null ? 0L : w.getWorldTime();
+    }
+
+    @Override
+    public boolean isDaytime() {
+        WorldClient w = game.world();
+        // Daylight.isDaytime(worldTime), NOT World.isDaytime(). That is the whole point of this
+        // line and it is worth being explicit about why, because the obvious-looking
+        // `return w != null && w.isDaytime();` is the defect this file was changed to remove.
+        //
+        // World.isDaytime() is `skylightSubtracted < 4` (World.java:866-869), and on a client
+        // skylightSubtracted is written exactly once -- by calculateInitialSkylight() in the
+        // WorldClient constructor (WorldClient.java:59) -- and never again, because the only
+        // clock-path writer is WorldServer.tick (WorldServer.java:197-202) and this is a client.
+        // Measured: a client world built at worldTime 0 holds 0 and therefore answers "day" at
+        // worldTime 18000, where vanilla's own curve says 11 and the honest answer is "night".
+        return w != null && Daylight.isDaytime(w.getWorldTime());
+    }
+
 
     // ===== rotation =====
 
@@ -381,6 +451,82 @@ public final class LivePlayerActuator implements ActActuator {
         if (p != null && slot >= 0 && slot <= 8) {
             p.inventory.currentItem = slot;
         }
+    }
+
+    // ===== inventory / drop =====
+
+    @Override
+    public int slotStackSize(int playerSlot) {
+        EntityPlayerSP p = game.player();
+        if (p == null || playerSlot < 0 || playerSlot >= p.inventory.mainInventory.length) {
+            return 0;
+        }
+        ItemStack s = p.inventory.mainInventory[playerSlot];
+        return s == null ? 0 : s.stackSize;
+    }
+
+    /**
+     * {@code PlayerControllerMP.windowClick} with vanilla's own drop-from-a-slot arguments.
+     *
+     * <p>Three things are transcribed rather than invented, and each is a line of frozen client
+     * source:
+     *
+     * <ol>
+     *   <li><b>mode 4, button 1.</b> {@code Container.slotClick:446-456} gates on
+     *       {@code mode == 4 && inventoryplayer.getItemStack() == null && slotId >= 0} and then
+     *       decrements by {@code clickedButton == 0 ? 1 : slot3.getStack().stackSize}. Button 1 is
+     *       the whole stack, which is what a player means by throwing a pack full away, and
+     *       {@link net.marcloud.mcp.core.drivers.world.SlotClickMode#DROP_SLOT} names the mode
+     *       rather than leaving a 4 in the call.
+     *   <li><b>The slot number.</b> {@code windowClick} takes a CONTAINER slot, and the player's
+     *       own container does not number its stacks like {@code mainInventory}:
+     *       {@code ContainerPlayer:26-68} adds the result at 0, the 2x2 at 1..4, four ARMOUR
+     *       slots at 5..8, main inventory 9..35 at 9..35, and the HOTBAR last at 36..44. So
+     *       {@code mainInventory[i]} is container slot {@code i} for i >= 9 and {@code i + 36}
+     *       below that -- the same inversion {@code SimCraftWindow} documents from the other side.
+     *       Sending {@code mainInventory} indices straight through would throw whatever happens
+     *       to be in armour slot 5.
+     *   <li><b>{@code windowClick}, not a bare packet.</b> {@code PlayerControllerMP:534-539}
+     *       applies the click to the client's container and THEN queues the C0E, so the local
+     *       state a read-back inspects is the same one the server is about to be told about. A
+     *       hand-built packet would leave the client's own container untouched until the server's
+     *       reply, and every read-back would be measuring the round trip rather than the drop.
+     * </ol>
+     *
+     * <p>The spectator gate is vanilla's own, and taken from the same place the client player
+     * itself takes it: {@code EntityPlayerSP:824-825} asks
+     * {@code playerController.isSpectatorMode()} rather than {@code thePlayer.isSpectator()},
+     * because {@code AbstractClientPlayer.isSpectator} (:33-36) walks the net handler's
+     * player-info map and this runs with no connection to answer it. A spectator throwing a
+     * stack into a world that will not give it back is a silent no-op worth refusing outright.
+     */
+    @Override
+    public boolean dropStack(int playerSlot) {
+        PlayerControllerMP pc = playerController();
+        EntityPlayerSP p = game.player();
+        if (pc == null || p == null || pc.isSpectatorMode()) {
+            return false;
+        }
+        if (playerSlot < 0 || playerSlot >= p.inventory.mainInventory.length) {
+            return false;
+        }
+        ItemStack stack = p.inventory.mainInventory[playerSlot];
+        if (stack == null || stack.stackSize <= 0) {
+            return false;
+        }
+        pc.windowClick(p.openContainer.windowId, playerContainerSlot(playerSlot), 1,
+                net.marcloud.mcp.core.drivers.world.SlotClickMode.DROP_SLOT, p);
+        return true;
+    }
+
+    /**
+     * Which {@link ContainerPlayer} slot holds a given {@code mainInventory} index.
+     *
+     * <p>Container slots run main inventory 9..35 and THEN the hotbar, so the hotbar -- which is
+     * {@code mainInventory[0..8]} -- sits 36 higher than its own index.
+     */
+    static int playerContainerSlot(int playerSlot) {
+        return playerSlot < 9 ? playerSlot + 36 : playerSlot;
     }
 
     // ===== internals =====

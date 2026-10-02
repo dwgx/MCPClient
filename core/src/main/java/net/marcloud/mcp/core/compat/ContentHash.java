@@ -89,6 +89,32 @@ public final class ContentHash {
     }
 
     /**
+     * True if {@code patch} DECLARES a behavior anchor — i.e. it pins a non-blank
+     * {@link CompatPatch#expectedCanaryHash()}. This is the predicate the L0 gate
+     * keys its exemption on: a patch that declares a fingerprint must MATCH it
+     * (whether or not its canary happens to materialise), while a patch that
+     * declares none is anchor-less and exempt (signature-only, as before).
+     *
+     * <p>Reading the declaration must not depend on the canary: a patch whose
+     * canary is missing, empty or throws is NOT anchor-less, it is UNVERIFIABLE,
+     * and treating it as exempt is how the gate used to fail open (audit H7). A
+     * throwing {@code expectedCanaryHash()} counts as declared too — the
+     * declaration cannot be read, so its binding cannot be verified, and the
+     * fail-closed answer to "can I prove this?" is no.
+     */
+    public static boolean declaresExpectedHash(CompatPatch patch) {
+        if (patch == null) {
+            return true; // nothing to read -> nothing proven -> not exempt
+        }
+        try {
+            String expected = patch.expectedCanaryHash();
+            return expected != null && !expected.isBlank();
+        } catch (Throwable t) {
+            return true; // unreadable declaration -> fail closed
+        }
+    }
+
+    /**
      * True if the behavior hash recomputed from {@code patch}'s canary equals the
      * author-pinned {@link CompatPatch#expectedCanaryHash()}. This is the L0 gate: it
      * proves the transform still produces the fingerprint the author pinned — a
@@ -98,7 +124,9 @@ public final class ContentHash {
      * <p>Returns false if the patch pins no expected hash (null/blank) OR its canary
      * yields no computable behavior hash — under the L0 gate a patch that DECLARES a
      * canary but cannot match its pinned fingerprint does not arm. A patch with NO
-     * canary at all is handled by the caller (exempt / signature-only).
+     * canary at all is handled by the caller (exempt / signature-only); whether a
+     * patch declares one is {@link #declaresExpectedHash(CompatPatch)}'s question,
+     * and the engine asks it BEFORE calling this — never by probing the canary.
      */
     public static boolean matchesExpected(CompatPatch patch) {
         if (patch == null) {

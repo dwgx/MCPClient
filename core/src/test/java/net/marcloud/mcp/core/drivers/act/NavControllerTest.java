@@ -1,6 +1,7 @@
 package net.marcloud.mcp.core.drivers.act;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import java.util.ArrayList;
@@ -197,6 +198,54 @@ public class NavControllerTest {
             nav.forward() == 0f && nav.strafe() == 0f);
     }
 
+
+    /**
+     * A stance walk must not stop with the feet in the cell BEFORE the destination.
+     *
+     * <p>The steering already refused this on the Y axis -- a body falling past a destination is
+     * horizontally within the epsilon while still in the air above it -- and the XZ twin was
+     * missing for the same reason on the other two axes. A stance's centre is 0.5 from the face of
+     * its own cell, so the 0.6 epsilon is satisfiable from up to 0.1 into the previous cell, and
+     * this controller would declare DONE there, stop steering, and hand its caller a destination it
+     * had not reached.
+     *
+     * <p>Measured downstream, and it was not cosmetic: a route move credited with the feet in cell
+     * z=-4 against a plan saying z=-5 left the body 0.06 blocks too far north to clear the log the
+     * next move had to walk past, and the ten-block walk stopped ten blocks short with every step
+     * of its trace reporting success.
+     *
+     * <p>The teeth are the epsilon boundary itself. The body is placed 0.55 from the centre of cell
+     * 10 -- inside the 0.6 window that is the whole reason this controller stopped early -- and the
+     * assertion is that it is still walking. A cell check is the only thing that can refuse that
+     * position: by every other measure it has arrived.
+     */
+    @Test
+    public void aStanceWalkDoesNotStopWithTheFeetInThePreviousCell() {
+        FakeActuator act = new FakeActuator();
+        // 0.55 from the centre of cell 10 (10.5): inside the 0.6 epsilon, and floor(9.95) is 9.
+        act.setPosition(9.95D, 64, 0.5D);
+        act.onGround = true;
+        NavController nav = NavController.toStance(10.5D, 64, 0.5D, 200);
+
+        // Ticked past the reaction delay rather than once: those first ticks are spent standing
+        // still on purpose, so a single tick cannot tell "still walking" from "has not started".
+        // The property is that it does not TERMINATE here at all, and 30 ticks is past the delay
+        // (a 4..8 tick draw) and far short of the 200-tick budget.
+        ActOutcome out = null;
+        for (int i = 0; i < 30 && (out == null || !out.terminal()); i++) {
+            out = nav.tick(act);
+        }
+        assertFalse("0.55 from the destination's centre is inside the epsilon and inside the cell "
+                + "BEFORE it. The distance is arrival; the cell is not, and a controller that stops "
+                + "here reports a destination it never reached: " + out.message(), out.terminal());
+
+        // And once the body IS in the destination's own cell, it stops -- the cell check must not
+        // have become a demand for the exact centre, which a GCD-quantised step cannot deliver.
+        act.setPosition(10.30D, 64, 0.5D);
+        ActOutcome arrived = nav.tick(act);
+        assertTrue("0.20 off the centre and inside cell 10 is arrival: " + arrived.message(),
+                arrived.ok());
+    }
     @Test
     public void cancelEndsItPromptly() {
         FakeActuator act = new FakeActuator();

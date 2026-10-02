@@ -13,8 +13,8 @@ import org.junit.Test;
 /**
  * Raw MOVE axes with {@code durationTicks <= 0} hold the input until cancelled. A
  * plan cannot cancel itself, so that form is unbounded and is refused at submit.
- *
- * <p>{@code to:} / {@code route:} are outcome-bounded and stay legal; only the
+
+ * <p>{@code go_to:} / {@code walk_straight:} are outcome-bounded and stay legal; only the
  * open-loop axes need a positive duration.
  */
 public class RawAxesWithoutDurationAreRefusedAtSubmitTest {
@@ -53,15 +53,15 @@ public class RawAxesWithoutDurationAreRefusedAtSubmitTest {
     }
 
     @Test
-    public void routeAndToTogetherAreRefused() {
+    public void goToAndWalkStraightTogetherAreRefused() {
         try {
             ActPlan.parse(List.of(Map.of("move", Map.of(
-                    "to", List.of(1.0, 2.0, 3.0),
-                    "route", List.of(4.0, 5.0, 6.0)))));
-            fail("route and to together must be refused");
+                    "walk_straight", List.of(1.0, 2.0, 3.0),
+                    "go_to", List.of(4.0, 5.0, 6.0)))));
+            fail("go_to and walk_straight together must be refused");
         } catch (IllegalArgumentException e) {
             assertTrue("the complaint must name both keys: " + e.getMessage(),
-                    e.getMessage().contains("to") && e.getMessage().contains("route"));
+                    e.getMessage().contains("walk_straight") && e.getMessage().contains("go_to"));
         }
     }
 }

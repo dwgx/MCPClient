@@ -37,7 +37,9 @@ public record LocalGrid(int radius, String mode, int originX, int originY, int o
     public static final int WALK_UNKNOWN = Integer.MIN_VALUE;
 
     /**
-     * Block name emitted when the registry could not be read at a position.
+     * Block name emitted when the block at a position could not be READ -- an unloaded chunk or a
+     * failed registry lookup (see {@link #idName}, which asks {@code isBlockLoaded} first, because
+     * vanilla answers air for a chunk it cannot see).
      *
      * <p><b>Why not {@code "unknown"}, which is what this used to be.</b> Every name on the wire is a
      * registry name the caller is invited to feed back to {@code find_block} or {@code act_set dig},
@@ -247,6 +249,13 @@ public record LocalGrid(int radius, String mode, int originX, int originY, int o
      */
     private static boolean standable(WorldClient w, BlockPos pos) {
         try {
+            // The chunk check comes FIRST, the same order BlockProbe.at documents and for the same
+            // reason: getBlockState answers air for a position it cannot see, so reading first has
+            // already manufactured the air this method exists to disbelieve. Unread is not a floor
+            // either way -- claiming one where none was observed is the dangerous direction.
+            if (!w.isBlockLoaded(pos)) {
+                return false;
+            }
             net.minecraft.block.state.IBlockState st = w.getBlockState(pos);
             net.minecraft.block.Block b = st.getBlock();
             if (b.getMaterial().isLiquid()) {
@@ -315,6 +324,14 @@ public record LocalGrid(int radius, String mode, int originX, int originY, int o
             return WALK_UNKNOWN;
         }
         try {
+            // An unloaded chunk must not be judged: vanilla would compute its verdict over the air
+            // getBlockState manufactures for a chunk it cannot see (BlockProbe.at's ordering
+            // rationale), and "clear" is one of the answers -- so an unread column would be handed
+            // back as WALKABLE ground. Unknown is the honest verdict, and the encoding already has
+            // a token for it.
+            if (!w.isBlockLoaded(origin.add(dx, 0, dz))) {
+                return WALK_UNKNOWN;
+            }
             // Sizes derived the way vanilla derives them (NodeProcessor.initProcessor:21-23):
             // floor(width + 1) and floor(height + 1). For a standing player that is 1,2,1 -- which
             // is what the first version hardcoded, correctly but by coincidence. It stops being
@@ -372,6 +389,16 @@ public record LocalGrid(int radius, String mode, int originX, int originY, int o
      */
     private static String idName(WorldClient w, BlockPos pos) {
         try {
+            // The chunk check comes FIRST and is not optional: getBlockState answers air for a
+            // position it cannot see -- an invalid position at World.java:850-861, an unloaded chunk
+            // through blankChunk at ChunkProviderClient.java:86 -- so a read that skips this reports
+            // terrain nobody looked at. That is exactly how an unloaded column used to reach the wire
+            // as surface "air" with no surfaceDy and a drop of "deep": a walkable, bottomless void
+            // asserted about ground nobody read. BlockProbe exists to make this unrepresentable; this
+            // reader was one of the callers not following it.
+            if (!w.isBlockLoaded(pos)) {
+                return NAME_UNREADABLE;
+            }
             Block b = w.getBlockState(pos).getBlock();
             return wireName(Block.blockRegistry.getNameForObject(b));
         } catch (Throwable t) {

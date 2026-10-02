@@ -147,13 +147,15 @@ public class LookTrackingDoesNotSelfTerminateTest {
 
         tick();
         float first = act.yaw;
+        // One mouse: the tracked angle is quantised to the lattice, so the block centre is
+        // approached to the nearest reachable rotation rather than the unrounded one.
         assertEquals("aimed at the block centre from the original eye",
-                expectedYaw(0.5, 0.5, 5.5), first, 1e-3);
+                expectedYaw(0.5, 0.5, 5.5), first, 0.150000);
 
         act.eye = new double[] {10, 0, 0};
         tick();
-        assertEquals("the aim must be recomputed from the NEW eye position",
-                expectedYaw(0.5, 0.5, 5.5), act.yaw, 1e-3);
+        assertEquals("the aim must be recomputed from the NEW eye position (to within one mouse)",
+                expectedYaw(0.5, 0.5, 5.5), act.yaw, 0.15);
         assertNotEquals("precondition: moving the eye really does change the answer",
                 first, act.yaw, 1.0);
     }
@@ -275,8 +277,9 @@ public class LookTrackingDoesNotSelfTerminateTest {
         tick();
         assertEquals("the replacement aim must run on a slot the track no longer owns: "
                 + look().message(), ActPhase.COMPLETE, look().phase());
-        assertEquals(45f, act.yaw, 1e-3);
-        assertEquals(10f, act.pitch, 1e-3);
+        // One mouse again: 45 and 10 are both off the 0.15 lattice, and the write is quantised.
+        assertEquals(45f, act.yaw, 0.150000);
+        assertEquals(10f, act.pitch, 0.150000);
     }
 
     /** Replacing a live track starts a fresh controller rather than continuing the old aim. */

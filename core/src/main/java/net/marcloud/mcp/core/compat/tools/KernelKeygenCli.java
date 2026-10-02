@@ -93,7 +93,7 @@ public final class KernelKeygenCli {
         String privB64 = Base64.getEncoder().encodeToString(pair.getPrivate().getEncoded());
         String pubB64 = Base64.getEncoder().encodeToString(pair.getPublic().getEncoded());
 
-        writeOwnerOnly(privPath, privB64);
+        writeOwnerOnly(privPath, privB64, force);
         Files.write(pubPath, (pubB64 + "\n").getBytes(StandardCharsets.UTF_8));
 
         // The public key goes to stdout so it can be piped into the shipped resource; everything
@@ -151,7 +151,23 @@ public final class KernelKeygenCli {
      * the ceremony is documented to run on the maintainer's own machine, and refusing to write on
      * a filesystem without POSIX bits would block the ceremony without making anything safer.
      */
-    private static void writeOwnerOnly(Path path, String contents) throws IOException {
+    static void writeOwnerOnlyForTest(Path path, String contents, boolean force) throws IOException {
+        writeOwnerOnly(path, contents, force);
+    }
+
+    /**
+     * The clobber guard lives HERE rather than in main(), so that it cannot be bypassed by a new
+     * call site and so the sibling writer in RootCeremonyCli has something to be identical to. The
+     * two tools write the two halves of one chain; the root is unrecoverable if lost and the kernel
+     * key can only be replaced through a root rotation, so the check that protects them belongs at
+     * the write, not at the argument parsing.
+     */
+    private static void writeOwnerOnly(Path path, String contents, boolean force) throws IOException {
+        if (Files.exists(path) && !force) {
+            throw new IOException("refusing to overwrite " + path
+                    + " — pass --force only if you accept that the existing key is destroyed; a"
+                    + " lost kernel key can be replaced only through a fresh root rotation");
+        }
         Files.write(path, (contents + "\n").getBytes(StandardCharsets.UTF_8));
         try {
             Set<PosixFilePermission> ownerOnly = EnumSet.of(

@@ -32,6 +32,13 @@ final class ValueCodec {
      * requested as 300 would silently store 44. Floating inputs must be integral
      * (no fractional part) and in range; a fractional value to an integer field is
      * rejected rather than truncated.
+     *
+     * <p>A floating input outside {@code long}'s own range is rejected here rather
+     * than by the [{@code min},{@code max}] check: {@code Number.longValue()} CLAMPS
+     * for those (1e300 -> {@code Long.MAX_VALUE}), so for a {@code long} target the
+     * range check would read the clamp as a legitimate value. {@code (double)
+     * Long.MAX_VALUE} is exactly 2^63, so {@code d >= it} is the exact "does not fit
+     * any long" test — the largest double below it is still a valid long.
      */
     private static long requireInRange(Number n, long min, long max, String targetName) {
         boolean floating = (n instanceof Double) || (n instanceof Float);
@@ -40,6 +47,11 @@ final class ValueCodec {
             if (d != Math.rint(d) || Double.isNaN(d) || Double.isInfinite(d)) {
                 throw new MmAccessException(
                         "cannot coerce non-integral " + d + " to " + targetName);
+            }
+            if (d < (double) Long.MIN_VALUE || d >= (double) Long.MAX_VALUE) {
+                throw new MmAccessException(
+                        "value " + n + " out of range for " + targetName
+                                + " [" + min + ", " + max + "]");
             }
         }
         long v = n.longValue();
@@ -68,7 +80,10 @@ final class ValueCodec {
         }
         if (target == long.class || target == Long.class) {
             if (json instanceof Number n) {
-                return n.longValue();
+                // Was a bare n.longValue(): 3.7 silently became 3L and 1e300 silently
+                // became Long.MAX_VALUE (Number.longValue() CLAMPS). Same gate as the
+                // narrower widths — the widest integer type is still a width to check.
+                return requireInRange(n, Long.MIN_VALUE, Long.MAX_VALUE, "long");
             }
             throw new MmAccessException("cannot coerce " + json.getClass().getName() + " to long");
         }

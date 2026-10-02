@@ -20,6 +20,8 @@ import net.marcloud.mcp.core.drivers.act.ActSlot;
 import net.marcloud.mcp.core.drivers.act.ActStatus;
 import net.marcloud.mcp.core.drivers.act.InteractIntent;
 import net.marcloud.mcp.core.drivers.act.LookIntent;
+import net.marcloud.mcp.core.drivers.act.NavHazard;
+import net.marcloud.mcp.core.drivers.act.MoveTactic;
 import net.marcloud.mcp.core.drivers.act.RouteIntent;
 import net.marcloud.mcp.core.drivers.act.SlotRecord;
 import net.marcloud.mcp.core.io.IoManager;
@@ -35,7 +37,9 @@ import net.marcloud.mcp.core.se.Ring;
  * <ul>
  *   <li>{@code act_set} (R1, write) — submit one intent per named slot; missing
  *       slots are left untouched. Each accepted intent becomes eligible at the
- *       next clean tick boundary ({@code effectiveTick = tickNow + 1}).</li>
+ *       next clean tick boundary ({@code effectiveTick = tickNow + 1}). Every
+ *       named channel is validated BEFORE any is submitted, so an error reply
+ *       means nothing was started.</li>
  *   <li>{@code act_plan} (R1, write) — sidecar sequencer: an ordered list of
  *       {@code act_set}-shaped steps, advanced at 20Hz after the slot loop.
  *       Not a fourth slot and not a {@code plan:} key on {@code act_set}.</li>
@@ -75,6 +79,7 @@ public final class ActTools {
         register(registry, actPlan(), Ring.R1);
         register(registry, actCancel(), Ring.R1);
         register(registry, actStatus(), Ring.R3);
+        register(registry, pressKeyBinding(), Ring.R1);
     }
 
     private static void register(IoManager registry, SyncToolSpecification spec, Ring fallback) {
@@ -101,6 +106,237 @@ public final class ActTools {
         return Map.of("type", type, "description", desc);
     }
 
+    // ===== schema construction =====
+    //
+    // Every object below used to be {"type":"object","description":"<a wall of prose>"} with NO
+    // properties, which is why `{"move":{"to":{"x":..,"y":..,"z":..}}}` was accepted silently:
+    // the schema had nothing to reject, and the handler's own reader treated a Map `to` as "not
+    // supplied" (ActIntentParser.coordArg). A live client caught it — the call returned
+    // accepted:true, the MOVE slot reported ACTIVE, and the player never moved. A schema that
+    // declares nothing is not a weaker check, it is NO check, and the prose was describing
+    // constraints the machine could not see.
+    //
+    // The prose is not deleted here; it is MOVED onto the fields it is about, and every closed set
+    // becomes a JSON `enum` rather than a sentence. The two are not equal for a model: an enum is
+    // validated, offered by IDE completion, and cannot be misread, while a sentence is prose the
+    // model has to parse correctly every time it is read.
+
+    private static Map<String, Object> obj(String description, Map<String, Object> props,
+                                           List<String> required) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("type", "object");
+        m.put("description", description);
+        m.put("properties", props);
+        m.put("required", required);
+        return m;
+    }
+
+    private static Map<String, Object> props(Object... kv) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        for (int i = 0; i < kv.length; i += 2) {
+            m.put(String.valueOf(kv[i]), kv[i + 1]);
+        }
+        return m;
+    }
+
+    private static Map<String, Object> field(String type, String description, Object... extra) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("type", type);
+        m.put("description", description);
+        for (int i = 0; i < extra.length; i += 2) {
+            m.put(String.valueOf(extra[i]), extra[i + 1]);
+        }
+        return m;
+    }
+
+    private static Map<String, Object> enumField(String description, String... values) {
+        return field("string", description, "enum", List.of(values));
+    }
+
+    private static Map<String, Object> num(String description, double min, double max) {
+        return field("number", description, "minimum", min, "maximum", max);
+    }
+
+    /**
+     * A coordinate that accepts BOTH shapes, because both are natural and models produce both.
+     *
+     * <p>Documented form is the array; the object form is what every other tool in this surface
+     * uses for a position. Declaring only one of them is what let the other through unchecked, and
+     * the one that got through was the one that broke a live client.
+     *
+     * <p><b>The description is emitted ONCE, on this node -- not on the node and both
+     * {@code oneOf} branches.</b> It used to be written into all three, so every coordinate in the
+     * surface paid three copies: {@code go_to}'s 298-char description and {@code walk_straight}'s
+     * 555-char one were each in the tools/list payload three times over. That is pure waste --
+     * JSON Schema's {@code description} on the node a property is DECLARED at is what a reader
+     * resolving that property is shown, and the two copies under {@code oneOf} said nothing the
+     * first did not.
+     *
+     * <p>The branches carry no description at all, rather than a shortened one, because they
+     * already say which shape each accepts in a form that cannot be misread: {@code type} plus
+     * {@code minItems}/{@code maxItems}/{@code items} for the array, and {@code type} plus
+     * {@code required}/{@code properties} for the object. A branch repeating even a short label
+     * would be a second copy of a string this surface then emits once per coordinate -- the same
+     * waste in miniature, which is what the first version of this fix did and what
+     * {@code DescriptionsNameToolsThatExistTest} caught. Nothing is lost: the whole prose is still
+     * emitted, once, on the node the property is declared at.
+     */
+    private static Map<String, Object> coord(String description) {
+        Map<String, Object> array = new LinkedHashMap<>();
+        array.put("type", "array");
+        array.put("minItems", 3);
+        array.put("maxItems", 3);
+        array.put("items", Map.of("type", "number"));
+
+        Map<String, Object> object = new LinkedHashMap<>();
+        object.put("type", "object");
+        object.put("required", List.of("x", "y", "z"));
+        object.put("properties", props(
+                "x", field("number", "block x"),
+                "y", field("number", "block y"),
+                "z", field("number", "block z")));
+
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("description", description);
+        m.put("oneOf", List.of(array, object));
+        return m;
+    }
+
+    /**
+     * The act_set input schema.
+     *
+     * <p>Every channel used to be {"type":"object","description":"&lt;a wall of prose&gt;"} with NO
+     * properties, which is why {@code {"move":{"to":{"x":..,"y":..,"z":..}}}} was accepted
+     * silently: the schema had nothing to reject, and the handler read a Map {@code to} as "not
+     * supplied". A live client caught it -- accepted:true, slot ACTIVE, player never moved. A
+     * schema that declares nothing is not a weaker check, it is NO check, and the prose was
+     * describing constraints the machine could not see.
+     *
+     * <p>The prose is not deleted here; it is MOVED onto the field it is about, and every closed
+     * set becomes a JSON enum rather than a sentence. For a model those are not equal: an enum is
+     * validated and offered by completion, a sentence has to be re-parsed on every read.
+     *
+     * <p>Assembled from locals rather than nested inline. The first version was one 100-line
+     * expression inside a builder chain and cost an hour to a missing paren; a flat method is
+     * reviewable and the nesting is gone.
+     */
+    private static Map<String, Object> actSetInputSchema() {
+        Map<String, Object> move = obj(
+                "ONE of: 'go_to' (REACH a block, pathfinding around obstacles and placing blocks to "
+                        + "cross gaps), 'walk_straight' (walk a STRAIGHT LINE to a point, no "
+                        + "pathfinding, no building), or raw axes. Giving both 'go_to' and "
+                        + "'walk_straight' is an error: the MOVE slot holds one intent. A move whose "
+                        + "axes are all at rest AND that has no durationTicks is REFUSED: it would "
+                        + "report itself as moving forever without moving.",
+                props(
+                        "go_to", coord("destination BLOCK to reach. A path is computed around "
+                                + "obstacles, and blocks are PLACED to cross gaps when walking round "
+                                + "would be longer. Consumes placeable blocks from the held stack, up "
+                                + "to blockBudget; pass 0 to forbid building. Fails naming where the "
+                                + "player stopped. THIS IS THE ONE TO REACH FOR."),
+                        "blockBudget", field("integer", "how many blocks 'go_to' may place to cross a "
+                                + "gap (default " + RouteIntent.DEFAULT_BLOCK_BUDGET
+                                + ", 0 = never build)."),
+                        "walk_straight", coord("use go_to unless you know the line is clear. Point to "
+                                + "WALK STRAIGHT toward. STRAIGHT LINE ONLY: no pathfinding, no "
+                                + "building, so an obstacle is an honest failure. It does not steer "
+                                + "y at all, so 'arrived' means the horizontal distance closed and "
+                                + "says nothing about height -- read your real y from world_view. "
+                                + "'walk_straight' walks the player into water, off a cliff, or into "
+                                + "anything else between here and there; on a live client it walked "
+                                + "one off a 30-block cliff and drowned them, which is why the "
+                                + "dangerous option no longer has the short reassuring name."),
+                        "timeoutTicks", field("integer", "how many ticks 'walk_straight' may take "
+                                + "before giving up (default 0 = no limit)."),
+                        "forward", num("raw axis: -1 ahead, +1 back (vanilla's sign). Raw axes only.",
+                                -1, 1),
+                        "strafe", num("raw axis: -1 left, +1 right. Raw axes only.", -1, 1),
+                        "jump", field("boolean", "raw axis: hold jump."),
+                        "sneak", field("boolean", "hold sneak. With raw axes it is just a key; with "
+                                + "'go_to' or 'walk_straight' it is what keeps you ALIVE on a ledge: "
+                                + "vanilla's own guard stops a sneaking body at a brink instead of "
+                                + "walking it off, and it costs about a third of your speed. "
+                                + "'walk_straight' with sneak:true toward a point past a cliff is how "
+                                + "you cross an edge without dying. A 'go_to' route creeps the moves "
+                                + "that end at an edge by itself, so pass this only to force a creep on "
+                                + "flat ground too."),
+                        "sprint", field("boolean", "raw axis: hold sprint."),
+                        "durationTicks", field("integer", "raw axes: how long to hold them "
+                                + "(<=0 = until cancelled). A raw move with no axes and no duration is "
+                                + "refused.")),
+                List.of());
+
+        Map<String, Object> look = obj(
+                "camera aim. An aim ENDS THE MOMENT IT LANDS by default: the slot goes COMPLETE and "
+                        + "nothing corrects it afterwards, so aiming at a mob that then walks leaves "
+                        + "you pointed where it USED to be. 'track':true is the following mode -- it "
+                        + "re-aims every tick and does not stop on arrival.",
+                props(
+                        "mode", enumField("how to aim.", "set", "look_at"),
+                        "yaw", num("absolute yaw in degrees (mode 'set').", -180, 180),
+                        "pitch", num("absolute pitch in degrees (mode 'set'); vanilla clamps to "
+                                + "-90..90.", -90, 90),
+                        "block", coord("block to look at (mode 'look_at')."),
+                        "entityId", field("integer", "entity to look at (mode 'look_at')."),
+                        "slewDegPerTick", field("number", "cap on degrees turned per tick; <=0 = "
+                                + "instant snap. A bounded track that never arrives ends FAILED saying "
+                                + "the crosshair never landed."),
+                        "track", field("boolean", "keep re-aiming after arrival. Overrides a human "
+                                + "moving the mouse AND the server's own rotation packets, so give a "
+                                + "duration unless you mean indefinitely."),
+                        "durationTicks", field("integer", "track only; 0 = until cancelled. REJECTED "
+                                + "without track:true rather than ignored.")),
+                List.of());
+
+        Map<String, Object> interact = obj(
+                "world interaction, chosen by 'kind'. A block-target argument supplied to a kind "
+                        + "that reads none is REFUSED, never dropped: block/face/hitX/hitY/hitZ on "
+                        + "'use', 'hold', 'attack', 'block', 'release', 'hotbar' or 'drop' "
+                        + "(right-click a named block face with 'place'), and hitX/hitY/hitZ on "
+                        + "'dig' (they are how a PLACEMENT aims). 'drop' is the one kind that acts "
+                        + "on the PLAYER rather than the world: it throws the whole stack in the "
+                        + "named 'slot' out onto the floor, and confirms afterwards by re-reading "
+                        + "that slot rather than reporting the click as sent.",
+                props(
+                        "kind", enumField("which interaction.", "dig", "use", "place", "attack",
+                                "hotbar", "drop", "hold", "block", "release"),
+                        "block", coord("the target block. Read by 'dig' and 'place' only."),
+                        "face", field("integer", "which side: 0=down 1=up 2=north(z-) 3=south(z+) "
+                                + "4=west(x-) 5=east(x+). Read by 'dig' and 'place' only.",
+                                "minimum", 0, "maximum", 5),
+                        "entityId", field("integer", "target entity. Read by 'attack' only."),
+                        "attack", field("string", "'attack' only, optional: 'plain' (default, swing "
+                                + "now) or 'crit' (WAIT for the falling instant a critical hit needs "
+                                + "-- off the ground, fallDistance > 0, not on a ladder, not in "
+                                + "water -- then swing there, and REFUSE rather than swing on flat "
+                                + "ground). The 1.5x is the server's to apply (EntityPlayer:1335) and "
+                                + "no packet reports it back, so 'crit' is a timed swing, NOT a "
+                                + "confirmed crit. To use it, jump on the MOVE slot and attack as the "
+                                + "body starts down."),
+                        "hotbarSlot", field("integer", "slot 0-8. Read by 'hotbar' only.",
+                                "minimum", 0, "maximum", 8),
+                        "slot", field("integer", "'drop' only: the PLAYER inventory slot 0-35 to "
+                                + "empty, in vanilla's mainInventory order, so 0-8 is the hotbar "
+                                + "and 9-35 the pack above it. Bounded here rather than in the "
+                                + "parser so a slot outside it is REFUSED at the boundary: "
+                                + "ContainerPlayer numbers its own rows differently (result 0, "
+                                + "2x2 at 1-4, ARMOUR at 5-8, pack at 9-35, hotbar LAST at "
+                                + "36-44), so 'slot 36' names the first row of the crafting grid "
+                                + "rather than an inventory stack, and a silently clamped 35 would "
+                                + "throw away a stack the caller did not name.",
+                                "minimum", 0, "maximum", 35),
+                        "holdTicks", field("integer", "'hold' only: how long to hold the use. Omit to "
+                                + "hold until the game ends it; give it for a bow, which fires on "
+                                + "release and shoots nothing under a 3-tick draw."),
+                        "hitX", num("'place' only: where on the face, 0..1 each.", 0, 1),
+                        "hitY", num("'place' only: where on the face, 0..1 each.", 0, 1),
+                        "hitZ", num("'place' only: where on the face, 0..1 each.", 0, 1)),
+                List.of("kind"));
+
+        return objectSchema(props("move", move, "look", look, "interact", interact), List.of());
+    }
+
+
     // ===== act_set =====
 
     SyncToolSpecification actSet() {
@@ -115,17 +351,22 @@ public final class ActTools {
                         + "'move', 'look', 'interact'; each present slot gets a fresh intent that "
                         + "REPLACES whatever that slot held, and becomes eligible at the next clean "
                         + "tick boundary (effectiveTick = current tick + 1). Missing slots are left "
-                        + "running. move: EITHER to:[x,y,z] (+ timeoutTicks) to WALK THERE over many "
-                        + "ticks in ONE call -- it corrects heading every tick and act_status "
-                        + "reports arrived / stuck against a wall / gave up; STRAIGHT LINE ONLY, "
-                        + "there is no pathfinding, so an obstacle is an honest failure and the "
-                        + "caller reroutes. The y you pass is RECORDED BUT NEVER STEERED TOWARD -- "
-                        + "this walks, it neither flies nor climbs -- so 'arrived' means the "
-                        + "HORIZONTAL distance closed and says nothing about your height; you may "
-                        + "arrive many blocks above or below the y you named. Pass a full block "
-                        + "position from find_block freely, but read your real y back from "
-                        + "world_view rather than assuming it -- OR raw axes forward,strafe (-1..1, "
-                        + "vanilla sign +ahead/+left), "
+                        + "running. move: EITHER go_to:[x,y,z] to REACH A BLOCK -- a path is computed "
+                        + "around obstacles and blocks are PLACED to cross gaps (blockBudget, default "
+                        + "8, 0 = never build), and it fails naming where the player stopped. Use it "
+                        + "unless you know there is nothing to go around. OR walk_straight:[x,y,z] (+ "
+                        + "timeoutTicks) to WALK THERE in a STRAIGHT LINE over many ticks in ONE call "
+                        + "-- it corrects heading every tick and act_status reports arrived / stuck "
+                        + "against a wall / gave up; STRAIGHT LINE ONLY, there is no pathfinding and "
+                        + "no building, so an obstacle is an honest failure and the caller reroutes. "
+                        + "It walked a live player off a 30-block cliff and drowned them with no "
+                        + "warning anywhere, which is why it no longer wears the short reassuring "
+                        + "name. The y you pass is RECORDED BUT NEVER STEERED TOWARD -- this walks, it "
+                        + "neither flies nor climbs -- so 'arrived' means the HORIZONTAL distance "
+                        + "closed and says nothing about your height; you may arrive many blocks above "
+                        + "or below the y you named. Pass a full block position from find_block "
+                        + "freely, but read your real y back from world_view rather than assuming it "
+                        + "-- OR raw axes forward,strafe (-1..1, vanilla sign +ahead/+left), "
                         + "jump,sneak,sprint (bool), durationTicks (<=0 = hold until cancelled)}. "
                         + "look:{mode 'set'|'look_at', yaw/pitch (SET degrees), block:[x,y,z] or "
                         + "entityId (LOOK_AT), slewDegPerTick (<=0 = instant snap), track (bool), "
@@ -144,11 +385,27 @@ public final class ActTools {
                         + "to catch the target, a bounded track ends FAILED saying the crosshair "
                         + "never arrived, so 'tracked for N ticks' never means 'aimed' unless it "
                         + "says so. "
-                        + "interact:{kind 'dig'|'use'|'place'|'attack'|'hotbar'|'hold', block:[x,y,z], "
-                        + "face 0-5, entityId, hotbarSlot 0-8, holdTicks, hitX/hitY/hitZ (place "
+                        + "interact:{kind 'dig'|'use'|'place'|'attack'|'hotbar'|'drop'|'hold'|"
+                        + "'block'|'release', block:[x,y,z], face 0-5, entityId, hotbarSlot 0-8, "
+                        + "slot 0-35 (drop only), holdTicks, hitX/hitY/hitZ (place "
                         + "only: where on the face, 0..1 each)}. 'use' is a SINGLE "
                         + "right-click, which vanilla cancels a couple of ticks later -- so it CANNOT "
-                        + "eat, draw a bow or block. 'hold' is the sustained one: it keeps vanilla's "
+                        + "eat, draw a bow or block. 'use' is also the IN-AIR click and takes no block "
+                        + "target: 'block', 'face' or 'hitX/hitY/hitZ' with kind 'use' is REFUSED (the "
+                        + "reply names the key that could not be honoured) rather than quietly clicked "
+                        + "into open air -- right-clicking a named block face is 'place', which "
+                        + "carries the face and the hit offset this kind has nowhere to put. Every "
+                        + "block-target argument is refused on a kind that has nowhere to put it, never "
+                        + "dropped: 'hold' names no block (it holds the use in the air), 'dig' names "
+                        + "a block and a face but takes no hitX/hitY/hitZ (the within-block hit point "
+                        + "is how a PLACEMENT aims), and 'attack', 'hotbar' and 'drop' take an entity "
+                        + "id or a slot number and no block at all. "
+                        + "'drop' is the one kind that acts on YOU rather than the world: it throws "
+                        + "the WHOLE stack in the named 'slot' 0-35 onto the floor, which is what "
+                        + "makes room in a full bag -- and it RE-READS that slot and confirms it "
+                        + "before reporting success, so a slot outside 0-35 is refused at the "
+                        + "boundary rather than clamped onto somebody else's stack. "
+                        + "'hold' is the sustained one: it keeps vanilla's "
                         + "use key asserted every tick. Omit holdTicks to hold until the game itself "
                         + "ends the use (eating: act_status reports whether the food was actually "
                         + "consumed or the hold was interrupted); give holdTicks to hold that long "
@@ -178,33 +435,7 @@ public final class ActTools {
                         + "is not armed), so a tickNow of 0, or one that does not grow between two "
                         + "calls, is a dead seam rather than a wrong intent. For the outcome read "
                         + "act_status one or more ticks later; its phase is the one that moves.")
-                .inputSchema(objectSchema(Map.of(
-                        "move", Map.of("type", "object",
-                                "description", "ONE of three, cheapest first. "
-                                        + "route:[x,y,z] (+ optional blockBudget, default "
-                                        + RouteIntent.DEFAULT_BLOCK_BUDGET + ") = REACH that block: "
-                                        + "a path is computed around obstacles, and blocks are PLACED "
-                                        + "to cross gaps when walking round would be longer, so the "
-                                        + "caller does not need to know the terrain. It consumes "
-                                        + "placeable blocks from the held stack, up to blockBudget; "
-                                        + "pass 0 to forbid building. Fails naming where the player "
-                                        + "stopped rather than reporting a crossing it did not make. "
-                                        + "to:[x,y,z] (+ optional timeoutTicks) = walk STRAIGHT "
-                                        + "toward a point and give up if blocked; it never builds and "
-                                        + "never routes around anything. "
-                                        + "Or raw axes forward,strafe,jump,sneak,sprint,durationTicks "
-                                        + "for direct input. Giving both 'route' and 'to' is an error: "
-                                        + "the MOVE slot holds one intent"),
-                        "look", Map.of("type", "object",
-                                "description", "camera aim: mode set|look_at, yaw,pitch,block,"
-                                        + "entityId,slewDegPerTick, track (keep aiming after "
-                                        + "arrival), durationTicks (track only; 0 = until cancelled)"),
-                        "interact", Map.of("type", "object",
-                                "description", "world interaction: kind dig|use|place|attack|hotbar|hold, "
-                                        + "block,face,entityId,hotbarSlot,holdTicks,hitX,hitY,hitZ "
-                                        + "(hold: omit holdTicks to eat until done, give it to "
-                                        + "draw-then-release)")),
-                        List.of()))
+                .inputSchema(actSetInputSchema())
                 .annotations(ToolAnnotations.builder()
                         .title("Set actuation intents")
                         .readOnlyHint(false)
@@ -215,54 +446,59 @@ public final class ActTools {
                 .build();
         return new SyncToolSpecification(tool, (exchange, request) -> {
             Map<String, Object> args = request.arguments();
+
+            // Parse EVERY present channel before submitting ANY of them. Submitting as each channel
+            // was parsed meant a later channel's validation error arrived AFTER an earlier channel had
+            // already started: {"move":{...},"look":{"mode":"spin"}} began the walk and then reported a
+            // clean error, so the caller's model (an error means nothing happened) and the live player
+            // disagreed, and only act_status would ever say so. ActPlanStep.parse has always validated
+            // a whole step before the interpreter submits it; act_set now matches it.
+            Map<String, Object> moveArg = ActIntentParser.mapArg(args, "move");
+            Map<String, Object> lookArg = ActIntentParser.mapArg(args, "look");
+            Map<String, Object> interactArg = ActIntentParser.mapArg(args, "interact");
+
+            ActIntent move;
+            try {
+                move = moveArg == null ? null : ActIntentParser.parseMoveSlot(moveArg);
+            } catch (IllegalArgumentException e) {
+                return error(e.getMessage());
+            }
+            LookIntent look;
+            try {
+                look = lookArg == null ? null : ActIntentParser.parseLook(lookArg);
+            } catch (IllegalArgumentException e) {
+                return error(e.getMessage());
+            }
+            InteractIntent interact;
+            try {
+                interact = interactArg == null ? null : ActIntentParser.parseInteract(interactArg);
+            } catch (IllegalArgumentException e) {
+                return error(e.getMessage());
+            }
+            if (move == null && look == null && interact == null) {
+                return error("act_set: supply at least one of 'move', 'look', 'interact'");
+            }
+
+            // Every named channel validated, so the submissions below cannot fail. A submit takes the
+            // tick at the moment it happens, which is why they are still done one at a time rather than
+            // as one batch: each slot's effectiveTick is stamped when its intent really lands.
             Map<String, Object> effectiveTick = new LinkedHashMap<>();
             Map<String, Object> perSlot = new LinkedHashMap<>();
-            int accepted = 0;
 
-            Map<String, Object> move = ActIntentParser.mapArg(args, "move");
             if (move != null) {
-                ActIntent intent;
-                try {
-                    intent = ActIntentParser.parseMoveSlot(move);
-                } catch (IllegalArgumentException e) {
-                    return error(e.getMessage());
-                }
-                SlotRecord r = runtime.submit(intent);
+                SlotRecord r = runtime.submit(move);
                 effectiveTick.put("move", r.effectiveTick());
                 perSlot.put("move", r.phase().name());
-                accepted++;
             }
-
-            Map<String, Object> look = ActIntentParser.mapArg(args, "look");
             if (look != null) {
-                LookIntent li;
-                try {
-                    li = ActIntentParser.parseLook(look);
-                } catch (IllegalArgumentException e) {
-                    return error(e.getMessage());
-                }
-                SlotRecord r = runtime.submitLook(li);
+                SlotRecord r = runtime.submitLook(look);
                 effectiveTick.put("look", r.effectiveTick());
                 perSlot.put("look", r.phase().name());
-                accepted++;
             }
-
-            Map<String, Object> interact = ActIntentParser.mapArg(args, "interact");
             if (interact != null) {
-                InteractIntent ii;
-                try {
-                    ii = ActIntentParser.parseInteract(interact);
-                } catch (IllegalArgumentException e) {
-                    return error(e.getMessage());
-                }
-                SlotRecord r = runtime.submitInteract(ii);
+                SlotRecord r = runtime.submitInteract(interact);
                 effectiveTick.put("interact", r.effectiveTick());
                 perSlot.put("interact", r.phase().name());
-                accepted++;
-            }
-
-            if (accepted == 0) {
-                return error("act_set: supply at least one of 'move', 'look', 'interact'");
             }
 
             Map<String, Object> out = new LinkedHashMap<>();
@@ -289,10 +525,22 @@ public final class ActTools {
                         + "same intent identity; FAILED fails the plan and does not submit the next; "
                         + "CANCELLED or a racing act_set (identity mismatch) aborts naming "
                         + "supersession. A new act_plan replaces the previous. "
+                        + "A step whose channel is already held by a live act_set is BLOCKED, not "
+                        + "failed: the plan stays on that index, names the holder in message, lists "
+                        + "the slot in waitingOn, and retries every tick until the holder finishes, "
+                        + "you cancel that channel, or the holder's lease goes idle for ~40 ticks and "
+                        + "is reclaimed. Before this existed a step silently overwrote whatever was "
+                        + "in the slot and reported itself as running. A blocked step submits NOTHING "
+                        + "for the slot it is blocked on. "
                         + "Refuse empty steps, a step with no move/look/interact, unknown keys "
-                        + "(wait/eval/craft/skill), route+to together, raw axes with "
-                        + "durationTicks<=0, and look track with durationTicks<=0 (KEEP that never "
+                        + "(wait/eval/craft/skill), go_to+walk_straight together, the pre-rename "
+                        + "'to'/'route' move keys (both refused, each naming its replacement), raw axes "
+                        + "with durationTicks<=0, and look track with durationTicks<=0 (KEEP that never "
                         + "completes). look.durationTicks without track is rejected as on act_set. "
+                        + "interact arguments a kind cannot carry are rejected as on act_set -- a "
+                        + "block target on 'use', 'hold', 'attack', 'hotbar' or 'drop', and "
+                        + "hitX/hitY/hitZ on 'dig'; 'place' is the kind that takes a block, and "
+                        + "'drop' is the kind that takes a player inventory slot. "
                         + "Confirm act_status.tickNow is advancing; watch progress on "
                         + "act_status.plan {phase (IDLE|RUNNING|COMPLETE|FAILED|CANCELLED), index "
                         + "(0-based current step), size, waitingOn, message}.")
@@ -332,6 +580,242 @@ public final class ActTools {
     }
 
     // ===== act_cancel =====
+
+
+    /**
+     * Press or release a raw {@code KeyBinding}, the way a physical key does.
+     *
+     * <p><b>Why this exists.</b> Without it the agent cannot open its own inventory. The 'E' key
+     * is a {@code KeyBinding} read inside {@code Minecraft.runTick}, not a character delivered to
+     * {@code GuiScreen.keyTyped}, which is all {@code gui_press_key} drives. And
+     * {@code do_click_slot} on windowId 0 needs the inventory screen to already be open. So the
+     * 2x2 crafting grid was unreachable, and with it the whole chain
+     * log to planks to sticks to crafting table to torch to pickaxe to bed. The first measured
+     * run of the round had to shelter bareshand for that reason alone.
+     *
+     * <p><b>This is not a back door around the UI.</b> Vanilla itself consumes a real key in
+     * exactly two calls, at {@code Minecraft.java:1899-1907}:
+     *
+     * <pre>
+     *   int k = getEventKey() == 0 ? getEventCharacter() + 256 : getEventKey();
+     *   KeyBinding.setKeyBindState(k, getEventKeyState());
+     *   if (getEventKeyState()) KeyBinding.onTick(k);
+     * </pre>
+     *
+     * <p>This tool issues those same calls in the same order, on the game thread, so
+     * {@code KeyBinding.onTick} dispatches to the same handlers a person's keystroke reaches and
+     * the inventory opens the ordinary way. What is absent is the LWJGL event itself, and that is
+     * stated in the reply rather than hidden: {@code seam_glfw_key_hook} stays a pure observer
+     * (GLFW to EventBus), so nothing downstream can claim to have seen a hardware event.
+     *
+     * <p>PAIR EVERY PRESS WITH A RELEASE. {@code setKeyBindState(k, true)} leaves the binding
+     * held, and a held movement key is a player walking into a wall forever.
+     */
+    SyncToolSpecification pressKeyBinding() {
+        Tool tool = Tool.builder()
+                .name("press_key_binding")
+                .title("Press or release a raw game key binding")
+                .description("[requires: in-world, connected-to-server] Press (phase=PRESS) or "
+                        + "release (phase=RELEASE) a raw KeyBinding by name ('E', 'Escape', "
+                        + "'F3', 'W', ...) or numeric LWJGL key code. This is the path the "
+                        + "inventory key ('E') lives on: a KeyBinding read in Minecraft.runTick, "
+                        + "which no GuiScreen key event reaches, so gui_press_key cannot open the "
+                        + "inventory. It issues exactly the two calls vanilla issues for a real "
+                        + "keystroke (KeyBinding.setKeyBindState, then KeyBinding.onTick on "
+                        + "press), on the game thread, so the game treats it as a normal key "
+                        + "press. NO LWJGL EVENT IS SYNTHESISED and no key hook sees this; no GL "
+                        + "happens here, so it is safe from any thread. PAIR EVERY PRESS WITH A "
+                        + "RELEASE -- a binding left pressed stays held. An unknown key name is "
+                        + "REFUSED with the numeric escape hatch, never guessed.")
+                .inputSchema(objectSchema(Map.of(
+                        "key", Map.of("type", "string",
+                                "description", "key name ('E','Escape','F3','W','space') or a "
+                                        + "numeric LWJGL key code"),
+                        "phase", Map.of("type", "string",
+                                "enum", java.util.List.of("PRESS", "RELEASE"),
+                                "description", "PRESS or RELEASE. Defaults to PRESS.")),
+                        List.of("key")))
+                .annotations(ToolAnnotations.builder()
+                        .title("Press or release a raw game key binding")
+                        .readOnlyHint(false)
+                        .destructiveHint(false)
+                        .idempotentHint(true)
+                        .openWorldHint(true)
+                        .build())
+                .build();
+        return new SyncToolSpecification(tool, (exchange, request) -> {
+            Map<String, Object> args = request.arguments();
+            Object kobj = args == null ? null : args.get("key");
+            if (kobj == null) {
+                return error("key is required: a key name or a numeric LWJGL key code");
+            }
+            Integer code = keyBindingCode(String.valueOf(kobj));
+            if (code == null) {
+                return error("unknown key: " + kobj + " -- pass a single character ('E'), a "
+                        + "known name ('Escape', 'Return', 'Tab', 'Space', 'Backspace', "
+                        + "'Shift', 'Control', 'F1'..'F12', 'Up', 'Down', 'Left', 'Right'), "
+                        + "or a numeric LWJGL key code");
+            }
+            String phase = String.valueOf(args.getOrDefault("phase", "PRESS"));
+            boolean press = "PRESS".equalsIgnoreCase(phase);
+            final int k = code;
+            try {
+                return net.marcloud.mcp.core.GameBridge.onGameThread(() -> {
+                    // Vanilla's own pair, in vanilla's own order.
+                    net.minecraft.client.settings.KeyBinding.setKeyBindState(k, press);
+                    if (press) {
+                        net.minecraft.client.settings.KeyBinding.onTick(k);
+                    }
+                    return ok("key=" + kobj + " code=" + k + " phase="
+                            + (press ? "PRESS" : "RELEASE") + " bindingClaimed="
+                            + bindingClaims(k));
+                });
+            } catch (Exception e) {
+                return error("press_key_binding failed: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * Name or character to the key code this build actually uses, or {@code null} if unknown.
+     *
+     * <p><b>These are the shim's constants, referenced, never literals.</b> The first version
+     * of this method computed letters as {@code 48 + (c - 'a')} and function keys as
+     * {@code 289 + n}, on the assumption that LWJGL key codes were contiguous starting at
+     * KEY_A = 48. They are not. {@code lwjgl2-shim} assigns USB HID usage codes, so KEY_A = 0x1E
+     * (30) and KEY_Z = 0x2C (44) -- fifteen apart, not twenty-five, and not a contiguous range
+     * at all. Guessing produced a mapper that silently sent 'A' to the wrong key. Two tests
+     * caught it, which is the only reason it was not shipped.
+     *
+     * <p>Referencing the constants also means the mapping follows the shim if it ever changes,
+     * instead of becoming a second source of truth about key codes that quietly diverges.
+     *
+     * <p>Refusal rather than a guess is deliberate: an unknown name resolving to some nearby key
+     * would open a menu nobody asked for while the run record showed a successful call.
+     */
+    private static java.lang.reflect.Field shimKeyMap;
+
+    static Integer keyBindingCode(String key) {
+        String k = key.toLowerCase(java.util.Locale.ROOT).trim();
+        if (k.isEmpty()) {
+            return null;
+        }
+        switch (k) {
+            case "escape": case "esc":
+                return org.lwjgl.input.Keyboard.KEY_ESCAPE;
+            case "return": case "enter":
+                return org.lwjgl.input.Keyboard.KEY_RETURN;
+            case "tab":
+                return org.lwjgl.input.Keyboard.KEY_TAB;
+            case "space":
+                return org.lwjgl.input.Keyboard.KEY_SPACE;
+            case "backspace": case "back":
+                return org.lwjgl.input.Keyboard.KEY_BACK;
+            case "shift": case "lshift": case "rshift":
+                return org.lwjgl.input.Keyboard.KEY_LSHIFT;
+            case "control": case "ctrl": case "lcontrol":
+                return org.lwjgl.input.Keyboard.KEY_LCONTROL;
+            case "up":    return org.lwjgl.input.Keyboard.KEY_UP;
+            case "down":  return org.lwjgl.input.Keyboard.KEY_DOWN;
+            case "left":  return org.lwjgl.input.Keyboard.KEY_LEFT;
+            case "right": return org.lwjgl.input.Keyboard.KEY_RIGHT;
+            default:
+                break;
+        }
+        if (k.matches("f([1-9]|1[0-2])")) {
+            int n = Integer.parseInt(k.substring(1));
+            int[] codes = {
+                org.lwjgl.input.Keyboard.KEY_F1,  org.lwjgl.input.Keyboard.KEY_F2,
+                org.lwjgl.input.Keyboard.KEY_F3,  org.lwjgl.input.Keyboard.KEY_F4,
+                org.lwjgl.input.Keyboard.KEY_F5,  org.lwjgl.input.Keyboard.KEY_F6,
+                org.lwjgl.input.Keyboard.KEY_F7,  org.lwjgl.input.Keyboard.KEY_F8,
+                org.lwjgl.input.Keyboard.KEY_F9,  org.lwjgl.input.Keyboard.KEY_F10,
+                org.lwjgl.input.Keyboard.KEY_F11, org.lwjgl.input.Keyboard.KEY_F12,
+            };
+            return codes[n - 1];
+        }
+        if (k.length() == 1) {
+            // A single character that the shim NAMES must resolve by name. The numeric escape
+            // hatch below would otherwise swallow it: Integer.parseInt("0") is 0, so pressing
+            // the digit row sent KEY_NONE and silently did nothing. A test caught this by
+            // expecting KEY_0 and getting 0 -- the two look identical in a log.
+            Integer named = shimKeyNamed(k.toUpperCase(java.util.Locale.ROOT));
+            if (named != null) {
+                return named;
+            }
+        }
+
+        // Only now does the numeric form apply, and it is the escape hatch for a key this build
+        // does not name under any spelling we know.
+        try {
+            int n = Integer.parseInt(k);
+            return n >= 0 && n <= 0xFFFF ? n : null;
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
+    /**
+     * The shim's own name to code map, read reflectively, or {@code null} if absent.
+     *
+     * <p>Reading the map rather than an offset means a character cannot drift from the constant
+     * that names it, and it means this file carries no second opinion about key codes.
+     */
+    private static Integer shimKeyNamed(String name) {
+        try {
+            if (shimKeyMap == null) {
+                shimKeyMap = org.lwjgl.input.Keyboard.class.getDeclaredField("keyMap");
+                shimKeyMap.setAccessible(true);
+            }
+            Object v = shimKeyMap.get(null);
+            if (v instanceof java.util.Map<?, ?> m) {
+                Object hit = m.get(name);
+                if (hit instanceof Integer i) {
+                    return i;
+                }
+            }
+        } catch (Throwable ignored) {
+            // If the field ever moves, the caller falls through to the numeric form.
+        }
+        return null;
+    }
+
+    /**
+     * Whether any registered binding claims this code, read from vanilla's own binding array.
+     *
+     * <p>Reporting this is the difference between "pressed E" and "pressed a code nothing is
+     * bound to", which look identical from outside and mean very different things in a run
+     * record. The array is walked rather than queried because 1.8.9's KeyBinding has no public
+     * lookup by code.
+     */
+    private static java.lang.reflect.Field bindingArray;
+
+    private static boolean bindingClaims(int code) {
+        try {
+            if (bindingArray == null) {
+                // The field is keybindArray, not "keybinds". Reading the wrong name made this
+                // answer false for EVERY key -- including 'E', which demonstrably opened the
+                // inventory on the live client. A report field that is always wrong is worse
+                // than no report field: it teaches the reader to ignore it.
+                bindingArray = net.minecraft.client.settings.KeyBinding.class
+                        .getDeclaredField("keybindArray");
+                bindingArray.setAccessible(true);
+            }
+            Object v = bindingArray.get(null);
+            if (!(v instanceof List<?> list)) {
+                return false;
+            }
+            for (Object o : list) {
+                if (o instanceof net.minecraft.client.settings.KeyBinding b
+                        && b.getKeyCode() == code) {
+                    return true;
+                }
+            }
+        } catch (Throwable ignored) {
+            // If the field ever moves, this answers "no" rather than throwing at the caller.
+        }
+        return false;
+    }
 
     SyncToolSpecification actCancel() {
         Tool tool = Tool.builder()
@@ -422,25 +906,86 @@ public final class ActTools {
                 .title("Actuation status")
                 .description("Read-only: a snapshot of all three actuation slots — 'tickNow' plus, per "
                         + "slot, {slot, phase (IDLE|ACTIVE|COMPLETE|FAILED|CANCELLED), hasIntent, "
-                        + "intentKind, ticksActive, message} — plus 'plan', the sidecar sequencer "
-                        + "(not a fourth slot): {phase (IDLE|RUNNING|COMPLETE|FAILED|CANCELLED), "
-                        + "index (0-based current step), size, waitingOn (slot names the current "
-                        + "step still needs COMPLETE), message}. IDLE plan means none is bound. The "
-                        + "next step is submitted only once every slot in waitingOn is COMPLETE with "
-                        + "the same intent identity. Reference-free. Use it to see 'what am I "
-                        + "doing right now and did the last thing finish' without a screenshot. "
-                        + "'tickNow' is the one game clock's current tickId, the same value clock_now "
-                        + "reports: monotonic, and 0 before the first tick / if the tick seam is not "
-                        + "armed. Read it FIRST, because the act layer only steps on that seam: a "
-                        + "tickNow of 0, or one that does not grow between two calls, means nothing is "
-                        + "driving the appliers and every intent you submit will sit at IDLE forever "
-                        + "no matter how correct it was. That is a dead act layer, not a slow one, and "
-                        + "seam_tick_enable is what arms it. "
-                        + "'hasIntent' says only that the slot HOLDS an intent record, not that it is "
-                        + "doing anything: a slot keeps its intent after reaching a terminal phase, so "
-                        + "hasIntent stays true once COMPLETE, FAILED or CANCELLED and only a slot "
-                        + "never used since startup reports false. For 'is this channel busy' read "
-                        + "hasIntent AND a non-terminal phase; phase is the field that answers it.")
+                        + "intentKind, ticksActive, message, heldBy, hazard, belief, unreadCells, tactic} — plus "
+                        + "'plan', the sidecar "
+                        + "sequencer (not a fourth slot): {phase (IDLE|RUNNING|COMPLETE|FAILED|"
+                        + "CANCELLED), index (0-based current step), size, waitingOn (slot names the "
+                        + "current step still needs COMPLETE), message}. IDLE plan means none is "
+                        + "bound. The next step is submitted only once every slot in waitingOn is "
+                        + "COMPLETE with the same intent identity. Reference-free. Use it to see "
+                        + "'what am I doing right now and did the last thing finish' without a "
+                        + "screenshot. "
+                        + "'tickNow' is the one game clock's current tickId, the same value "
+                        + "clock_now reports: monotonic, and 0 before the first tick / if the tick "
+                        + "seam is not armed. Read it FIRST, because the act layer only steps on "
+                        + "that seam: a tickNow of 0, or one that does not grow between two calls, "
+                        + "means nothing is driving the appliers and every intent you submit will "
+                        + "sit at IDLE forever no matter how correct it was. That is a dead act "
+                        + "layer, not a slow one, and seam_tick_enable is what arms it. "
+                        + "'hasIntent' says only that the slot HOLDS an intent record, not that it "
+                        + "is doing anything: a slot keeps its intent after reaching a terminal "
+                        + "phase, so hasIntent stays true once COMPLETE, FAILED or CANCELLED and "
+                        + "only a slot never used since startup reports false. For 'is this channel "
+                        + "busy' read hasIntent AND a non-terminal phase; phase is the field that "
+                        + "answers it. "
+                        + "'heldBy' is the LEASE on the channel: null when nothing holds it, and "
+                        + "otherwise '<owner>/<priority>'. In the shipped system that is exactly two "
+                        + "possible values: 'act_set/DIRECT' (a command you just issued) and "
+                        + "'act_plan/REPLAY' (a step of a bound act_plan being replayed). BE READY "
+                        + "FOR THIS TO BE MOSTLY ONE VALUE: every act_set submits as act_set/DIRECT, "
+                        + "which outranks act_plan/REPLAY, so on the live path you will normally see "
+                        + "act_set/DIRECT or null and nothing else. act_set is NEVER refused, so "
+                        + "heldBy=act_set/DIRECT does NOT mean you are being blocked; it means the "
+                        + "channel is yours. You are only blocked when you sent act_plan and its "
+                        + "message names a holder you did not expect -- read plan.message then, not "
+                        + "heldBy. A lease whose owner's intent is not being advanced is reclaimed "
+                        + "after about 40 ticks and the channel frees itself, so heldBy stuck on one "
+                        + "value while phase does not advance means that. "
+                        + "'hazard' is null on every slot that is not walking a straight line, and "
+                        + "otherwise {kind (LAVA|WATER|DEEP_DROP), x, y, z, blocksAhead, detail} "
+                        + "for something sampled on the line ahead of the player. THIS IS AN EARLY "
+                        + "WARNING, NOT A POSTMORTEM: it is present on every walking tick, including "
+                        + "the first, so poll while you walk and you learn about the lava or the "
+                        + "drop while there are still blocks left to turn around on. "
+                        + "'blocksAhead' is SIGNED and updates as the player walks: positive is "
+                        + "still ahead of them, negative means they have walked past that cell, and "
+                        + "the hazard is kept reported either way rather than being deleted when it "
+                        + "goes behind. It is a SAMPLE one block at a time, so it cannot promise the "
+                        + "rest of the line is clear. walk_straight never routes around anything and "
+                        + "never refuses to move because of this — it warns and it walks, which is "
+                        + "why the field exists: cancel it yourself, or use go_to, which routes. "
+                        + "A hazard is never guessed from a cell that could not be read, so an "
+                        + "unloaded chunk reports no hazard rather than a bottomless pit. "
+                        + "'belief' grades the 'message' beside it: null, or OBSERVED (read it "
+                        + "directly), INFERRED (derived from a read by a named derivation), or "
+                        + "UNKNOWN (somebody looked and COULD NOT SEE -- a claim about this "
+                        + "client's view of the world, not about the world). NULL AND UNKNOWN ARE "
+                        + "DIFFERENT ANSWERS AND THE DIFFERENCE IS THE POINT: null means no part "
+                        + "of the system examined that sentence, so there is nothing behind it to "
+                        + "trust or doubt; UNKNOWN means something DID examine it and the answer "
+                        + "was 'I could not see' -- for a refused go_to that usually means "
+                        + "'unreadCells' is the HOW MUCH beside that WHETHER, and it is the same distinction made checkable: a number means a search ran and could not read that many of the cells it asked about, so 412 is a chunk-loading problem quantified rather than guessed at; null means the line is not about a searched area at all, which is NOT the same as 0 ('a search ran and read everything'). Never read a null as 0. "
++ "unloaded chunks rather than impassable ground, so the response is to "
+                        + "load chunks and ask again, not to reroute. Only OBSERVED and INFERRED "
+                        + "are claims you may act on without looking yourself. So a go_to refused "
+                        + "over 400 unread cells and an ordinary 'still walking' line now read "
+                        + "differently (UNKNOWN vs null), where before both said UNKNOWN and the "
+                        + "difference was lost. "
+                        + "'tactic' is what the walk DECIDED this tick -- {forward, strafe, jump, "
+                        + "yawChange, lane, givenUp, describe} -- and it is null for every slot that "
+                        + "is not go_to, INCLUDING walk_straight, which genuinely publishes no "
+                        + "tactic: only a route has somewhere to record a decision. A null there is "
+                        + "honest, not missing. 'givenUp' is the field worth reading: NOTHING means "
+                        + "the direct line, taken, with no option spent; ARRIVED_AFTER_A_LANE means "
+                        + "it arrived but had to give up the direct line for a lane; LIMITS_REACHED "
+                        + "means every recovery it had failed; OUT_OF_TICKS means the clock ran out "
+                        + "while it was still making progress (raise the budget, do not reroute); "
+                        + "THE_UNNAMED_STALL and THE_UNSURVEYED_WEDGE mean it could not read what "
+                        + "was in the way, so no option could even be chosen; THE_UNMOVABLE_MEDIUM "
+                        + "means a ladder or current is not carrying the body. They are separate "
+                        + "values because they cost you different things. The terminal row is the "
+                        + "one to read for what a walk spent: mid-walk ticks each describe one tick, "
+                        + "and the last one is the summary.")
                 .inputSchema(objectSchema(Map.of(), List.of()))
                 .annotations(ToolAnnotations.builder()
                         .title("Actuation status")
@@ -461,6 +1006,14 @@ public final class ActTools {
                 row.put("intentKind", s.intentKind());
                 row.put("ticksActive", s.ticksActive());
                 row.put("message", s.message());
+                row.put("heldBy", runtime.leaseHolder(s.slot()));
+                row.put("hazard", hazardObject(s.hazard()));
+                row.put("belief", s.belief() == null ? null : s.belief().name());
+                // Absent, not zero, when there is no count: null says this line is not a
+                // statement about a searched area, and 0 would claim a search ran and found nothing
+                // unread -- a stronger claim about the world than any site made.
+                row.put("unreadCells", s.unreadCells());
+                row.put("tactic", tacticObject(s.tactic()));
                 slots.add(row);
             }
             Map<String, Object> out = new LinkedHashMap<>();
@@ -469,6 +1022,67 @@ public final class ActTools {
             out.put("plan", planObject(runtime.planStatus()));
             return ok(Json.write(out));
         });
+    }
+
+    /**
+     * The typed hazard as a JSON object, or null when no hazard is known.
+     *
+     * <p>Projected by hand rather than handed to {@code Json} as the record, for two reasons.
+     * {@code kind} is emitted as its enum NAME and not as whatever {@code toString} happens to
+     * produce, because a caller branches on this value and a renamed constant would silently
+     * change what it branches on. And {@code blocksAhead} is emitted as the signed number it
+     * actually is -- a caller that sees "2.4 blocks ahead" for a cell the player is standing on
+     * has been told a falsehood, which is the specific failure mode this whole field exists to
+     * remove.
+     *
+     * <p>Null rather than an empty object for "nothing known", so absence is unambiguous: an
+     * absent hazard and a hazard whose details failed to serialise must not look alike.
+     */
+    private static Map<String, Object> hazardObject(NavHazard hz) {
+        if (hz == null) {
+            return null;
+        }
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("kind", hz.kind().name());
+        row.put("x", hz.x());
+        row.put("y", hz.y());
+        row.put("z", hz.z());
+        row.put("blocksAhead", hz.blocksAhead());
+        row.put("detail", hz.detail());
+        return row;
+    }
+
+    /**
+     * The movement decision as a JSON object, or null when none has been chosen.
+     *
+     * <p>Null rather than an empty object for "nothing chosen", so absence is unambiguous: a caller
+     * cannot read an absent tactic as a tactic that chose nothing. That distinction is not
+     * hypothetical here -- {@code walk_straight} publishes no tactic at all, because only a
+     * {@code RouteIntent} has anywhere to stamp one.
+     *
+     * <p>{@code describe} is emitted alongside the fields rather than instead of them. The fields
+     * are what a caller branches on and they are the reason this exists; the sentence is what a
+     * model reads first, and {@link MoveTactic#describe()} names every axis as the KEY it is
+     * rather than as the float it is stored as -- "forward 1.0" is not a number a pair of fingers
+     * can produce.
+     *
+     * <p>Projection is by hand for the reason {@link #hazardObject} is: {@code givenUp} is emitted
+     * as its enum NAME because a caller branches on it, and a renamed constant would silently
+     * change what it branches on.
+     */
+    private static Map<String, Object> tacticObject(MoveTactic t) {
+        if (t == null) {
+            return null;
+        }
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("forward", t.forward());
+        row.put("strafe", t.strafe());
+        row.put("jump", t.jump());
+        row.put("yawChange", t.yawChange());
+        row.put("lane", t.lane() == null ? null : t.lane().describe());
+        row.put("givenUp", t.givenUp().name());
+        row.put("describe", t.describe());
+        return row;
     }
 
     private static Map<String, Object> planObject(ActPlanStatus plan) {
