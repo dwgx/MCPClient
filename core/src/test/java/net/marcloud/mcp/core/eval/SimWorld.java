@@ -200,7 +200,35 @@ public final class SimWorld implements ActActuator, BlockView {
                     + " whether anything could walk a corridor to them; and nothing in the night"
                     + " damages anybody (see the clock entry above). So 'the player was enclosed'"
                     + " and 'the player was never hurt' are two MEASUREMENTS of one body over one"
-                    + " night and are NOT a claim that the enclosure caused the survival");
+                    + " night and are NOT a claim that the enclosure caused the survival",
+            "A BOX IS NOW MEASURABLE and a chest's CONTENTS are still not, and the two are not the"
+                    + " same gap. DawnChest asks the block grid vanilla's own question -- is this"
+                    + " cell holding a BlockChest -- and folds it across a night on the Daylight"
+                    + " clock, and it reports the POINT reading (a chest on the last night tick) and"
+                    + " the REGION reading (a chest on every night tick) separately, because a box"
+                    + " built at 3am passes the first and fails the second. What that row measures"
+                    + " is therefore exactly one thing: THE AGENT DID NOT DIG OUT ITS OWN BOX."
+                    + " Nothing else in this substrate can remove a chest -- there is no fire block"
+                    + " anywhere in it, and a chest is not flammable in 1.8.9 anyway (Blocks.chest"
+                    + " is absent from BlockFire.init()'s 36 entries, BlockFire.java:74-108, so"
+                    + " getEncouragement returns 0 for it); BlockLiquid never calls setBlockToAir,"
+                    + " so lava destroys no blocks in the real game either; SimMob.kinds() refuses"
+                    + " creeper and nothing here calls getExplosionResistance. CONTENTS are still"
+                    + " NOT MEASURED, with no accessor on DawnChest that could pretend otherwise:"
+                    + " this grid is a Map<Long, Block> and a chest here is a block with nothing"
+                    + " behind it, so 'what is in it' has no answer to give. Note that even WITH a"
+                    + " container the third part of that criterion would not be a decay question:"
+                    + " the only decay clock in the vendored tree is"
+                    + " InventoryPlayer.decrementAnimations (InventoryPlayer.java:352-362), which"
+                    + " walks the PLAYER's mainInventory, and ItemFood overrides no part of that"
+                    + " chain -- there is no onUpdate in that file at all. What actually empties a"
+                    + " chest in 1.8.9 is the BREAK (BlockChest.breakBlock ->"
+                    + " InventoryHelper.dropInventoryItems, BlockChest.java:414-425), and what"
+                    + " then loses the stack is the EntityItem despawn at age >= 6000"
+                    + " (EntityItem.java:145-147) against a night of 8,386 ticks: a stack knocked"
+                    + " out of the box at dusk is gone 2,386 ticks before dawn. Neither that clock"
+                    + " nor the container is transcribed here, so the honest sentence for the"
+                    + " fourth north-star criterion is that it measures the box, not its contents");
 
     // ===== the world =====
 

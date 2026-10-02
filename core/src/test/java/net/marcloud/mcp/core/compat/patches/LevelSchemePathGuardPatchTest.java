@@ -2,6 +2,7 @@ package net.marcloud.mcp.core.compat.patches;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
 import static org.junit.Assume.assumeTrue;
 
 import java.io.File;
@@ -42,6 +43,15 @@ import org.objectweb.asm.Opcodes;
  * {@code gameController.mcDataDir} double field hop collapses to a single field on the replica,
  * because neither is part of the shape the transform keys on.
  *
+ * <p><b>Why the fixture nests the data directory.</b> The URLs under test climb out of
+ * {@code saves/}, and where they land depends on how deep the fixture sits. With the data
+ * directory at the top of its own temp directory, {@code level://World1/../../../a.txt} lands in
+ * the SHARED system temp root: whether that file exists is then a property of the filesystem and
+ * of every other process that ever ran, not of this fixture. So {@code setUp} puts the data
+ * directory one level below a temp root it owns, every escaping URL resolves to a file the test
+ * creates, and {@code tearDown} deletes the root that contains all of them. Each traversal case
+ * names the file its URL must have read, so the arithmetic cannot drift away from the assertion.
+ *
  * <p>Running BOTH the unpatched and the patched replica on the SAME directory is the point: it is
  * what turns "the patch refuses a traversal" from an assertion about the patch's own helper method
  * into a statement about what the patched bytecode does with a server-supplied URL.
@@ -62,21 +72,32 @@ public class LevelSchemePathGuardPatchTest {
     /** Verdict recorded when the URL is not a {@code level://} URL at all (the HTTP branch). */
     private static final String HTTP = "http";
 
+    /**
+     * The temp directory the fixture owns outright. {@code tearDown} walks THIS, not {@link #dataDir}:
+     * some of the URLs under test deliberately climb above the data directory, and their targets
+     * have to live somewhere this test both creates and deletes.
+     */
+    private Path fixtureRoot;
+    /** {@code new File(mcDataDir, "saves")} in the replica, so the sibling of every escaping target. */
     private Path dataDir;
+    /** The directory the containment invariant is about; the data directory's child. */
     private Path saves;
 
     @Before
     public void setUp() throws IOException {
-        dataDir = Files.createTempDirectory("mcp-levelscheme-");
+        fixtureRoot = Files.createTempDirectory("mcp-levelscheme-");
+        // Nested deliberately: `dataDir` sits one level below the root the fixture owns, so a URL
+        // with enough `..` to leave `dataDir` still lands inside `fixtureRoot`.
+        dataDir = Files.createDirectories(fixtureRoot.resolve("mc"));
         saves = Files.createDirectories(dataDir.resolve("saves"));
     }
 
     @After
     public void tearDown() throws IOException {
-        if (dataDir == null || !Files.exists(dataDir)) {
+        if (fixtureRoot == null || !Files.exists(fixtureRoot)) {
             return;
         }
-        try (Stream<Path> walk = Files.walk(dataDir)) {
+        try (Stream<Path> walk = Files.walk(fixtureRoot)) {
             walk.sorted(Comparator.reverseOrder()).forEach(p -> {
                 try {
                     Files.deleteIfExists(p);
@@ -118,25 +139,57 @@ public class LevelSchemePathGuardPatchTest {
                 REFUSED, verdictAfter.verdict);
     }
 
-    /** Several {@code ..} segments, not just one: containment is on the resolved path, not a count. */
+    /**
+     * Several {@code ..} segments, not just one: containment is on the resolved path, not a count.
+     *
+     * <p><b>Each case names the file its URL must have read.</b> The premise assertion is
+     * "vanilla ACCEPTS", which on the replica means {@code File.isFile()} returned true, which
+     * means the escaped path named a file that EXISTS. A path that climbs out of the fixture is
+     * not guaranteed to do that, so a case states its target, the fixture creates it, and the
+     * premise is then true by construction rather than by whatever the filesystem happens to hold.
+     * Before this fixture nested {@code dataDir} one level below a temp root the test owns,
+     * {@code level://World1/../../../a.txt} resolved to {@code <system temp root>/a.txt} and this
+     * test measured whether some other process had ever left that file behind.
+     */
     @Test
     public void anyNumberOfParentSegmentsOutOfSavesIsRefused() throws Exception {
-        Files.writeString(dataDir.resolve("a.txt"), "x");
         Files.createDirectories(dataDir.resolve("mid"));
-        Files.writeString(dataDir.resolve("mid/b.txt"), "x");
         Files.createDirectories(saves.resolve("World1"));
+        Path aInDataDir = Files.writeString(dataDir.resolve("a.txt"), "x");
+        Path bInMid = Files.writeString(dataDir.resolve("mid/b.txt"), "x");
+        // One level above dataDir, which is reachable only because setUp nested dataDir under a
+        // temp root the fixture owns. That is what keeps this target inside the tree tearDown
+        // deletes instead of in the shared system temp directory.
+        Path aInFixtureRoot = Files.writeString(fixtureRoot.resolve("a.txt"), "x");
 
         byte[] patched = new LevelSchemePathGuardPatch().transform(replicaBytes());
-        assertNotNull(patched);
+        assertNotNull("the patch must transform the replica; null means it declined its own shape",
+                patched);
 
-        for (String url : new String[] {
-                "level://../a.txt",
-                "level://../../" + dataDir.getFileName() + "/a.txt",
-                "level://World1/../../../a.txt",
-                "level://./World1/../World1/../../mid/b.txt",
+        // Each entry pins the file its URL must have read, so the premise cannot hold by accident.
+        for (Traversal t : new Traversal[] {
+                // saves/../a.txt                      -> dataDir/a.txt
+                new Traversal("level://../a.txt", aInDataDir),
+                // saves/../../<dataDir>/a.txt         -> dataDir/a.txt: out of saves, out of
+                //   dataDir, then back down into dataDir by name, so the escaped spelling does
+                //   NOT make the resolved path innocent-looking either
+                new Traversal("level://../../" + dataDir.getFileName() + "/a.txt", aInDataDir),
+                // saves/World1/../../../a.txt         -> fixtureRoot/a.txt, two levels above saves
+                new Traversal("level://World1/../../../a.txt", aInFixtureRoot),
+                // saves/./World1/../World1/../../mid/b.txt -> dataDir/mid/b.txt: the ./ and the
+                //   World1/.. pair net out, so only the leading ../.. actually escapes saves/
+                new Traversal("level://./World1/../World1/../../mid/b.txt", bInMid),
         }) {
+            String url = t.url();
+            Path target = t.target();
+
+            assertTrue("fixture must have created the file " + url + " resolves to: " + target,
+                    Files.isRegularFile(target));
+
             Vanilla before = runReplica(null, url);
             assertEquals("premise: vanilla accepts " + url, ACCEPTED, before.verdict);
+            assertEquals("premise: and it read exactly " + target + " for " + url,
+                    target.toFile().getCanonicalFile(), before.path.getCanonicalFile());
 
             Vanilla after = runReplica(patched, url);
             assertEquals("the patched method must refuse " + url, REFUSED, after.verdict);
@@ -163,6 +216,32 @@ public class LevelSchemePathGuardPatchTest {
         Vanilla deep = runReplica(patched, "level://World1/pack.zip");
         assertEquals("a pack nested in a world folder must still load", ACCEPTED, deep.verdict);
         assertEquals(nestedPack.toFile(), deep.path.getCanonicalFile());
+    }
+
+    /**
+     * A {@code ..} that resolves BACK INSIDE {@code saves/} is not an escape, and the patched
+     * method must say so.
+     *
+     * <p>This is the other half of the containment argument stated as a claim about the
+     * RESOLVED path rather than about the spelling. {@code World1/../pack.zip} is one segment up
+     * and one back down inside {@code saves/}; the file it names is a legitimate pack. A guard
+     * implemented as "reject any URL containing {@code ..}" passes every test above and fails
+     * this one, which is why it is asserted rather than assumed.
+     */
+    @Test
+    public void aParentSegmentThatResolvesBackInsideSavesIsStillAccepted() throws Exception {
+        Path nested = Files.createDirectories(saves.resolve("World1"));
+        Path pack = Files.writeString(saves.resolve("pack.zip"), "PK");
+        assertTrue("fixture precondition: World1 is a directory and pack.zip is a file under saves/",
+                Files.isDirectory(nested) && Files.isRegularFile(pack));
+
+        byte[] patched = new LevelSchemePathGuardPatch().transform(replicaBytes());
+        assertNotNull(patched);
+
+        Vanilla backInside = runReplica(patched, "level://World1/../pack.zip");
+        assertEquals("a '..' that lands back inside saves/ must still load, or the guard is a "
+                + "denylist rather than a containment check", ACCEPTED, backInside.verdict);
+        assertEquals(pack.toFile(), backInside.path.getCanonicalFile());
     }
 
     /**
@@ -246,6 +325,17 @@ public class LevelSchemePathGuardPatchTest {
     // ---- driving the replica ------------------------------------------------
 
     private record Vanilla(String verdict, File path) {
+    }
+
+    /**
+     * One {@code level://} traversal and the file it is required to resolve to.
+     *
+     * <p>The {@code target} is not documentation: it is the only thing that makes the
+     * "vanilla accepts it" premise true by construction. Without it, an escaping URL's premise
+     * depends on whether the resolved path happens to exist, which for a path that leaves the
+     * fixture is a question about the filesystem rather than about the patch.
+     */
+    private record Traversal(String url, Path target) {
     }
 
     /**
