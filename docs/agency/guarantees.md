@@ -36,10 +36,12 @@ is a receipt. §1 separates them deliberately and does not blur the line.
 this file is a distillation of them; where the two disagree, the reports under
 `.ai-notes/` are the longer form and this file is the shorter one.
 
-**What is not here.** `.ai-notes/docs/audits/` holds 61 audit reports, 38 of them dated
-2026-10-02. Those produced these changes, and the directory is gitignored
+**What is not here.** `.ai-notes/docs/audits/` holds the session's audit reports, most of them
+dated 2026-10-02. Those produced these changes, and the directory is gitignored
 (`.gitignore:56`, the `.ai-notes/` line), so none of them will travel with the repository.
-This file is the part that will.
+This file is the part that will. **The count of those reports is deliberately not given: this
+sentence previously said 61, and the directory gained files while the sentence was being written,
+which is the same shape as a line count that rots on the next edit.**
 
 The correction logs are `.ai-notes/docs/audits/2026-10-02-wave10-guarantees-refresh.md` and
 `.ai-notes/docs/audits/2026-10-02-wave12-doc-sweep.md`, both gitignored and both worthless
@@ -937,8 +939,11 @@ Four verified facts behind that table:
    there is the damage rules' own counter, not a scan of a trace, so it cannot be satisfied by a
    code path that never applied damage. §1f row 40 is the control that proves it.
 
-4. **`GoalPolicy` is 1317 lines, has zero references from `core/src/main`, exposes one action
-   family, and cannot be substituted** — `public final`, constructed directly at eleven sites.
+4. **`GoalPolicy` is the reference policy, has zero references from `core/src/main`, exposes one
+   action family, and cannot be substituted** -- `public final`, constructed directly at eleven
+   sites. **Its line count is deliberately not given: this entry once said 1317, and it was
+   already wrong when written.** What matters is the second half of the sentence, which is a
+   property of the tree and not of a moment in it.
    Its own javadoc says what it measures (`GoalPolicy.java:61-65`): *"given a plan, do the
    production controllers execute it against a real world? A pass is evidence the controllers
    compose; it is NOT evidence a model would produce this plan."*

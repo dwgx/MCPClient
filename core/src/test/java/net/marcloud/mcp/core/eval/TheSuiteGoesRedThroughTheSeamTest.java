@@ -39,7 +39,11 @@ import org.junit.Test;
  * </ul>
  *
  * <p><b>Why this is not a model, restated because it is the honest boundary.</b> The good side
- * of every pair here is {@code GoalPolicy}, a 1317-line reference implementation. What these
+ * of every pair here is {@code GoalPolicy}, the reference implementation. **No line count: this
+ * sentence once said 1317, and the commit that introduced it added 22 lines to GoalPolicy in the
+ * same breath, so the number was false in the very commit that published it and would be false
+ * again on the next edit. A number that can only rot is not worth the sentence it sits in.**
+ * What these
  * tests establish is that a decision is an ARGUMENT to a task -- substitutable, injectable, and
  * consequential. What they do NOT establish is that a weak model plus a system prompt can
  * produce such a decision. That gap is named in {@link Policy}'s javadoc and is the standing
