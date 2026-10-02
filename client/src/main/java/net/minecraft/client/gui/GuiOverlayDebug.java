@@ -160,6 +160,13 @@ public class GuiOverlayDebug extends Gui
             // case that matters -- a hole in the world the player is standing next to.
             list.add(UnknownBlockStates.summarize());
 
+            // A separate line from the census above, and outside the same guard for the same
+            // reason: this counts updates the client DECODED and then dropped, which is a
+            // different incident from a read it turned into air. Merging them would leave a
+            // reader to work out which failure a number means, and a reader who has to do that
+            // arithmetic is a reader who will eventually do it wrong.
+            list.add(UnknownBlockStates.summarizeNullArrivals());
+
             if (this.mc.entityRenderer != null && this.mc.entityRenderer.isShaderActive())
             {
                 list.add("Shader: " + this.mc.entityRenderer.getShaderGroup().getShaderGroupName());

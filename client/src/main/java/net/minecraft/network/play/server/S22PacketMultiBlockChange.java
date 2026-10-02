@@ -9,6 +9,7 @@ import net.minecraft.network.play.INetHandlerPlayClient;
 import net.minecraft.util.BlockPos;
 import net.minecraft.world.ChunkCoordIntPair;
 import net.minecraft.world.chunk.Chunk;
+import net.minecraft.world.chunk.storage.UnknownBlockStates;
 
 public class S22PacketMultiBlockChange implements Packet<INetHandlerPlayClient>
 {
@@ -40,7 +41,24 @@ public class S22PacketMultiBlockChange implements Packet<INetHandlerPlayClient>
 
         for (int i = 0; i < this.changedBlocks.length; ++i)
         {
-            this.changedBlocks[i] = new S22PacketMultiBlockChange.BlockUpdateData(buf.readShort(), (IBlockState)Block.BLOCK_STATE_IDS.getByValue(buf.readVarIntFromBuffer()));
+            short pos = buf.readShort();
+            int stateId = buf.readVarIntFromBuffer();
+            IBlockState state = (IBlockState)Block.BLOCK_STATE_IDS.getByValue(stateId);
+
+            if (state == null)
+            {
+                // The null is UNCHANGED here for the same reason as in S23PacketBlockChange, and
+                // the reasoning is not repeated because repeating it is how it goes stale: this
+                // is a wire-behaviour decision, not a visibility one, and a slice whose job is to
+                // make a silence countable does not get to also choose the answer the silence was
+                // hiding. So the null is kept and the MISS is counted -- once per decode, at the
+                // site that produces it, before any caller can abort the loop over the remaining
+                // entries. See UnknownBlockStates for the count and for why it is separate from
+                // the air-fallback count.
+                UnknownBlockStates.recordNullArrival(stateId);
+            }
+
+            this.changedBlocks[i] = new S22PacketMultiBlockChange.BlockUpdateData(pos, state);
         }
     }
 

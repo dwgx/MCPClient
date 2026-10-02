@@ -8,6 +8,7 @@ import net.minecraft.network.PacketBuffer;
 import net.minecraft.network.play.INetHandlerPlayClient;
 import net.minecraft.util.BlockPos;
 import net.minecraft.world.World;
+import net.minecraft.world.chunk.storage.UnknownBlockStates;
 
 public class S23PacketBlockChange implements Packet<INetHandlerPlayClient>
 {
@@ -30,7 +31,26 @@ public class S23PacketBlockChange implements Packet<INetHandlerPlayClient>
     public void readPacketData(PacketBuffer buf) throws IOException
     {
         this.blockPosition = buf.readBlockPos();
-        this.blockState = (IBlockState)Block.BLOCK_STATE_IDS.getByValue(buf.readVarIntFromBuffer());
+
+        int stateId = buf.readVarIntFromBuffer();
+        IBlockState state = (IBlockState)Block.BLOCK_STATE_IDS.getByValue(stateId);
+
+        if (state == null)
+        {
+            // The null is UNCHANGED and stays: turning it into air here would be a wire-behaviour
+            // decision, and the air answer this client already commits to (ExtendedBlockStorage
+            // get) exists for a stated compatibility reason -- a 1.8.9 client on a newer server
+            // legitimately receives ids it has never heard of, and refusing them would break the
+            // connection. Inventing the same answer a second time, one layer up, without that
+            // argument having been made, is exactly the substitution this slice was told not to
+            // do. So the null is kept and the MISS is made countable instead: see
+            // UnknownBlockStates for what is counted, and for why a null arrival is counted apart
+            // from an air fallback -- the two are different failures and a reader of the F3 line
+            // has to be able to tell them apart.
+            UnknownBlockStates.recordNullArrival(stateId);
+        }
+
+        this.blockState = state;
     }
 
     /**

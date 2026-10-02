@@ -29,6 +29,35 @@ import java.util.concurrent.atomic.LongAdder;
  * cell was looked at and found empty. The server disagrees and nothing raises, because nothing
  * failed. This class turns that silence into two facts a caller can act on.
  *
+ * <p><b>Two events, two censuses, and never one merged number.</b> A block-state id can arrive
+ * unresolvable by two routes, and the two are not the same incident:
+ *
+ * <ul>
+ *   <li><b>A fallback read</b> ({@link #record}, called from {@code ExtendedBlockStorage.get}). A
+ *       stored id was read and became {@code Blocks.air}. The client continues on a value; every
+ *       consumer keeps working and every one of them is now wrong about that cell.</li>
+ *   <li><b>A null arrival</b> ({@link #recordNullArrival}, called from the two block-change packet
+ *       decoders). The id was read off the wire and no value was manufactured at all -- the
+ *       caller is handed {@code null}. That does not propagate the way air does: the first
+ *       consumer to dereference it raises, which drops the whole update.</li>
+ * </ul>
+ *
+ * <p>The counts are therefore kept apart, deliberately, and so are their id lists. A reader asking
+ * "how much work is this client doing on a lie" ({@link #fallbackReads()}) and a reader asking
+ * "how many updates did this client throw away" ({@link #nullArrivals()}) are asking different
+ * questions about different failures, and one number that answered both would answer neither. For
+ * the same reason {@link #unknownIds()} and {@link #nullArrivalIds()} are separate lists even
+ * though the ids themselves are the same actionable fact (a registration this tree is missing):
+ * pairing a count with an id list that a different event contributed to is the exact shape of a
+ * number that looks like evidence and is not.
+ *
+ * <p><b>The two sites are not split further.</b> {@code S23PacketBlockChange} and
+ * {@code S22PacketMultiBlockChange} both produce "a decode returned null", which is one event, and
+ * the site is already visible in the packet journal. They differ in blast radius -- the multi
+ * change aborts its remaining entries too -- but that difference is a property of the CALLER's
+ * loop, not a second kind of registry miss, and inventing a counter for it would be counting the
+ * caller twice.
+ *
  * <p><b>What the two numbers mean, and why they are not interchangeable.</b>
  * {@link #fallbackReads()} counts READS, not cells. A single unknown cell walked by the renderer is
  * read many times a second, so the read count says how much work the client is doing on a lie; it
@@ -68,24 +97,81 @@ public final class UnknownBlockStates {
     public static final int MAX_TRACKED_IDS = 256;
 
     /**
-     * The guard for {@link #IDS}. Held only by the miss path and by the readers, both of which run
-     * orders of magnitude less often than {@code ExtendedBlockStorage.get} itself.
+     * The air-fallback census: {@link #record}'s half. See the class javadoc for why the two
+     * halves are separate objects rather than two counters on one.
      */
-    private static final Object LOCK = new Object();
+    private static final IdCensus FALLBACK = new IdCensus();
 
-    /** Every decode that reached the air fallback, whether or not its id had been seen before. */
-    private static final LongAdder FALLBACK_READS = new LongAdder();
+    /** The null-arrival census: {@link #recordNullArrival}'s half. */
+    private static final IdCensus NULL_ARRIVAL = new IdCensus();
 
-    /** Distinct unresolvable state ids, ascending, capped at {@link #MAX_TRACKED_IDS}. */
-    private static final TreeSet<Integer> IDS = new TreeSet<Integer>();
-
-    /** Distinct ids that arrived after {@link #IDS} was full. A count of a count, never a lie. */
-    private static final AtomicInteger DROPPED_IDS = new AtomicInteger();
-
-    /** How many ids {@link #idsTruncated()} will print beyond the display cap in {@link #summarize()}. */
+    /** How many ids a {@code summarize()} line will print beyond the display cap. */
     private static final int DISPLAYED_IDS = 8;
 
     private UnknownBlockStates() {
+    }
+
+    /**
+     * One bounded, thread-safe census: a count that is always complete, a distinct-id list that
+     * says so when it is not, and a summary line that renders both without pairing them wrongly.
+     *
+     * <p>Threading: the count is a {@link LongAdder} because {@code ExtendedBlockStorage.get} runs
+     * on the client thread and on the render thread. The id set is guarded, and held only by the
+     * miss path and by the readers, both of which run orders of magnitude less often than the
+     * read itself -- if they did not, the client would be spending its frame budget on air.
+     */
+    private static final class IdCensus {
+
+        /** Every decode that reached this census, whether or not its id had been seen before. */
+        private final LongAdder events = new LongAdder();
+
+        /** Distinct unresolvable state ids, ascending, capped at {@link #MAX_TRACKED_IDS}. */
+        private final TreeSet<Integer> ids = new TreeSet<Integer>();
+
+        /** Distinct ids that arrived after {@link #ids} was full. A count of a count, never a lie. */
+        private final AtomicInteger dropped = new AtomicInteger();
+
+        private final Object lock = new Object();
+
+        private void record(int stateId) {
+            this.events.increment();
+
+            synchronized (this.lock) {
+                if (this.ids.size() < MAX_TRACKED_IDS) {
+                    this.ids.add(Integer.valueOf(stateId));
+                }
+                else if (this.ids.add(Integer.valueOf(stateId))) {
+                    // A distinct id we cannot keep. The event total already counted it; this says
+                    // the id list is short by exactly this many.
+                    this.dropped.incrementAndGet();
+                }
+            }
+        }
+
+        private long count() {
+            return this.events.sum();
+        }
+
+        private int[] ids() {
+            synchronized (this.lock) {
+                int[] out = new int[this.ids.size()];
+                int i = 0;
+
+                for (Integer id : this.ids) {
+                    out[i++] = id.intValue();
+                }
+
+                return out;
+            }
+        }
+
+        private boolean truncated() {
+            return this.dropped.get() > 0;
+        }
+
+        private int dropped() {
+            return this.dropped.get();
+        }
     }
 
     /**
@@ -94,85 +180,137 @@ public final class UnknownBlockStates {
      * @param stateId the id that was stored, which the registry could not resolve
      */
     public static void record(int stateId) {
-        FALLBACK_READS.increment();
+        FALLBACK.record(stateId);
+    }
 
-        synchronized (LOCK) {
-            if (IDS.size() < MAX_TRACKED_IDS) {
-                IDS.add(Integer.valueOf(stateId));
-            }
-            else if (IDS.add(Integer.valueOf(stateId))) {
-                // A distinct id we cannot keep. The read total already counted it; this says the
-                // id list is short by exactly this many.
-                DROPPED_IDS.incrementAndGet();
-            }
-        }
+    /**
+     * Record one decode that produced {@code null} instead of a state.
+     *
+     * <p>Called from the two block-change packet decoders and nowhere else. The behaviour of those
+     * decoders is deliberately unchanged -- this counts the event, it does not decide what the
+     * event should have been. See the class javadoc and
+     * {@code S23PacketBlockChange#readPacketData} for why the null stays for now.
+     *
+     * @param stateId the id that came off the wire, which the registry could not resolve
+     */
+    public static void recordNullArrival(int stateId) {
+        NULL_ARRIVAL.record(stateId);
     }
 
     /**
      * How many block-state reads this client has turned into air because the id was unknown.
      *
      * <p>A READ count, not a cell count -- see the class javadoc. {@code 0} means every read so far
-     * resolved, and says nothing about the cells nobody has read.
+     * resolved, and says nothing about the cells nobody has read. It does NOT include null
+     * arrivals: ask {@link #nullArrivals()} for those.
      */
     public static long fallbackReads() {
-        return FALLBACK_READS.sum();
+        return FALLBACK.count();
+    }
+
+    /**
+     * How many block-state decodes produced {@code null} because the registry did not hold the id.
+     *
+     * <p>An ARRIVAL count, not a read count, and it is a strictly worse number than
+     * {@link #fallbackReads()} at the same value: a fallback read leaves a wrong value in place,
+     * while a null arrival drops the update entirely. {@code 0} means no such decode has happened.
+     */
+    public static long nullArrivals() {
+        return NULL_ARRIVAL.count();
     }
 
     /**
      * The distinct state ids this client has failed to resolve, ascending.
      *
-     * <p>This is the actionable half: it names what the server sent that this tree does not have.
-     * Empty means every id read so far resolved. Check {@link #idsTruncated()} before treating a
-     * non-empty list as the whole story.
+     * <p>This is the actionable half of the fallback census: it names what the server sent that
+ * this tree does not have. Empty means every id read so far resolved. Check
+ * {@link #idsTruncated()} before treating a non-empty list as the whole story. It does NOT
+     include null arrivals -- see {@link #nullArrivalIds()}.
      */
     public static int[] unknownIds() {
-        synchronized (LOCK) {
-            int[] out = new int[IDS.size()];
-            int i = 0;
+        return FALLBACK.ids();
+    }
 
-            for (Integer id : IDS) {
-                out[i++] = id.intValue();
-            }
-
-            return out;
-        }
+    /**
+     * The distinct state ids that arrived off the wire and produced {@code null}, ascending.
+     *
+     * <p>The same actionable fact as {@link #unknownIds()} and a different list on purpose: the
+     * count that goes with this one is {@link #nullArrivals()}, and pairing a null-arrival count
+     * with a list that fallback reads contributed to would be a number describing two events as
+ * one.
+     */
+    public static int[] nullArrivalIds() {
+        return NULL_ARRIVAL.ids();
     }
 
     /** How many distinct unresolvable ids {@link #unknownIds()} is holding. */
     public static int distinctUnknownIds() {
-        synchronized (LOCK) {
-            return IDS.size();
-        }
+        return FALLBACK.ids().length;
     }
 
-    /** True when at least one distinct id arrived after {@link #IDS} was full and was not kept. */
+    /** How many distinct unresolvable ids {@link #nullArrivalIds()} is holding. */
+    public static int distinctNullArrivalIds() {
+        return NULL_ARRIVAL.ids().length;
+    }
+
+    /** True when at least one distinct id arrived after the fallback id set was full. */
     public static boolean idsTruncated() {
-        return DROPPED_IDS.get() > 0;
+        return FALLBACK.truncated();
     }
 
     /** How many distinct ids are missing from {@link #unknownIds()} because the set was full. */
     public static int droppedIds() {
-        return DROPPED_IDS.get();
+        return FALLBACK.dropped();
+    }
+
+    /** True when at least one distinct id arrived after the null-arrival id set was full. */
+    public static boolean nullArrivalIdsTruncated() {
+        return NULL_ARRIVAL.truncated();
+    }
+
+    /** How many distinct ids are missing from {@link #nullArrivalIds()} because the set was full. */
+    public static int droppedNullArrivalIds() {
+        return NULL_ARRIVAL.dropped();
     }
 
     /**
-     * A one-line summary for a diagnostic surface. Cheap and constant when there is nothing to
-     * report, because the caller renders it every frame.
+     * A one-line summary of the air-fallback census, for a diagnostic surface. Cheap and constant
+     * when there is nothing to report, because the caller renders it every frame.
      *
      * <p>The id list is capped at {@link #DISPLAYED_IDS} entries with the remainder counted, so the
      * string cannot grow with the size of the lie.
      */
     public static String summarize() {
-        long reads = fallbackReads();
+        return render("Unknown block ids", FALLBACK, "reads");
+    }
 
-        if (reads == 0L) {
-            return "Unknown block ids: none";
+    /**
+     * A one-line summary of the null-arrival census, for the same diagnostic surface.
+     *
+     * <p>A separate line from {@link #summarize()} on purpose. One F3 reader has to be able to tell
+     * "the client is rendering air it does not believe" from "the client threw updates away", and
+     * a single line carrying both counts would make the reader do that arithmetic, which is how
+     * one of them gets misread as the other.
+     */
+    public static String summarizeNullArrivals() {
+        return render("Unknown block ids off the wire", NULL_ARRIVAL, "arrivals");
+    }
+
+    /**
+     * The shared renderer for both lines. Kept in one place so the two summaries cannot drift into
+     * disagreeing about what "none" means or about how a truncated list is announced.
+     */
+    private static String render(String label, IdCensus census, String unit) {
+        long events = census.count();
+
+        if (events == 0L) {
+            return label + ": none";
         }
 
-        int[] ids = unknownIds();
+        int[] ids = census.ids();
         StringBuilder sb = new StringBuilder(64);
-        sb.append("Unknown block ids: ").append(reads).append(" reads, ").append(ids.length)
-                .append(" ids [");
+        sb.append(label).append(": ").append(events).append(' ').append(unit).append(", ")
+                .append(ids.length).append(" ids [");
 
         int shown = Math.min(ids.length, DISPLAYED_IDS);
 
@@ -190,20 +328,28 @@ public final class UnknownBlockStates {
 
         sb.append(']');
 
-        if (idsTruncated()) {
-            sb.append(" (list truncated: ").append(droppedIds()).append(" more ids not kept)");
+        if (census.truncated()) {
+            sb.append(" (list truncated: ").append(census.dropped()).append(" more ids not kept)");
         }
 
         return sb.toString();
     }
 
     /**
-     * The ids as a list of strings, for a JSON-shaped surface. Exposed so a reader does not have to
-     * reimplement the copy, and so the sorted order is the same order every surface reports.
+     * The fallback ids as a list of strings, for a JSON-shaped surface. Exposed so a reader does
+     * not have to reimplement the copy, and so the sorted order is the same order every surface
+     * reports.
      */
     public static List<String> unknownIdNames() {
-        int[] ids = unknownIds();
+        return asNames(unknownIds());
+    }
 
+    /** {@link #unknownIdNames()} for the null-arrival census. */
+    public static List<String> nullArrivalIdNames() {
+        return asNames(nullArrivalIds());
+    }
+
+    private static List<String> asNames(int[] ids) {
         if (ids.length == 0) {
             return Collections.emptyList();
         }
