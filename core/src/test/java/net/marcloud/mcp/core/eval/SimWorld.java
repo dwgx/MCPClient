@@ -74,6 +74,12 @@ public final class SimWorld implements ActActuator, BlockView {
     public static final int JUMP_COOLDOWN_TICKS = 10;
     /** {@code EntityLivingBase:208} — step height. */
     public static final double STEP_HEIGHT = 0.6D;
+    /**
+     * {@code Entity.update:514-517} -- {@code if (this.posY < -64.0D) this.kill();}. The one
+     * hazard the game resolves with no {@code DamageSource} and no amount, and the floor of the
+     * world: a body that walks off the edge of a build is dead, not falling.
+     */
+    public static final double VOID_Y = -64.0D;
     /** {@code EntityPlayer:580} — body width. */
     public static final double WIDTH = 0.6D;
     /** {@code EntityPlayer:580} — body height. */
@@ -163,7 +169,24 @@ public final class SimWorld implements ActActuator, BlockView {
                     + " the same window through GuiScreen and GuiContainer, and the click that"
                     + " opens it is a packet this world never sends -- so a task that opens a bench"
                     + " measures the CONTROLLER composing around a window, not the GUI"
-                    + " interaction that produces one");
+                    + " interaction that produces one",
+            "DAMAGE exists and DAMAGE REDUCTION does not, and the two are not the same gap. The"
+                    + " health bar is a real ledger now (SurvivalDamage): the fire clock"
+                    + " (Entity:499-501), lava contact and its ignition (Entity:543-544), the"
+                    + " drown tick (ELB:303-315), the fall (ELB:1156), the void kill"
+                    + " (Entity:514-517) and the 10-tick hurt window (ELB:896) are all transcribed,"
+                    + " so a task CAN observe the player dying and a survival row can come back"
+                    + " false. What is still absent is everything that changes HOW MUCH a hit"
+                    + " costs: armour and its enchantments (CombatRules.getDamageAfterAbsorb),"
+                    + " absorption hearts, the Resistance and Fire Resistance potions, difficulty"
+                    + " scaling, and the cactus/anvil/falling-block sources that ride on"
+                    + " onFallenUpon. A zombie therefore lands its flat attackDamage attribute and"
+                    + " a body in lava takes the unenchanted bill. So 'the player died' here is"
+                    + " 'the substrate's model of the server decided it' -- the same caveat the mob"
+                    + " line above carries, and for the same reason. Fire RESISTANCE POTION is the"
+                    + " one that will bite soonest: Entity:505 refuses every fire hit outright when"
+                    + " it is active, and this world has no potions, so a task that ever gives one"
+                    + " will get a wrong answer rather than a missing one");
 
     // ===== the world =====
 
@@ -186,10 +209,20 @@ public final class SimWorld implements ActActuator, BlockView {
      * A task opts in explicitly, so the tasks that already existed cannot change meaning.
      */
     private final List<SimMob> mobs = new ArrayList<>();
-    /** {@code EntityLivingBase.lastDamage} -- the size of the last hit the player refused or took. */
-    private double lastPlayerDamage;
-    /** {@code Entity.hurtResistantTime} -- the tick the window was last opened. */
-    private int hurtResistantTime = Integer.MIN_VALUE / 2;
+    /**
+     * The health bar and every clock that can move it, in vanilla's order, transcribed once.
+     *
+     * <p>This replaces a bare {@code double health} field that only the fixture setter, the food
+     * path and the mob swings could write. A world with a lava band in it therefore had no way to
+     * hurt anybody, which is what made every survival assertion in the suite a comparison of
+     * {@code 20.0 > 0.0}.
+     */
+    private final SurvivalDamage survival = new SurvivalDamage();
+    /**
+     * Calls through the {@code ActActuator.blockAt} seam, so "the damage cost no world read" is a
+     * number rather than an intention. See {@link #seamReads()}.
+     */
+    private int seamReads;
     private final InventoryPlayer inventory = new InventoryPlayer(null);
 
     private double x;
@@ -203,7 +236,6 @@ public final class SimWorld implements ActActuator, BlockView {
     private boolean onGround = true;
     private boolean collidedHorizontally;
     private boolean sprinting;
-    private double health = 20.0D;
     private int jumpTicks;
     /** Whether a sneak key is down this tick. Recorded, never integrated (see tick()). */
     private boolean sneaking;
@@ -219,11 +251,11 @@ public final class SimWorld implements ActActuator, BlockView {
     /**
      * {@code EntityLivingBase.maxHurtResistantTime = 20} ({@code :95}), which
      * {@code EntityPlayer} keeps. A second hit equal to or below the last is refused outright inside
-     * the window, so two zombies swapping swings halve each other's damage.
+     * the window, so two zombies swapping swings halve each other's damage. The band is HALF of
+     * it -- {@code :896} compares against {@code maxHurtResistantTime / 2.0F} -- and the
+     * arithmetic lives in {@link SurvivalDamage#HURT_WINDOW_TICKS}.
      */
-    public static final int MAX_HURT_RESISTANT_TIME = 20;
-    /** Ticks spent submerged, which is what {@link #air()} counts down from. */
-    private int submergedTicks;
+    public static final int MAX_HURT_RESISTANT_TIME = SurvivalDamage.MAX_HURT_RESISTANT_TICKS;
     private int nextEntityId = 1;
     private boolean inWorld = true;
 
@@ -397,9 +429,10 @@ public final class SimWorld implements ActActuator, BlockView {
     }
 
     public SimWorld atHealth(double hp) {
-        this.health = hp;
+        survival.setHealth((float) hp);
         return this;
     }
+
 
     public SimWorld outOfWorld() {
         this.inWorld = false;
@@ -560,9 +593,13 @@ public final class SimWorld implements ActActuator, BlockView {
     private static final double SIGHT_STEP = 0.2D;
 
     /**
-     * {@code Entity.attackEntityFrom(Entity, float)} as {@code EntityLivingBase} reads it
-     * ({@code :893-912}): inside the resistant window a hit equal to or below the last is refused,
-     * and a bigger one lands only the difference; outside it the whole hit lands.
+     * {@code EntityLivingBase.attackEntityFrom:863-912}, applied to this world's survival ledger.
+     *
+     * <p>The window arithmetic now lives in {@link SurvivalDamage} rather than here, because the
+     * environmental damage that lands every tick has to obey the same window the mob swings do --
+     * two copies of that rule is how a body ends up invulnerable to lava and mortal to a zombie.
+     * It is {@code :896-911} verbatim: inside the band a hit equal to or below the last is
+     * refused, and a bigger one lands only the difference; outside it the whole hit lands.
      *
      * <p><b>No armour, no absorption, no difficulty scaling.</b> Those are server-side and this
      * substrate has none of them, so {@code CombatRules.getDamageAfterAbsorb} is not transcribed
@@ -572,24 +609,7 @@ public final class SimWorld implements ActActuator, BlockView {
      * @return whether damage actually landed, which is what {@link SimMob#hits} counts
      */
     public boolean damagePlayer(double amount, SimMob source) {
-        if (health <= 0.0D || amount <= 0.0D) {
-            return false;
-        }
-        // The window is measured against the tick the LAST hit was taken, and `lastDamage` keeps the
-        // size of that hit as it ARRIVED -- not the part that landed. Storing the reduced value
-        // instead would make a second big hit look small enough to be refused.
-        int sinceWindow = ticks - hurtResistantTime;
-        double lands = amount;
-        if (sinceWindow < MAX_HURT_RESISTANT_TIME) {
-            if (amount <= lastPlayerDamage) {
-                return false;
-            }
-            lands = amount - lastPlayerDamage;
-        }
-        lastPlayerDamage = amount;
-        hurtResistantTime = ticks;
-        health = Math.max(0.0D, health - lands);
-        return true;
+        return survival.attackFrom(amount, SurvivalDamage.Source.MOB);
     }
 
     // ===== the tick =====
@@ -614,8 +634,53 @@ public final class SimWorld implements ActActuator, BlockView {
         return z;
     }
 
+    /**
+     * The health bar as it stands at the end of the run.
+     *
+     * <p><b>Read {@link #minimumHealth()} for a survival claim, not this.</b> A body can be hurt
+     * and then healed inside one run, and this figure would report a survivor who was one lava
+     * tick from dead three hundred ticks ago. That is the whole difference between the assertion
+     * this accessor used to carry -- {@code w.health() > 0.0D} against a value nothing could move
+     * -- and one that can come back with a different answer.
+     */
     public double health() {
-        return health;
+        return survival.health();
+    }
+
+    /** The lowest the bar has ever been on this run, in half-hearts. */
+    public double minimumHealth() {
+        return survival.lowestHealth();
+    }
+
+    /** Whether the bar ever went below the project's north-star floor of 18 half-hearts. */
+    public boolean brokeNorthStar() {
+        return survival.brokeNorthStar();
+    }
+
+    /** Whether the player is still alive, which a hazard that reached the body can now answer. */
+    public boolean alive() {
+        return survival.alive();
+    }
+
+    /**
+     * Whether anything at all damaged the player on this run.
+     *
+     * <p>The question a survival assertion should ask about itself. A world with no lava, no
+     * water, no drop and no mob answers false, and a task whose row claims to have checked
+     * survival in such a world is reporting a constant.
+     */
+    public boolean anyHazard() {
+        return survival.anyHazard();
+    }
+
+    /** Ticks whose bounding box held lava. Zero means the lava row was never exercised. */
+    public int ticksInLava() {
+        return survival.ticksInLava();
+    }
+
+    /** The survival ledger itself, for a task that wants the per-source breakdown. */
+    public SurvivalDamage survival() {
+        return survival;
     }
 
     /** Whether a sneak key is down this tick. Recorded, never integrated (see tick()). */
@@ -798,8 +863,30 @@ public final class SimWorld implements ActActuator, BlockView {
             jumpTicks--;
         }
 
+        // Where the body IS this tick, sampled before it moves. Vanilla asks isInLava at
+        // Entity.update:508, which runs before onLivingUpdate's travel, so the contact test is
+        // against the position the body woke up in -- not the one it is about to walk into. One
+        // tick of difference, and it decides whether a body that ends a tick inside lava was
+        // standing in it when the damage was applied.
+        boolean inLavaThisTick = inLava();
+        boolean inWaterThisTick = bodyInWater();
+
         // EntityLivingBase:2034 — travel, i.e. moveEntityWithHeading.
         travel(moveStrafing, moveForward, WALK_SPEED);
+
+        // The server's turn, and the whole reason a health bar can move in this world. Vanilla
+        // runs its damage from Entity.onEntityUpdate, which Entity.onUpdate:405 calls before
+        // onLivingUpdate ever travels, so the two hazard probes above are sampled at the right
+        // instant and the landing from this tick's move is handed over with them. SurvivalDamage
+        // then applies the four in the source's own order: fire clock, lava contact, void kill,
+        // drown tick, window decrement, fall -- see its class doc for the line numbers.
+        //
+        // Every damage path in this world goes through attackFrom, so the hurt window applies to
+        // lava exactly as it applies to a zombie. That is not a detail: it is why standing in
+        // lava costs 20 half-hearts over 23 ticks in this substrate and not 10 every tick.
+        survival.step(new SurvivalDamage.Hazards(inLavaThisTick, inWaterThisTick,
+                (float) playerBody.landedFrom, y < VOID_Y));
+        playerBody.landedFrom = 0.0D;
 
         // A sneak key down is a walk-speed change in vanilla, applied to the attribute rather
         // than the axis, so it is recorded rather than integrated. Nothing in the act layer sets
@@ -1092,8 +1179,24 @@ public final class SimWorld implements ActActuator, BlockView {
 
     @Override
     public String blockAt(int bx, int by, int bz) {
+        seamReads++;
         Block b = blockAtObj(bx, by, bz);
         return b == null ? null : nameOfBlock(b);
+    }
+
+    /**
+     * Calls made through the {@code ActActuator.blockAt} seam, which is the only way a controller
+     * can look at a cell and the number {@code TheBeliefLayerCostsNoWorldReadTest} and
+     * {@code TheClockCostsTheWalkNoWorldReadTest} are stated in.
+     *
+     * <p>Counted here rather than in a wrapper because {@code SimWorld} is final and the eval
+     * harness is handed one directly. The counter is on the SEAM method only, never on
+     * {@link #blockAtObj}, and that distinction is the whole point: the per-tick hazard test in
+     * {@link #materialInBodyBox} reads the grid the world already holds, and the assertion in
+     * {@code TheSurvivalDamageCostsNoWorldReadTest} is that doing so costs the seam nothing.
+     */
+    public int seamReads() {
+        return seamReads;
     }
 
     @Override
@@ -1491,7 +1594,7 @@ public final class SimWorld implements ActActuator, BlockView {
             }
         }
         if (finished.getItem() instanceof net.minecraft.item.ItemFood food) {
-            health = Math.min(20.0D, health + food.getHealAmount(finished));
+            survival.heal(food.getHealAmount(finished));
         }
         return finished;
     }
@@ -1584,12 +1687,23 @@ public final class SimWorld implements ActActuator, BlockView {
 
     /**
      * Vanilla's air supply, the number a swim actually spends: 300 when out of water, one per
-     * submerged tick ({@code EntityLivingBase:301,326,439}). {@code -1} is never returned, because
-     * this world always knows the answer -- there is no such thing as an unread cell here.
+     * submerged tick ({@code EntityLivingBase:301}), and reset to 0 by a drown tick
+     * ({@code :305}) rather than to 300.
+     *
+     * <p><b>This used to be a constant.</b> It returned {@code MAX_AIR_TICKS - submergedTicks}
+     * and {@code submergedTicks} was never incremented by anything, so every caller in every task
+     * read 300 forever. It now reads the ledger the damage rules use, so the same body that
+     * drowns is the body that reports the air going down.
+     *
+     * <p>The shape mirrors {@code LivePlayerActuator.air()}, which returns {@code p.getAir()}
+     * verbatim -- so like the live path this can return a negative value, and {@code -1} here
+     * means "one tick into drowning" rather than "unreadable". That collision is
+     * {@code SwimSteering}'s to own and is identical in the sim and on a live client; it is
+     * called out here because a reader comparing the two accessors will notice it.
      */
     @Override
     public int air() {
-        return submergedTicks >= MAX_AIR_TICKS ? -1 : MAX_AIR_TICKS - submergedTicks;
+        return survival.air();
     }
 
     @Override
@@ -1717,6 +1831,68 @@ public final class SimWorld implements ActActuator, BlockView {
         return b == net.minecraft.init.Blocks.water || b == net.minecraft.init.Blocks.flowing_water;
     }
 
+    /** {@code World.getBlockState(...).getBlock().getMaterial()}, off this world's own grid. */
+    private net.minecraft.block.material.Material materialAt(int bx, int by, int bz) {
+        Block b = blockAtObj(bx, by, bz);
+        return b == null ? net.minecraft.block.material.Material.air : b.getMaterial();
+    }
+
+    /**
+     * {@code World.isMaterialInBB:2136-2160}, verbatim, over the box {@code Entity.isInLava:1216-1219}
+     * asks about: the body's own bounding box shrunk by {@code (-0.1, -0.4, -0.1)}.
+     *
+     * <p>The cell walk is vanilla's and its upper bound is {@code floor(max + 1.0)}, which scans
+     * one cell past the box on the high side. That looks like an off-by-one and is not one: it is
+     * the rule the server runs, and a body whose shoulder clips a lava cell takes the contact hit
+     * there too. Approximating it as "the feet cell is lava" would let a body stand beside a band
+     * unhurt, which is the exact failure this exists to remove.
+     *
+     * <p>Read off {@link #blockAtObj}, the grid this world already holds, so the per-tick hazard
+     * test costs no read through the controller seam. See
+     * {@code TheSurvivalDamageCostsNoWorldReadTest}.
+     */
+    private boolean materialInBodyBox(net.minecraft.block.material.Material wanted) {
+        double halfWidth = WIDTH / 2.0D;
+        double minX = x - halfWidth + SurvivalDamage.LAVA_SHRINK_XZ;
+        double maxX = x + halfWidth + SurvivalDamage.LAVA_SHRINK_XZ;
+        double minY = y + SurvivalDamage.LAVA_SHRINK_Y;
+        double maxY = y + HEIGHT + SurvivalDamage.LAVA_SHRINK_Y;
+        double minZ = z - halfWidth + SurvivalDamage.LAVA_SHRINK_XZ;
+        double maxZ = z + halfWidth + SurvivalDamage.LAVA_SHRINK_XZ;
+        for (int bx = (int) Math.floor(minX); bx < (int) Math.floor(maxX + 1.0D); bx++) {
+            for (int by = (int) Math.floor(minY); by < (int) Math.floor(maxY + 1.0D); by++) {
+                for (int bz = (int) Math.floor(minZ); bz < (int) Math.floor(maxZ + 1.0D); bz++) {
+                    if (materialAt(bx, by, bz) == wanted) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * {@code Entity.isInLava:1216-1219}: any cell of the shrunk bounding box is lava.
+     *
+     * <p>Public because a task that asserts "the body never entered the lava" must be able to ask
+     * the same question the damage rule asked, at the same instant. Reading {@code posTrace} for a
+     * lava cell instead is a different question: the trace records the position AFTER the tick has
+     * already moved and already hurt.
+     */
+    public boolean inLava() {
+        return materialInBodyBox(net.minecraft.block.material.Material.lava);
+    }
+
+    /**
+     * {@code EntityLivingBase:297}'s {@code isInsideOfMaterial(Material.water)}, over the same
+     * shrunk box. This is what spends the air bar, and it is the whole body rather than the eye
+     * cell {@link #inWater()} reports for the swim controller -- vanilla asks {@code inWater} for
+     * steering and {@code isInsideOfMaterial} for breath, and they are not the same test.
+     */
+    public boolean bodyInWater() {
+        return materialInBodyBox(net.minecraft.block.material.Material.water);
+    }
+
     @Override
     public int blockBudget() {
         return 64;
@@ -1733,7 +1909,7 @@ public final class SimWorld implements ActActuator, BlockView {
     public String toString() {
         return String.format(Locale.ROOT,
                 "SimWorld[pos=(%.2f, %.2f, %.2f) yaw=%.0f onGround=%s hp=%.1f inv=%s blocks=%d]",
-                x, y, z, yaw, onGround, health, describeInventory(), grid.size());
+                x, y, z, yaw, onGround, survival.health(), describeInventory(), grid.size());
     }
 
     /** Every non-empty inventory slot as "slot:item xcount", for a failure message. */

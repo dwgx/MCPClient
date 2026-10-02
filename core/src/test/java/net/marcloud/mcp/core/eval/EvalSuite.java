@@ -51,6 +51,23 @@ import net.marcloud.mcp.core.drivers.world.EntityCombat;
  * one tick early is invisible to every endpoint), inventory transfer and crafting (a window that
  * clicks and does nothing), the hazard report (the two live deaths), and the placement chain (a
  * bridge that is planned and not built).
+ *
+ * <p><b>Every survival row goes through {@link #survived}, and that is a rule rather than a
+ * convenience.</b> Every task used to carry {@code w.health() > 0.0D}, and health was a
+ * {@code SimWorld} field writable only by the fixture setter, so all ten of those comparisons
+ * evaluated the constant {@code 20.0 > 0.0} in every world forever and no task could fail on one.
+ * T20 was the worst case: a four-block lava band across the route whose only working assertion was
+ * {@code inLava == 0} read off a {@code posTrace} the same code appends unconditionally. The bar
+ * is a real ledger now, so the comparison can come back false -- and
+ * {@code TheSurvivalRowDetectsAPlantedHazardTest} is where that is demonstrated rather than
+ * asserted.
+ *
+ * <p><b>A task that cannot kill the player says so.</b> Eight of the ten tasks run in worlds with
+ * no lava, no water, no drop and no mob, so their rows are isolation checks and not survival
+ * measurements. Rather than let a green row imply otherwise, every result carries
+ * {@link #survivalFact}, which reports the bar's low-water mark and names every hazard that
+ * reached the body -- or states that none did. T20 is the task that carries the north-star claim
+ * ({@link #neverBelowNorthStar}), because it is the task with a lethal hazard on its route.
  */
 public final class EvalSuite {
 
@@ -105,6 +122,82 @@ public final class EvalSuite {
 
     private static boolean complete(ActSlot slot, EvalHarness h) {
         return h.runtime().record(slot).phase() == ActPhase.COMPLETE;
+    }
+
+    /**
+     * The project's north-star floor, in half-hearts: health never below 18.
+     *
+     * <p>Re-exported from {@link SurvivalDamage#NORTH_STAR_FLOOR} rather than repeated, because a
+     * threshold written twice is a threshold that will be edited on one side.
+     */
+    public static final double NORTH_STAR_HEALTH = SurvivalDamage.NORTH_STAR_FLOOR;
+
+    /**
+     * Whether the player survived, read off the LOWEST the bar ever was rather than the value it
+     * ended on.
+     *
+     * <p><b>This is the replacement for {@code w.health() > 0.0D}, and the difference is the
+     * whole slice.</b> That comparison read a field nothing in the loop could write except the
+     * fixture setter, so it evaluated the constant {@code 20.0 > 0.0} for every task in every
+     * world forever, and the suite could not go red on it. {@link SimWorld#minimumHealth()} is
+     * the low-water mark of a bar that lava, fire, drowning, a fall, the void and a mob can all
+     * move, so this comparison can come back false -- which is what
+     * {@code ALavaBandThatKillsThePlayerIsVanillasArithmeticTest} and
+     * {@code TheSurvivalRowDetectsAPlantedHazardTest} both demonstrate by going red.
+     *
+     * <p>Deliberately not {@code health() > 0.0D}: a body hurt and then healed inside one run
+     * ends on a full bar, and reading only the end of it reports a survivor who was one lava tick
+     * from dead three hundred ticks ago.
+     */
+    static boolean survived(SimWorld w) {
+        return w.minimumHealth() > 0.0D && w.alive();
+    }
+
+    /**
+     * Whether the bar stayed at or above the north-star floor for the whole run.
+     *
+     * <p>Stronger than {@link #survived} and true of far fewer worlds, which is the point: 18 of
+     * 20 half-hearts is one heart of slack, and a run that spends it did not finish the night in
+     * the shape the project asks for. T20 is the task that has to carry this one, because T20 is
+     * the task with a lethal hazard next to the route.
+     */
+    static boolean neverBelowNorthStar(SimWorld w) {
+        return w.minimumHealth() >= NORTH_STAR_HEALTH;
+    }
+
+    /**
+     * The sentence every task's result carries about what its survival row did and did not
+     * measure.
+     *
+     * <p><b>This describes the RUN, not the world, and the distinction is load-bearing.</b> A
+     * task can stand a lake next to its route and cancel before the water, which is exactly what
+     * T10's fatal half does: that run touched no hazard, so this reports no hazard reached. The
+     * two cases that need saying plainly are the ones where a reader would otherwise mistake a
+     * green row for a survival measurement:
+     *
+     * <ul>
+     *   <li>the run reached a hazard and the bar moved -- then the low-water mark and the ledger
+     *       are the measurement, and they are the numbers a claim rests on;</li>
+     *   <li>the run reached no hazard -- then this row is an isolation check, and a task that
+     *       wanted to measure survival has to plant the hazard itself. T20 does, and
+     *       {@code TheSurvivalRowDetectsAPlantedHazardTest} is where that is proved.</li>
+     * </ul>
+     *
+     * <p>Either way the ledger is printed, so the report carries the evidence rather than the
+     * conclusion.
+     */
+    private static String survivalFact(SimWorld w) {
+        return w.anyHazard()
+                ? String.format(java.util.Locale.ROOT,
+                        "survival: MEASURED -- the health bar's low point was %.1f against a %.1f"
+                                + " floor, and %s",
+                        w.minimumHealth(), NORTH_STAR_HEALTH, w.survival().ledger())
+                : String.format(java.util.Locale.ROOT,
+                        "survival: NOT MEASURED -- no hazard was reached on this run, so the bar"
+                                + " never left %.1f and this row is an isolation check (nothing"
+                                + " damaged the player) rather than a claim that the player"
+                                + " survived one",
+                        w.minimumHealth());
     }
 
     /** A flat plain of stone at y=63, so stances are at y=64, with the player facing north. */
@@ -721,9 +814,15 @@ public final class EvalSuite {
             h.ticks(20);
             boolean dry = w.posZ() < 10.0D && !"water".equals(w.blockAt(
                     (int) Math.floor(w.posX()), (int) Math.floor(w.posY()), (int) Math.floor(w.posZ())));
-            boolean alive = w.health() > 0.0D;
+            boolean alive = survived(w);
+            // The bar can now move, so this is the row that can go red: the lake is deep enough
+            // to drown in and 80+20 ticks of standing in it would take 4 half-hearts per breath
+            // (EntityLivingBase:315). Nothing here can prove the warning was worth acting on
+            // unless a run that ignored it WOULD have died, and that run is
+            // TheSurvivalRowDetectsAPlantedHazardTest.
             String stopped = String.format("%s; cancelled at z=%.2f and still dry 20 ticks later"
-                    + " at z=%.2f, health %.1f", warned, zAfterCancel, w.posZ(), w.health());
+                    + " at z=%.2f, health %.1f, %s", warned, zAfterCancel, w.posZ(), w.health(),
+                    survivalFact(w));
             if (!dry) {
                 return new Half(false, stopped + " -- the walk continued into the water anyway");
             }
@@ -944,13 +1043,20 @@ public final class EvalSuite {
             h.runMove(700);
             double dist = w.horizontalDistanceTo(0.5D, -20.5D);
             boolean arrived = dist <= 1.0D;
-            boolean alive = w.health() > 0.0D && w.health() == 3.0D;
+            // The second half of this was `w.health() == 3.0D` against a value this very method
+            // set four lines above, so it was arithmetic on the fixture. It is now the LOW point
+            // of the bar over the whole 700-tick walk: still 3.0 means the walk cost the player
+            // nothing, which is the isolation claim this task actually makes. This world is a
+            // bare plain -- no lava, no water, no drop, no mob -- so it CANNOT detect a death,
+            // and survivalFact(w) now says so in the report instead of the row implying it.
+            boolean alive = survived(w) && w.minimumHealth() == 3.0D;
             boolean grounded = w.onGround() && w.posY() == 64.0D;
             boolean pass = arrived && alive && grounded;
             return new Result(id(), pass, String.format(
-                    "ended %.2f blocks short at (%.2f,%.2f,%.2f) onGround=%s, health=%.1f (was 3.0), %s",
+                    "ended %.2f blocks short at (%.2f,%.2f,%.2f) onGround=%s, health=%.1f (was 3.0),"
+                            + " %s, %s",
                     dist, w.posX(), w.posY(), w.posZ(), w.onGround(), w.health(),
-                    h.phaseOf(ActSlot.MOVE)));
+                    h.phaseOf(ActSlot.MOVE), survivalFact(w)));
         }
     }
 
@@ -1323,7 +1429,12 @@ public final class EvalSuite {
 
             boolean oreIsGone = w.blockAt(ORE_X, ORE_Y, ORE_Z) == null;
             boolean holdingOre = w.count("iron_ore") > 0;
-            boolean alive = w.health() > 0.0D;
+            boolean alive = survived(w);
+            // Not a constant any more. This world has no lava, no water, no drop and no mob, so
+            // `survived(w)` is an isolation check here rather than a survival measurement, and
+            // `survivalFact(w)` in the result says so in those words instead of the row implying
+            // the task checked something it could not check. It CAN go red: the bar it reads is
+            // the low-water mark of a bar that hazards move, and this slice made hazards exist.
             boolean pass = got && oreIsGone && holdingOre && alive;
 
             String verdict = pass
@@ -1331,10 +1442,11 @@ public final class EvalSuite {
                     : "the goal was NOT reached: " + describeFailure(oreIsGone, holdingOre, alive);
             return new Result(id(), pass, String.format(
                     "%s. policy reported %s. ore cell (%d,%d,%d)=%s; iron_ore=%d; health=%.1f;"
-                            + " inventory=%s; end pos=(%.2f,%.2f,%.2f). chain: %s",
+                            + " inventory=%s; end pos=(%.2f,%.2f,%.2f). %s. chain: %s",
                     verdict, got ? "success" : "failure", ORE_X, ORE_Y, ORE_Z,
                     String.valueOf(w.blockAt(ORE_X, ORE_Y, ORE_Z)), w.count("iron_ore"), w.health(),
-                    w.describeInventory(), w.posX(), w.posY(), w.posZ(), policy.traceSummary()));
+                    w.describeInventory(), w.posX(), w.posY(), w.posZ(), survivalFact(w),
+                    policy.traceSummary()));
         }
 
         /** Which world fact is missing, so a failure names the step rather than the task. */
@@ -1442,18 +1554,24 @@ public final class EvalSuite {
 
             boolean gone = w.blockAt(GOLD_X, GOLD_Y, GOLD_Z) == null;
             boolean holding = w.count("gold_ore") > 0;
-            boolean alive = w.health() > 0.0D;
+            boolean alive = survived(w);
+            // Not a constant any more. This world has no lava, no water, no drop and no mob, so
+            // `survived(w)` is an isolation check here rather than a survival measurement, and
+            // `survivalFact(w)` in the result says so in those words instead of the row implying
+            // the task checked something it could not check. It CAN go red: the bar it reads is
+            // the low-water mark of a bar that hazards move, and this slice made hazards exist.
             boolean pass = got && gone && holding && alive;
             return new Result(id(), pass, String.format(java.util.Locale.ROOT,
                     "%s. policy reported %s. gold cell (%d,%d,%d)=%s; gold_ore=%d; iron_ingot=%d;"
                             + " in hand=%s; health=%.1f; inventory=%s; end pos=(%.2f,%.2f,%.2f);"
-                            + " chain: %s",
+                            + " %s; chain: %s",
                     pass ? "the goal was reached"
                             : "the goal was NOT reached: " + describe(gone, holding, alive),
                     got ? "success" : "failure", GOLD_X, GOLD_Y, GOLD_Z,
                     String.valueOf(w.blockAt(GOLD_X, GOLD_Y, GOLD_Z)), w.count("gold_ore"),
                     w.count("iron_ingot"), w.slotName(w.heldSlot()), w.health(),
-                    w.describeInventory(), w.posX(), w.posY(), w.posZ(), policy.traceSummary()));
+                    w.describeInventory(), w.posX(), w.posY(), w.posZ(), survivalFact(w),
+                    policy.traceSummary()));
         }
 
         private static String describe(boolean gone, boolean holding, boolean alive) {
@@ -1534,7 +1652,20 @@ public final class EvalSuite {
 
             boolean gone = w.blockAt(ORE_X, ORE_Y, ORE_Z) == null;
             boolean holding = w.count("cobblestone") > 0;
-            boolean alive = w.health() > 0.0D;
+            // THE row this task exists for. It used to be `w.health() > 0.0D`, and health was a
+            // fixture value no hazard in this world could write, so it evaluated `20.0 > 0.0` in
+            // every world including one where the band is a decorative purple block. The only
+            // assertion here that actually worked was `inLava == 0`, read off a posTrace the same
+            // code appends unconditionally.
+            //
+            // Now the band is lethal (Entity.setOnFireFromLava:543 deals 4.0F, the burn at
+            // Entity:501 deals 1.0F every 20 ticks, and the hurt window at ELB:896 throttles both),
+            // so these are two real comparisons against a bar the loop can move:
+            //   neverBelowNorthStar -- the project's own claim, "health never below 18"
+            //   survived           -- the weaker floor, so a run that dipped to 12 and lived
+            //                          still fails the north-star row and says so
+            boolean alive = survived(w);
+            boolean heldNorthStar = neverBelowNorthStar(w);
             int inLava = cellsOccupiedBy(w, "lava", LAVA_X0, 64, LAVA_Z0, LAVA_X1, 64, LAVA_Z1);
             int lineBlocked = lineCellsHolding(w, "lava", SPAWN_X, SPAWN_Z, ORE_X, ORE_Z, 64);
             double straight = Math.hypot(ORE_X - SPAWN_X, ORE_Z - SPAWN_Z);
@@ -1542,23 +1673,87 @@ public final class EvalSuite {
             // The self-check is in the pass condition on purpose. Without it, an edit that moved the
             // band a block sideways would leave a green row that had quietly stopped testing
             // anything, because a straight line across clear ground is also "no ticks in lava".
-            boolean pass = got && gone && holding && alive && inLava == 0 && lineBlocked > 0;
+            // `lavaTicks` joins it: the damage's OWN counter, not a scan of the trace, and it is
+            // what would have to be non-zero for any of the rows above to mean anything.
+            int lavaTicks = w.ticksInLava();
+            boolean pass = got && gone && holding && alive && heldNorthStar && inLava == 0
+                    && lavaTicks == 0 && lineBlocked > 0;
+            String northStar = heldNorthStar
+                    ? String.format(java.util.Locale.ROOT, "the health bar never went below %.1f",
+                            NORTH_STAR_HEALTH)
+                    : String.format(java.util.Locale.ROOT,
+                            "the health bar fell to %.1f, below the %.1f floor, while the goal was"
+                                    + " being reached -- the walk survived and the night is not"
+                                    + " the shape the project asks for",
+                            w.minimumHealth(), NORTH_STAR_HEALTH);
             return new Result(id(), pass, String.format(java.util.Locale.ROOT,
                     "%s. policy reported %s. outcrop cell (%d,%d,%d)=%s; cobblestone=%d;"
-                            + " health=%.1f; ticks with the body in a lava cell=%d; the straight line"
-                            + " is %.1f blocks and crosses %d lava cell(s), while the walk changed"
-                            + " cell %d time(s); end pos=(%.2f,%.2f,%.2f); chain: %s",
+                            + " health=%.1f; the health bar's low point was %.1f of a %.1f floor and"
+                            + " %s; the damage rules recorded %d tick(s) inside the lava band and"
+                            + " %s; the straight line is %.1f blocks and crosses %d lava cell(s),"
+                            + " while the walk changed cell %d time(s); end pos=(%.2f,%.2f,%.2f);"
+                            + " chain: %s",
                     pass ? "the goal was reached and the walk went around a lethal straight line"
-                            : "the goal was NOT reached: " + describe(gone, holding, alive, inLava,
-                                    lineBlocked),
+                            : "the goal was NOT reached: " + describe(gone, holding, alive,
+                                    heldNorthStar, w.minimumHealth(), inLava, lavaTicks, lineBlocked),
                     got ? "success" : "failure", ORE_X, ORE_Y, ORE_Z,
                     String.valueOf(w.blockAt(ORE_X, ORE_Y, ORE_Z)), w.count("cobblestone"),
-                    w.health(), inLava, straight, lineBlocked, walked, w.posX(), w.posY(), w.posZ(),
+                    w.health(), w.minimumHealth(), NORTH_STAR_HEALTH, northStar, lavaTicks,
+                    w.survival().ledger(), straight, lineBlocked, walked, w.posX(), w.posY(), w.posZ(),
                     policy.traceSummary()));
         }
 
-        private static String describe(boolean gone, boolean holding, boolean alive, int inLava,
-                int lineBlocked) {
+        /**
+         * The negative control, in the shape the runner consumes it: this task's world, this
+         * task's rows, and the straight line as the only route.
+         *
+         * <p><b>Why this lives here rather than in the test.</b> A control that builds its own
+         * copy of the pass condition is not a control on the suite -- it is a second suite, and
+         * the two drift. This method is the ONE place the planted run exists, and it reuses the
+         * exact rows {@link #run()} uses, so {@code TheSurvivalRowDetectsAPlantedHazardTest} is
+         * asserting about this class's behaviour rather than about a re-implementation of it.
+         *
+         * <p>The only difference from {@link #run()} is the instruction: a {@link NavIntent}
+         * naming a goal on the far side of the band, so the planner is handed the lethal straight
+         * line as the route. Same cells, same band, same outcrop, same assertions.
+         *
+         * @return a failing {@link Result} whose fact names the death, or one that says the plant
+         *         did not take -- which is itself the finding, so it is returned rather than thrown
+         */
+        static Result plantedHazardRun() {
+            SimWorld w = new SimWorld().plain(64, "dirt", -24, 23, LAVA_Z0, 20)
+                    .standOn(SPAWN_X, 64, SPAWN_Z).facing(0f).atHealth(20.0D);
+            w.box(LAVA_X0, 64, LAVA_Z0, LAVA_X1, 64, LAVA_Z1, "lava");
+            w.box(ORE_X, ORE_Y, ORE_Z, ORE_X + 1, ORE_Y, ORE_Z + 1, "stone");
+            w.give(0, "stone_pickaxe", 1);
+
+            EvalHarness h = new EvalHarness(w);
+            h.runtime().submitNav(new NavIntent(20.5D, ORE_Y, ORE_Z, 600));
+            h.runMove(900);
+
+            // The same five rows run() scores, read off the same accessors.
+            boolean holding = w.count("cobblestone") > 0;
+            boolean alive = survived(w);
+            boolean heldNorthStar = neverBelowNorthStar(w);
+            int inLava = cellsOccupiedBy(w, "lava", LAVA_X0, 64, LAVA_Z0, LAVA_X1, 64, LAVA_Z1);
+            int lavaTicks = w.ticksInLava();
+            boolean pass = holding && alive && heldNorthStar && inLava == 0 && lavaTicks == 0;
+            return new Result("T20-negative-control planted_hazard_on_the_only_route", pass,
+                    String.format(java.util.Locale.ROOT,
+                            "the hazard was planted by aiming the goal at the far side of the band,"
+                                    + " so the lethal straight line was the only route. health=%.1f,"
+                                    + " low point=%.1f of a %.1f floor; the damage rules recorded"
+                                    + " %d tick(s) in the band and %s; the pass condition returned"
+                                    + " %s",
+                            w.health(), w.minimumHealth(), NORTH_STAR_HEALTH, lavaTicks,
+                            w.survival().ledger(), pass)
+                            + (pass ? ""
+                            : " -- " + describe(true, holding, alive, heldNorthStar,
+                                    w.minimumHealth(), inLava, lavaTicks, 1)));
+        }
+
+        private static String describe(boolean gone, boolean holding, boolean alive,
+                boolean heldNorthStar, double lowest, int inLava, int lavaTicks, int lineBlocked) {
             List<String> missing = new java.util.ArrayList<>();
             if (!gone) {
                 missing.add("the stone was never broken");
@@ -1567,10 +1762,21 @@ public final class EvalSuite {
                 missing.add("the player holds no cobblestone");
             }
             if (!alive) {
-                missing.add("the player died");
+                missing.add("the player died: the health bar reached 0 with lava standing next to"
+                        + " the route, and this row was a comparison against a value nothing could"
+                        + " move until this slice");
+            } else if (!heldNorthStar) {
+                missing.add(String.format(java.util.Locale.ROOT,
+                        "the player lived but the health bar fell to %.1f, under the %.1f floor:"
+                                + " the north-star claim is 'never below 18' and this run broke it",
+                        lowest, NORTH_STAR_HEALTH));
             }
             if (inLava > 0) {
                 missing.add("the walk spent " + inLava + " tick(s) inside the lava band");
+            }
+            if (lavaTicks > 0) {
+                missing.add("the damage rules themselves saw the body in lava on " + lavaTicks
+                        + " tick(s), so the band was entered and only the trace scan disagreed");
             }
             if (lineBlocked == 0) {
                 missing.add("the straight line from the spawn to the outcrop crosses no lava at"
@@ -1638,7 +1844,12 @@ public final class EvalSuite {
             int logsSpent = logsBefore - logsAfter;
             int held = w.count("cobblestone");
             boolean holding = held > 0;
-            boolean alive = w.health() > 0.0D;
+            boolean alive = survived(w);
+            // Not a constant any more. This world has no lava, no water, no drop and no mob, so
+            // `survived(w)` is an isolation check here rather than a survival measurement, and
+            // `survivalFact(w)` in the result says so in those words instead of the row implying
+            // the task checked something it could not check. It CAN go red: the bar it reads is
+            // the low-water mark of a bar that hazards move, and this slice made hazards exist.
             // The economy claim, on the block grid: the outcrop was spent no more than the goal
             // itself consumed, and a tool was built out of the cheap material.
             //
@@ -1657,14 +1868,15 @@ public final class EvalSuite {
             return new Result(id(), pass, String.format(java.util.Locale.ROOT,
                     "%s. policy reported %s. cobblestone=%d; health=%.1f; outcrop cells spent=%d"
                             + " of %d; log cells spent=%d of %d; in hand=%s; inventory=%s;"
-                            + " end pos=(%.2f,%.2f,%.2f); chain: %s",
+                            + " end pos=(%.2f,%.2f,%.2f); %s; chain: %s",
                     pass ? "the goal was reached on the cheap route: the outcrop paid for the goal"
                             + " and the tool came from the logs"
                             : "the goal was NOT reached the cheap way: "
                                     + describe(holding, alive, stoneSpent, logsSpent, held),
                     got ? "success" : "failure", held, w.health(), stoneSpent,
                     stoneBefore, logsSpent, logsBefore, w.slotName(w.heldSlot()),
-                    w.describeInventory(), w.posX(), w.posY(), w.posZ(), policy.traceSummary()));
+                    w.describeInventory(), w.posX(), w.posY(), w.posZ(), survivalFact(w),
+                    policy.traceSummary()));
         }
         private static String describe(boolean holding, boolean alive, int stoneSpent,
                 int logsSpent, int held) {
@@ -1755,19 +1967,24 @@ public final class EvalSuite {
             int ladders = w.count("ladder");
             int logsLeft = countBlocks(w, "log", LOG_X0, 64, LOG_Z0, LOG_X1, 64, LOG_Z1);
             int logsTotal = (LOG_X1 - LOG_X0 + 1) * (LOG_Z1 - LOG_Z0 + 1);
-            boolean alive = w.health() > 0.0D;
+            boolean alive = survived(w);
+            // Not a constant any more. This world has no lava, no water, no drop and no mob, so
+            // `survived(w)` is an isolation check here rather than a survival measurement, and
+            // `survivalFact(w)` in the result says so in those words instead of the row implying
+            // the task checked something it could not check. It CAN go red: the bar it reads is
+            // the low-water mark of a bar that hazards move, and this slice made hazards exist.
             boolean placedAndUsed = tablesStanding == 1 && tableItems == 0 && ladders > 0;
             boolean pass = got && placedAndUsed && alive;
             return new Result(id(), pass, String.format(java.util.Locale.ROOT,
                     "%s. policy reported %s. ladder=%d; crafting tables standing=%d; crafting-table"
                             + " items still in the bag=%d; logs left=%d of %d; health=%.1f;"
-                            + " inventory=%s; end pos=(%.2f,%.2f,%.2f); chain: %s",
+                            + " inventory=%s; end pos=(%.2f,%.2f,%.2f); %s; chain: %s",
                     pass ? "the ladder exists and a bench was placed and opened to make it"
                             : "the goal was NOT reached: " + describe(ladders, tablesStanding,
                                     tableItems, alive),
                     got ? "success" : "failure", ladders, tablesStanding, tableItems, logsLeft,
                     logsTotal, w.health(), w.describeInventory(), w.posX(), w.posY(), w.posZ(),
-                    policy.traceSummary()));
+                    survivalFact(w), policy.traceSummary()));
         }
 
         private static String describe(int ladders, int tablesStanding, int tableItems,
@@ -1840,16 +2057,21 @@ public final class EvalSuite {
                     T21CountBeforeYouSpend.LOG_Z1);
             int freeAfter = freeSlots(w);
             int holding = w.count("cobblestone");
-            boolean alive = w.health() > 0.0D;
+            boolean alive = survived(w);
+            // Not a constant any more. This world has no lava, no water, no drop and no mob, so
+            // `survived(w)` is an isolation check here rather than a survival measurement, and
+            // `survivalFact(w)` in the result says so in those words instead of the row implying
+            // the task checked something it could not check. It CAN go red: the bar it reads is
+            // the low-water mark of a bar that hazards move, and this slice made hazards exist.
             boolean pass = got && holding > 0 && alive;
             return new Result(id(), pass, String.format(java.util.Locale.ROOT,
                     "%s. policy reported %s. cobblestone=%d; free inventory slots %d -> %d of 36;"
-                            + " log cells removed from the world=%d; health=%.1f; chain: %s",
+                            + " log cells removed from the world=%d; health=%.1f; %s; chain: %s",
                     pass ? "the goal was reached with a full bag"
                             : "the goal was NOT reached: " + describe(holding, alive, logsBefore,
                                     logsAfter, freeAfter),
                     got ? "success" : "failure", holding, freeBefore, freeAfter,
-                    logsBefore - logsAfter, w.health(), policy.traceSummary()));
+                    logsBefore - logsAfter, w.health(), survivalFact(w), policy.traceSummary()));
         }
 
         private static String describe(int holding, boolean alive, int logsBefore, int logsAfter,
@@ -1973,7 +2195,7 @@ public final class EvalSuite {
             long startedAt = w.worldTime();
             boolean legOneArrived = h.runUntil(ActSlot.MOVE, 400);
             long endedAfterLegOne = w.worldTime();
-            boolean aliveAfterLegOne = w.health() > 0.0D;
+            boolean aliveAfterLegOne = survived(w);
 
             // ---------- the night, waited out rather than assumed ----------
             //
@@ -2005,7 +2227,12 @@ public final class EvalSuite {
             h.submit(new RouteIntent(LEG_TWO_GOAL_X, 64, LEG_TWO_GOAL_Z, 64));
             boolean legTwoArrived = h.runUntil(ActSlot.MOVE, 400);
             long endedAt = w.worldTime();
-            boolean alive = w.health() > 0.0D;
+            boolean alive = survived(w);
+            // Not a constant any more. This world has no lava, no water, no drop and no mob, so
+            // `survived(w)` is an isolation check here rather than a survival measurement, and
+            // `survivalFact(w)` in the result says so in those words instead of the row implying
+            // the task checked something it could not check. It CAN go red: the bar it reads is
+            // the low-water mark of a bar that hazards move, and this slice made hazards exist.
             boolean atGoal = Math.abs(w.posX() - LEG_TWO_GOAL_X) < 1.0D
                     && Math.abs(w.posZ() - LEG_TWO_GOAL_Z) < 1.0D;
 
@@ -2034,7 +2261,9 @@ public final class EvalSuite {
                             + " health=%.1f; end pos=(%.2f,%.2f,%.2f)."
                             + " CONTROL: the same world with doDaylightCycle off ran past dawn and"
                             + " reached worldTime=%d still in daylight=%s -- so the night above was"
-                            + " the CLOCK arriving and not the fixture asserting it. %s",
+                            + " the CLOCK arriving and not the fixture asserting it."
+                            + " This run stood still on a bare plain for %d ticks of night, so:"
+                            + " %s. %s",
                     pass ? "a night is now a thing this suite can assert about"
                             : "the night did not become an assertable fact: "
                                     + describe(startedInDay, legOneArrived, nightCame, dawnCame,
@@ -2043,7 +2272,8 @@ public final class EvalSuite {
                     LEG_ONE_GOAL_X, LEG_ONE_GOAL_Z, startedAt, endedAfterLegOne, legOneArrived,
                     atDusk, DUSK, atDawn, DAWN, ticksUntilDawn, LEG_TWO_GOAL_X, LEG_TWO_GOAL_Z,
                     isDarkBeforeLegTwo, legTwoArrived, endedAt, w.health(), w.posX(), w.posY(),
-                    w.posZ(), controlClock, controlStayedDay, whatThisCannotShow()));
+                    w.posZ(), controlClock, controlStayedDay, (int) (DAWN - startedAt),
+                    survivalFact(w), whatThisCannotShow()));
         }
 
         /** Which world fact is missing, so a failure names the step rather than the task. */

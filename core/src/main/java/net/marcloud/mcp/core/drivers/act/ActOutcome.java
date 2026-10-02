@@ -41,7 +41,8 @@ public record ActOutcome(ActPhase state, boolean terminal, boolean ok, String me
     // Five constants, and the point of naming them is that the DERIVATION becomes statically
     // visible at the site instead of living in a comment. Each factory call in this package states
     // which derivation its sentence rests on, and the reflection test in
-    // `AEveryOutcomeSiteStatesItsDerivationTest` fails on one that states none. That is the whole
+    // `ABeliefCensusOverTheActScenariosTest.everyOutcomeSiteInTheActLayerStatesItsDerivation`
+    // fails on one that states none. That is the whole
     // difference between "40 sites were graded" as a claim in a report and as a property of the
     // tree.
     //

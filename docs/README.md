@@ -47,7 +47,7 @@ dwm **不是**已完结:底层钉死,产品页还可以写。
 | 文档 | 内容 |
 |---|---|
 | `agency/command-to-action.md` | §1 已建好什么(别重建) · §4 关键路径 · §5 Fork |
-| `agency/guarantees.md` | 本轮 30 条保证的 `file:line` + **强制它的测试类**(或明写 unenforced)· 四个测量仪器各自抓什么/瞎什么 · **surefire 收不到测试的坑**(实测 316/294/22) · 仍然测不到的四条北极星判据 · 「不要做这个」清单 |
+| `agency/guarantees.md` | 38 条保证的 `file:line` + **强制它的测试类**(每个 `file:line` 都亲自读过,查不到就写 unenforced)· 五个测量仪器各自抓什么/瞎什么 · §1e 时钟:客户端曾经**永远**回答「白天」,dusk 13807 / dawn 22193 实测 · §0.1 测试数(1883)的分解(哪几条是实测、哪几条是历史) · **surefire 收不到测试的坑**(实测 323/300/23) · §3.4 `.lwjgl/` 等无产出物的忽略项 · 仍然测不到的四条北极星判据 · 「不要做这个」清单 |
 
 会话交接不进 git。工作站:`.ai-notes/docs/project/handoff/`。
 
@@ -82,6 +82,7 @@ dwm **不是**已完结:底层钉死,产品页还可以写。
 | 算路代码在哪 | `core/src/main/java/net/marcloud/mcp/core/drivers/plan/` |
 | 「这条保证有人测吗」 | `agency/guarantees.md` §1(每行给 `file:line` + 测试类,查不到就写 unenforced) |
 | 我新写的测试会被收集吗 | `agency/guarantees.md` §3(**契约测试文件名必须以 `Test` 结尾**;helper 和 `*LiveIT` 不许改) |
+| 「现在几点、天亮了吗」 | `agency/guarantees.md` §1e(别读 `World.isDaytime()`,客户端上它是冻结的) |
 | 空转断言怎么证伪 | `scripts/mutate.py` |
 | 真机陷阱(熔断 / 失焦 / 死玩家) | `debugging.md` §10 |
 | Fork 还没拍的 | `agency/command-to-action.md` §5 |

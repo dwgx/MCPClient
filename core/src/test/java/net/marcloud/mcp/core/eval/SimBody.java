@@ -50,6 +50,17 @@ final class SimBody {
     boolean collidedHorizontally;
     /** {@code Entity.fallDistance}, maintained exactly as {@code updateFallState:1034-1055} does. */
     double fallDistance;
+    /**
+     * The {@code fallDistance} the body was carrying on the tick it landed, which is the argument
+     * vanilla hands to {@code fall()} at {@code Entity.updateFallState:1046}.
+     *
+     * <p>Recorded rather than recomputed because the value is destroyed on the very line that
+     * captures it: vanilla zeroes {@code fallDistance} in the same branch that calls {@code fall},
+     * and so does the transcription below. A caller that wanted the landing distance afterwards
+     * would find zero, which is exactly the number a fall that happened and a fall that did not
+     * both report. Zero here means "this body did not land from a fall".
+     */
+    double landedFrom;
 
     /**
      * {@code EntityPlayer.isSneaking()} read DURING this tick's move, which is when the edge guard
@@ -183,6 +194,7 @@ final class SimBody {
         // Entity.updateFallState:1034-1055, with the motion actually applied rather than the one
         // asked for: accumulate downward travel, and clear on the tick the body lands.
         if (onGround) {
+            landedFrom = fallDistance;
             fallDistance = 0.0D;
         } else if ((ny - y) < 0.0D) {
             fallDistance -= (ny - y);

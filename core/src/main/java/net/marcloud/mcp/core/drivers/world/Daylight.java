@@ -29,7 +29,8 @@ import net.minecraft.util.MathHelper;
  * <p><b>No {@code World} parameter, by construction.</b> Every method here is arithmetic on a
  * {@code long}. There is no field to cache into and no seam through which a world read could
  * enter, so this class is structurally incapable of becoming a second frozen read -- and
- * {@code TheDaylightHelperCannotReadTheWorldTest} proves that from the compiled bytecode rather
+ * {@code TheClockCostsTheWalkNoWorldReadTest.theDaylightHelperContainsNoWorldCallAtAll} proves
+ * that from the compiled bytecode rather
  * than from this sentence. The alternative (a helper taking the world and calling
  * {@code w.isDaytime()}) would have been a one-line fix that reproduced the defect exactly.
  *
