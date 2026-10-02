@@ -296,23 +296,32 @@ public final class ActTools {
                         + "'dig' (they are how a PLACEMENT aims). 'drop' is the one kind that acts "
                         + "on the PLAYER rather than the world: it throws the whole stack in the "
                         + "named 'slot' out onto the floor, and confirms afterwards by re-reading "
-                        + "that slot rather than reporting the click as sent.",
+                        + "that slot rather than reporting the click as sent. 'face' is OPTIONAL on "
+                        + "'dig' and REQUIRED on 'place', and a value outside 0-5 is REFUSED on both "
+                        + "rather than rounded to the nearest side -- see the 'face' property, which "
+                        + "says why one and not the other.",
                 props(
                         "kind", enumField("which interaction.", "dig", "use", "place", "attack",
                                 "hotbar", "drop", "hold", "block", "release"),
                         "block", coord("the target block. Read by 'dig' and 'place' only."),
-                        "face", field("integer", "which side: 0=down 1=up 2=north(z-) 3=south(z+) "
-                                + "4=west(x-) 5=east(x+). Read by 'dig' and 'place' only.",
+                        "face", field("integer", "which side of the block, 0=down 1=up 2=north(z-) "
+                                + "3=south(z+) 4=west(x-) 5=east(x+). Read by 'dig' and 'place' only. "
+                                + "A value outside 0-5 is REFUSED, not rounded: for 'place' the face "
+                                + "decides WHICH CELL the new block goes in, so a guess puts a block "
+                                + "where nobody asked. OMITTABLE on 'dig' (it breaks the block it "
+                                + "names whichever side you approach from, and the reply tells you "
+                                + "when a default was used) and REQUIRED on 'place', where no side "
+                                + "is a safe default.",
                                 "minimum", 0, "maximum", 5),
                         "entityId", field("integer", "target entity. Read by 'attack' only."),
-                        "attack", field("string", "'attack' only, optional: 'plain' (default, swing "
+                        "attack", enumField("'attack' only, optional: 'plain' (default, swing "
                                 + "now) or 'crit' (WAIT for the falling instant a critical hit needs "
                                 + "-- off the ground, fallDistance > 0, not on a ladder, not in "
                                 + "water -- then swing there, and REFUSE rather than swing on flat "
                                 + "ground). The 1.5x is the server's to apply (EntityPlayer:1335) and "
                                 + "no packet reports it back, so 'crit' is a timed swing, NOT a "
                                 + "confirmed crit. To use it, jump on the MOVE slot and attack as the "
-                                + "body starts down."),
+                                + "body starts down.", "plain", "crit"),
                         "hotbarSlot", field("integer", "slot 0-8. Read by 'hotbar' only.",
                                 "minimum", 0, "maximum", 8),
                         "slot", field("integer", "'drop' only: the PLAYER inventory slot 0-35 to "
@@ -426,15 +435,24 @@ public final class ActTools {
                         + "While a use is held vanilla also scales walking to 0.2x (unless riding), "
                         + "so a MOVE running at the same time will travel far less than its own "
                         + "report suggests. "
-                        + "Returns accepted, tickNow, per-slot effectiveTick, and per-slot phase "
-                        + "under 'perSlot'. perSlot is the phase BEFORE the intent has run -- it is "
-                        + "read at SUBMIT time, so on a successful submit it is ALWAYS IDLE and says "
-                        + "NOTHING about the seam's health or the intent's fate. The seam signal is "
-                        + "the 'tickNow' in this same reply: the one game clock, the same value "
-                        + "clock_now reports (monotonic, 0 before the first tick / if the tick seam "
-                        + "is not armed), so a tickNow of 0, or one that does not grow between two "
-                        + "calls, is a dead seam rather than a wrong intent. For the outcome read "
-                        + "act_status one or more ticks later; its phase is the one that moves.")
+                        + "Returns accepted, tickNow, seamArmed, runnable, assumptions, per-slot "
+                        + "effectiveTick, and per-slot phase under 'perSlot'. READ seamArmed FIRST: "
+                        + "false means the tick seam has never run a single tick, so EVERY intent in "
+                        + "this reply is stored and will sit at IDLE forever no matter how correct it "
+                        + "was. That is a dead act layer, not a slow one, and seam_tick_enable is "
+                        + "what arms it. seamArmed is false exactly when tickNow is 0 -- the one game "
+                        + "clock, the same value clock_now reports (monotonic, 0 before the first tick "
+                        + "/ if the tick seam is not armed) -- so you do not have to compare two calls "
+                        + "to find out. 'runnable' is that same fact per slot and is a PREDICTION, not "
+                        + "an observation: true means the seam should step it, not that it has. "
+                        + "'assumptions' lists in words anything the tool decided on your behalf "
+                        + "(today: the facing of a dig sent without a 'face'); an empty list means it "
+                        + "chose nothing for you. With seamArmed true, accepted:true then means "
+                        + "exactly what it says -- the intent is in the slot -- and for the outcome "
+                        + "read act_status one or more ticks later; its phase is the one that moves. "
+                        + "'perSlot' is the phase BEFORE the intent has run -- it is read at SUBMIT "
+                        + "time, so on a successful submit it is ALWAYS IDLE and says NOTHING about "
+                        + "the seam's health or the intent's fate.")
                 .inputSchema(actSetInputSchema())
                 .annotations(ToolAnnotations.builder()
                         .title("Set actuation intents")
@@ -501,9 +519,44 @@ public final class ActTools {
                 perSlot.put("interact", r.phase().name());
             }
 
+            long tickNow = runtime.status().tickNow();
+            // F4. What the reply says about whether the intent WILL run.
+            //
+            // The three outcomes -- accepted and running, refused, and accepted into a slot nothing
+            // is stepping -- used to share one byte string, because `accepted` is true for two of them
+            // and `perSlot` is read at SUBMIT time so it is IDLE on both. A model reading `accepted:
+            // true` believed the player was walking, and the player was not: the tick seam had never
+            // been armed, so the intent sat in its slot forever.
+            //
+            // Two fields, and the split is deliberate. `seamArmed` is the ONE thing submit can
+            // actually observe: the game clock is at 0, so no tick has ever completed and nothing
+            // will step these slots. It is a READ of a value that already exists in this reply, not
+            // an inference across two calls, which is what the old description asked the model to
+            // do. And it is reported as its own boolean rather than left for a reader to derive from
+            // `tickNow == 0`, because deriving it is exactly the step a weak model skips.
+            //
+            // `runnable` is per slot and honest about being a PREDICTION: false means this seam will
+            // not step it, true means it should and has NOT been observed to. It is deliberately not
+            // named `ok` or `active`, because a slot at effectiveTick N+1 genuinely has not run yet
+            // and a field claiming otherwise would be the same defect one level down.
+            boolean seamArmed = tickNow > 0;
+            Map<String, Object> runnable = new LinkedHashMap<>();
+            for (String slot : perSlot.keySet()) {
+                runnable.put(slot, seamArmed);
+            }
+
             Map<String, Object> out = new LinkedHashMap<>();
             out.put("accepted", true);
-            out.put("tickNow", runtime.status().tickNow());
+            out.put("tickNow", tickNow);
+            // Only ever false, and that is the point: a model can branch on this without comparing
+            // two calls. A refusal never reaches this reply (it is isError with a reason), so
+            // `accepted: true` now means exactly one thing -- the intent is in the slot.
+            out.put("seamArmed", seamArmed);
+            out.put("runnable", runnable);
+            // Whatever the tool decided on the caller's behalf, in words. Absent-on-purpose as an
+            // empty list rather than omitted: an empty list says "we looked and chose nothing",
+            // which is a different answer from a field that is not there at all.
+            out.put("assumptions", ActIntentParser.defaultsApplied(interactArg));
             out.put("effectiveTick", effectiveTick);
             out.put("perSlot", perSlot);
             return ok(Json.write(out));
@@ -824,16 +877,14 @@ public final class ActTools {
                 .description("[requires: in-world, -javaagent] Cancel actuation channels. The teardown "
                         + "runs on the tick seam like everything else here, so without the seam armed "
                         + "a cancel cannot complete either -- check act_status.tickNow. "
-                        + "'slots' is the string \"all\" (cancel every "
-                        + "slot, and cancel a running act_plan) or an array of slot names "
-                        + "('move'|'look'|'interact'). Omitting 'slots' "
-                        + "cancels all. A live intent is flagged for a clean teardown on its next game "
-                        + "tick before it ends CANCELLED; an idle/terminal slot is reset. Returns the "
-                        + "list of slots for which a LIVE intent was flagged.")
-                .inputSchema(objectSchema(Map.of(
-                        "slots", Map.of("type", "array", "items", Map.of("type", "string"),
-                                "description", "slot names to cancel, or the string \"all\" (default all)")),
-                        List.of()))
+                        + "'slots' is EITHER the string \"all\" -- cancel every slot, and cancel a "
+                        + "running act_plan -- or an array of slot names "
+                        + "('move'|'look'|'interact'). Omitting 'slots' cancels all. A live intent is "
+                        + "flagged for a clean teardown on its next game tick before it ends "
+                        + "CANCELLED; an idle/terminal slot is reset. Returns the list of slots for "
+                        + "which a LIVE intent was flagged -- an empty list means there was nothing "
+                        + "live to cancel, which is not the same as a cancel that succeeded.")
+                .inputSchema(objectSchema(Map.of("slots", cancelSlotsSchema()), List.of()))
                 .annotations(ToolAnnotations.builder()
                         .title("Cancel actuation intents")
                         .readOnlyHint(false)
@@ -861,8 +912,9 @@ public final class ActTools {
                     }
                     ActSlot slot = parseSlot(o.toString());
                     if (slot == null) {
-                        return error("act_cancel: unknown slot '" + o
-                                + "' (want move|look|interact or \"all\")");
+                        return error("act_cancel: unknown slot '" + o + "' -- an ARRAY names slots "
+                                + "individually (" + slotNames() + "). To cancel every slot pass the "
+                                + "bare string \"all\" as 'slots' itself, not as an element");
                     }
                     if (runtime.cancel(slot)) {
                         cancelled.add(slot.name().toLowerCase(Locale.ROOT));
@@ -876,6 +928,61 @@ public final class ActTools {
             out.put("cancelled", cancelled);
             return ok(Json.write(out));
         });
+    }
+
+    /**
+     * {@code slots} as the handler ACTUALLY accepts it: the string {@code "all"}, or an array of
+     * slot names.
+     *
+     * <p><b>This was the recovery tool's own documented form being rejected at the boundary.</b>
+     * The schema said {@code {"type":"array"}} while the description, the handler's
+     * {@link #isAll} branch and the handler's own error text all said the string {@code "all"}
+     * was valid -- and {@code IoProbe} enforces {@code type} before dispatch, so a model sending
+     * exactly what the tool told it to send got a schema rejection and never reached the code that
+     * would have honoured it. On the tool an agent reaches for <i>when something has gone
+     * wrong</i>, that is the worst possible place for the documented recovery to be unsendable.
+     *
+     * <p><b>Why {@code oneOf} and not a widened {@code type}.</b> JSON Schema has no
+     * "array or this one string", and the alternative that would type-check at L7 -- making the
+     * property untyped -- would remove the array check from {@code IoProbe} entirely and leave the
+     * handler as the only gate. Declaring both branches keeps the slot names an {@code enum} a
+     * model can be handed by completion, and leaves the type gate where it was for every tool that
+     * has not opted into this shape.
+     *
+     * <p>The description sits ONCE on this node, not on either branch: repeating it would put the
+     * same sentence in the tools/list payload twice over, which is what
+     * {@code DescriptionsNameToolsThatExistTest} exists to catch.
+     */
+    private static Map<String, Object> cancelSlotsSchema() {
+        Map<String, Object> array = new LinkedHashMap<>();
+        array.put("type", "array");
+        array.put("items", Map.of("type", "string", "enum", slotNameList()));
+
+        Map<String, Object> all = new LinkedHashMap<>();
+        all.put("type", "string");
+        all.put("enum", List.of("all"));
+
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("description", "EITHER the string \"all\" -- cancel every slot and cancel a running "
+                + "act_plan -- or an array of slot names to cancel (" + slotNames() + "). Omitting "
+                + "it cancels all. Note the two shapes: \"all\" is the value of 'slots' ITSELF, "
+                + "never an element of the array.");
+        m.put("oneOf", List.of(array, all));
+        return m;
+    }
+
+    /** The slot names as they appear in the schema's enum, derived from the enum itself. */
+    private static List<String> slotNameList() {
+        List<String> names = new ArrayList<>(ActSlot.values().length);
+        for (ActSlot slot : ActSlot.values()) {
+            names.add(slot.name().toLowerCase(Locale.ROOT));
+        }
+        return names;
+    }
+
+    /** The same names in the pipe-separated form a refusal quotes. */
+    private static String slotNames() {
+        return String.join("|", slotNameList());
     }
 
     private static boolean isAll(Object v) {

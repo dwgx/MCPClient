@@ -1,6 +1,8 @@
 package net.marcloud.mcp.core.drivers.act;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -62,6 +64,15 @@ public final class ActIntentParser {
             return null;
         }
         if (v instanceof List<?> l) {
+            if (l.isEmpty()) {
+                // An empty list IS a list of numbers -- of none of them -- so the sentence below
+                // would be about the wrong thing: it told the caller "[] is not a list of
+                // numbers", sending them to check a shape they had already got right, when what
+                // they needed was a coordinate. The shape was never the problem.
+                throw new IllegalArgumentException("act_set move '" + key + "': an empty list is "
+                        + "not a position -- it names no block at all. Send three block "
+                        + "coordinates [x,y,z]. " + toolHint);
+            }
             double[] out = doublesArg(m, key);
             if (out == null) {
                 throw new IllegalArgumentException("act_set move '" + key + "': "
@@ -126,6 +137,45 @@ public final class ActIntentParser {
     };
 
     /**
+     * REFUSE a destination that is not exactly three coordinates, for BOTH move targets.
+     *
+     * <p>{@code go_to} has always refused one and {@code walk_straight} has always accepted it,
+     * filling the missing axes with 0 -- so the SAME malformed call was a clean error on one key
+     * and a walk toward {@code (100, 0, 0)} on the other, inside one tool whose schema declares
+     * {@code minItems: 3} for both ({@code ActTools.coord}). y=0 is 64 blocks under the surface
+     * and neither target steers y at all, so the walk could not even arrive where it aimed. This
+     * is the tool whose own description records that it walked a live player off a 30-block cliff
+     * and drowned them.
+     *
+     * <p>Four coordinates are refused from the same declaration ({@code maxItems: 3}) and for the
+     * same reason: the fourth element would be dropped with no word at all.
+     *
+     * <p><b>Refused rather than corrected</b>, and the reason is not caution. Unlike a value one
+     * step outside a range, a missing axis has no nearest value: 0 is a real coordinate, and on
+     * {@code walk_straight} it is the one that walks the player into the void. A clamp stays near
+     * the request; this would not.
+     */
+    private static void requireTriple(double[] c, String key) {
+        if (c.length == 3) {
+            return;
+        }
+        throw new IllegalArgumentException("'" + key + "' needs three block coordinates [x,y,z] and "
+                + "got " + c.length + " (" + Arrays.toString(c) + "). A coordinate with fewer than "
+                + "three is not a position: the missing axes would be filled with 0, so this would "
+                + "walk toward " + Arrays.toString(padded(c)) + " -- a point you did not name, "
+                + "64 blocks below the surface, and neither target steers y at all, so the walk "
+                + "could not arrive there. Read your real x/y/z from world_view and send all three. "
+                + "More than three is refused from the other side of the same rule: the extra "
+                + "would be dropped without a word");
+    }
+
+    /** The destination as {@code walk_straight} would have read it, so the refusal can show it. */
+    private static double[] padded(double[] c) {
+        return new double[]{c.length > 0 ? c[0] : 0, c.length > 1 ? c[1] : 0, c.length > 2 ? c[2] : 0};
+    }
+
+
+    /**
      * One MOVE-slot intent from an {@code act_set}/{@code act_plan} {@code move} map:
      * {@code go_to}, {@code walk_straight}, or raw axes. {@code go_to} and {@code walk_straight}
      * together are refused rather than guessed, and the pre-rename {@code route}/{@code to} are
@@ -142,9 +192,11 @@ public final class ActIntentParser {
                     + "they are two answers to the same question and the MOVE slot holds one "
                     + "intent. If you have not checked the line, 'go_to' is the one you want");
         }
-        if (goTo != null && goTo.length < 3) {
-            throw new IllegalArgumentException("'go_to' needs three block coordinates [x,y,z]; a "
-                    + "route to a half-specified block is not a request that can be honoured");
+        if (goTo != null) {
+            requireTriple(goTo, "go_to");
+        }
+        if (walk != null) {
+            requireTriple(walk, "walk_straight");
         }
         // One read of `sneak` for both destination forms, before either branch. It used to be read
         // only by parseMove (raw axes), so `sneak` was a key the schema advertised as generally
@@ -160,8 +212,7 @@ public final class ActIntentParser {
                     (int) Math.floor(goTo[1]), (int) Math.floor(goTo[2]), budget, creeping);
         }
         if (walk != null) {
-            return new NavIntent(walk[0], walk.length > 1 ? walk[1] : 0,
-                    walk.length > 2 ? walk[2] : 0, intArg(move, "timeoutTicks", 0), creeping);
+            return new NavIntent(walk[0], walk[1], walk[2], intArg(move, "timeoutTicks", 0), creeping);
         }
         return parseMove(move);
     }
@@ -283,8 +334,12 @@ public final class ActIntentParser {
                                 + "'place'",
                         "hitX", "hitY", "hitZ");
                 int[] b = requireBlock(m, "dig");
-                return InteractIntent.dig(b[0], b[1], b[2], intArg(m, "face", -1));
+                // dig: faceArg bounds it and returns -1 when absent, which DigController reads as
+                // DOWN -- the same block either way, so the default is kept and REPORTED rather
+                // than refused. See requiredFace for why place is the other answer.
+                return InteractIntent.dig(b[0], b[1], b[2], faceArg(m, "dig"));
             }
+
             case "use":
                 // 'use' is the IN-AIR right-click (InteractIntent.useInAir) and has nowhere to put a
                 // block target, so one supplied here is REFUSED rather than dropped. Silently ignoring
@@ -302,7 +357,7 @@ public final class ActIntentParser {
                 return InteractIntent.useInAir();
             case "place": {
                 int[] b = requireBlock(m, "place");
-                return InteractIntent.place(b[0], b[1], b[2], intArg(m, "face", -1),
+                return InteractIntent.place(b[0], b[1], b[2], requiredFace(m, "place"),
                         floatArg(m, "hitX", 0f), floatArg(m, "hitY", 0f), floatArg(m, "hitZ", 0f));
             }
             case "attack": {
@@ -404,6 +459,118 @@ public final class ActIntentParser {
                                 + "dig|use|place|attack|hotbar|drop|hold|block|release, "
                                 + "got '" + kindStr + "'");
         }
+    }
+
+    /**
+     * The six faces, printed by name in every refusal about {@code face}.
+     *
+     * <p>A number alone is not a fix a caller can act on: {@code face} is a small closed set, and
+     * the six values are six different sides of a block. Printing them is what turns "out of
+     * range" into one resend.
+     */
+    private static final String FACE_SET =
+            "0=down 1=up 2=north(z-) 3=south(z+) 4=west(x-) 5=east(x+)";
+
+    /**
+     * A {@code face} that was supplied, BOUNDED, or {@code -1} when none was supplied.
+     *
+     * <p><b>Why out of range is refused rather than corrected.</b> {@code ActActuator.Face.fromIndex}
+     * mapped anything outside 0..5 to DOWN and reported nothing, so {@code face: 7} dug downward
+     * and {@code accepted: true} came back. There is no honest correction here, and the reason is
+     * specific rather than general caution: for {@code place} the facing is not decoration, it is
+     * <i>which cell the new block occupies</i> -- {@code ItemBlock.onItemUse} does
+     * {@code pos = pos.offset(side)} before placing, so clamping 7 to 5 (EAST) puts the block
+     * against a side the caller never named. That is a shelter one block off, which is the whole
+     * point.
+     *
+     * <p>A clamp is defensible for a value one step past a bound and indefensible for a value that
+     * names a member of a different set: {@code face: 7} is not "nearly 5", it is not a face at
+     * all, and the refusal is one resend away.
+     */
+    private static int faceArg(Map<String, Object> m, String kind) {
+        Object v = m.get("face");
+        if (v == null) {
+            return -1;
+        }
+        int face = intArg(m, "face", -1);
+        if (face < 0 || face > 5) {
+            throw new IllegalArgumentException("act_set interact '" + kind + "': 'face' " + v
+                    + " is not a face of a block -- vanilla has six (" + FACE_SET + ") and there is "
+                    + "no nearest one to correct it to. Guessing is what put a dig on the wrong side "
+                    + "of a shelter: for 'place' the facing decides WHICH CELL the new block goes "
+                    + "in, not just which side was clicked, so a silent default puts a block where "
+                    + "nobody asked. Send one of " + FACE_SET + ", or omit 'face' to take the "
+                    + "default this kind documents");
+        }
+        return face;
+    }
+
+    /**
+     * A {@code face} that is NOT optional, for the kind where an absent one has no safe value.
+     *
+     * <p>This is the half of the defect a bound cannot cover, and the two halves get DIFFERENT
+     * answers on purpose.
+     *
+     * <p><b>{@code dig} may omit it; {@code place} may not.</b> For a dig, the block that breaks
+     * is the one named: {@code PlayerControllerMP.clickBlock} sends its
+     * {@code C07PacketPlayerDigging} against {@code loc} in every branch and only carries
+     * {@code face} along inside the packet, so a defaulted facing changes nothing about WHICH
+     * block is dug. Refusing there would break a call that does exactly what it says, and the
+     * cost of the default is zero -- provided the caller can SEE it, which is why {@code act_set}
+     * reports a defaulted face in its reply instead of leaving it inside an intent record only
+     * the internals can read.
+     *
+     * <p>For a place the facing <i>is</i> the request: {@code pos.offset(side)} means "put a block
+     * against (x,y,z)" has six different answers, and DOWN is one of them -- one block <i>below</i>
+     * the block named. No default here is not-an-answer, so the face is required and the refusal
+     * says what it is for rather than only that it is missing.
+     */
+    private static int requiredFace(Map<String, Object> m, String kind) {
+        if (m.get("face") == null) {
+            throw new IllegalArgumentException("act_set interact '" + kind + "' needs a 'face' ("
+                    + FACE_SET + "). A placement names WHICH SIDE of the block it goes against, "
+                    + "because the block lands against that side rather than in the cell named: "
+                    + "'place' at (x,y,z) with face 1 puts a block at (x,y+1,z), and with face 0 "
+                    + "puts one at (x,y-1,z). There is no safe default here -- omitting it would "
+                    + "place the block DOWNWARD every time and report accepted:true. Send the face "
+                    + "you mean; a dig does not need one, because a dig breaks the block it names");
+        }
+        return faceArg(m, kind);
+    }
+
+    /**
+     * The defaults this parser applied ON THE CALLER'S BEHALF, as sentences a caller can act on.
+     *
+     * <p>Exists because a default that lives only inside the parsed intent is invisible to the
+     * only party that could have objected to it. {@code ActTools} projects this into the
+     * {@code act_set} reply's {@code assumptions} field, so "the tool chose a face for me" is
+     * something the caller READS rather than something it must infer from an intent record it
+     * cannot see.
+     *
+     * <p>Derived from the argument map and re-read here rather than carried on the intent, so the
+     * two cannot drift: the same {@code get("face") == null} test that made the default is the
+     * test that reports it.
+     *
+     * <p>Only {@code dig}'s omitted face, because that is the only default left in this parser. A
+     * refusal is not reported here -- a refusal never becomes an {@code act_set} reply.
+     */
+    public static List<String> defaultsApplied(Map<String, Object> interactArg) {
+        List<String> out = new ArrayList<>(1);
+        if (interactArg == null || interactArg.get("face") != null) {
+            return out;
+        }
+        String kindStr = strArg(interactArg, "kind");
+        if (kindStr == null) {
+            return out;
+        }
+        if ("dig".equals(kindStr.trim().toLowerCase(Locale.ROOT))) {
+            out.add("interact: no 'face' was given, so the dig is sent approaching the block's DOWN "
+                    + "face (0). It still breaks the block you named -- a dig breaks the block it "
+                    + "names whichever side you approach it from -- but the packet carries a facing "
+                    + "you did not choose. 'place' does NOT accept an omitted face, because there "
+                    + "the side decides which cell the new block goes in.");
+        }
+        return out;
     }
 
     static float floatArg(Map<String, Object> a, String k, float fallback) {

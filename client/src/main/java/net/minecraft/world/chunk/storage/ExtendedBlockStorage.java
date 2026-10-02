@@ -44,8 +44,21 @@ public class ExtendedBlockStorage
 
     public IBlockState get(int x, int y, int z)
     {
-        IBlockState iblockstate = (IBlockState)Block.BLOCK_STATE_IDS.getByValue(this.data[y << 8 | z << 4 | x]);
-        return iblockstate != null ? iblockstate : Blocks.air.getDefaultState();
+        int i = this.data[y << 8 | z << 4 | x];
+        IBlockState iblockstate = (IBlockState)Block.BLOCK_STATE_IDS.getByValue(i);
+
+        if (iblockstate != null)
+        {
+            return iblockstate;
+        }
+
+        // The air answer below is vanilla's and is unchanged: a 1.8.9 client on a newer server
+        // legitimately receives ids it does not have, and throwing here would break the
+        // connection. What changes is that the miss is no longer silent -- see
+        // UnknownBlockStates for what is counted and why the count is not a cell count.
+        UnknownBlockStates.record(i);
+
+        return Blocks.air.getDefaultState();
     }
 
     public void set(int x, int y, int z, IBlockState state)

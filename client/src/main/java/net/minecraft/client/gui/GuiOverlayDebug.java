@@ -23,6 +23,7 @@ import net.minecraft.world.DifficultyInstance;
 import net.minecraft.world.EnumSkyBlock;
 import net.minecraft.world.WorldType;
 import net.minecraft.world.chunk.Chunk;
+import net.minecraft.world.chunk.storage.UnknownBlockStates;
 import org.lwjgl.opengl.Display;
 import org.lwjgl.opengl.GL11;
 
@@ -152,6 +153,12 @@ public class GuiOverlayDebug extends Gui
 
                 list.add(String.format("Local Difficulty: %.2f (Day %d)", new Object[] {Float.valueOf(difficultyinstance.getAdditionalDifficulty()), Long.valueOf(this.mc.theWorld.getWorldTime() / 24000L)}));
             }
+
+            // Outside the isBlockLoaded guard on purpose: the census is a session-wide fact about
+            // every read this client has performed, not a statement about the block under the
+            // crosshair, so conditioning it on that one cell being loaded would hide the exact
+            // case that matters -- a hole in the world the player is standing next to.
+            list.add(UnknownBlockStates.summarize());
 
             if (this.mc.entityRenderer != null && this.mc.entityRenderer.isShaderActive())
             {

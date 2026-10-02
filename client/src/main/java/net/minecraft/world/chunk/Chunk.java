@@ -599,6 +599,14 @@ public class Chunk
                 iblockstate = ChunkProviderDebug.func_177461_b(pos.getX(), pos.getZ());
             }
 
+            // Deliberately NOT counted by UnknownBlockStates, and the air answer is left alone.
+            // This null is not an unresolvable block-state id: it is the debug lattice reporting
+            // that it has no block at this (x, z) -- func_177461_b returns null for an even or
+            // non-positive coordinate, and y is neither 60 nor 70 for every other height. No
+            // registry lookup happens on this path at all, so a count raised here would be
+            // claiming the vendored block registry is incomplete when nothing consulted it. The
+            // registry-miss path in this method is the extendedblockstorage.get(...) call in the
+            // branch below, which delegates to ExtendedBlockStorage.get and is counted there.
             return iblockstate == null ? Blocks.air.getDefaultState() : iblockstate;
         }
         else
