@@ -546,12 +546,17 @@ public final class McpCore {
         // not the audited one, and that is load-bearing rather than cosmetic: create_tool
         // registers what it builds into the registry it holds, so handing it the audited one
         // would put every AI-authored tool somewhere the model can never call it, and
-        // create_tool's own success text ("It is now callable") would be false. All five
-        // meta-tools are kernel-layered, so none of them reaches the surface (wireProvider
-        // sees that from the names they add) — the verb is promoted, not absent.
+        // create_tool's own success text ("It is now callable") would be false.
+        //
+        // The provider STRADDLES both layers as of the 2026-10-02 ruling: list_capabilities is
+        // model-facing, the other four are kernel-layered. wireProvider's rule is all-or-nothing
+        // per PROVIDER, so the second argument must be MetaTools.registerModelFacing and not
+        // registerAll — passing registerAll puts create_tool on the model surface, which is the
+        // exact defect the ruling was about. See
+        // .ai-notes/docs/audits/2026-10-02-wave19-layer-filter.md.
         DynamicToolFactory factory = new DynamicToolFactory(hotLoad);
         MetaTools meta = new MetaTools(surface, factory, hotLoad);
-        wireProvider(registry, surface, meta::registerAll, meta::registerAll);
+        wireProvider(registry, surface, meta::registerAll, meta::registerModelFacing);
 
         // Privilege tools (7-layer model): drop/restore/list clearance. Driven
         // through the same engine the gate reads, so a drop takes effect at once.
@@ -705,10 +710,20 @@ public final class McpCore {
      * and nobody classified lands on the kernel side by default, and a provider whose tools
      * were reclassified needs no edit here at all.
      *
-     * <p>{@code registerModelFacing} exists for the one provider that straddles both layers
-     * ({@code ToolRegistry}, whose {@code all()} carries both {@code eval_java} and 23
-     * model-facing tools); for every other provider the two arguments are the same method and
-     * the whole family lands together.
+     * <p><b>The contract this method cannot enforce, and why it matters.</b> The rule above is
+     * a PROVIDER-level decision. It is right when every name a provider contributed lands on
+     * the same side, and for every provider except two that is true. A provider that STRADDLES
+     * both layers must therefore pass a {@code registerModelFacing} that filters per name
+     * against {@link ToolRegistry#layerOf(String)}: passing {@code registerAll} as that
+     * argument does not mean "no filtering needed", it means WHOLESALE PROMOTION, and this loop
+     * has already decided to call it. Not hypothetical — {@code MetaTools} straddled the moment
+     * {@code list_capabilities} was ruled model-facing, and passing {@code meta::registerAll}
+     * carried {@code create_tool} onto the surface with it. See
+     * .ai-notes/docs/audits/2026-10-02-wave19-layer-filter.md.
+     *
+     * <p>So the rule for a provider is: all names on one side ⇒ pass the same method twice;
+     * names on both sides ⇒ pass a method that filters. The two straddling providers are
+     * {@link ToolRegistry} and {@code MetaTools}, and each says so on its own method.
      */
     private static void wireProvider(IoManager registry, IoManager surface,
                                      java.util.function.Consumer<IoManager> registerAll,

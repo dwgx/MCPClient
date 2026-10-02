@@ -18,7 +18,9 @@ import io.modelcontextprotocol.spec.McpSchema.ToolAnnotations;
  *
  * <ul>
  *   <li>{@code list_capabilities} — enumerate every tool: name, description,
- *       version, built-in?, and circuit/health stats (introspection manifest).</li>
+ *       version, built-in?, and circuit/health stats (introspection manifest).
+ *       MODEL-FACING by ruling: it is the one truthful "what can I do" verb, and it
+ *       enumerates the model-facing registry rather than the audited one.</li>
  *   <li>{@code get_tool_source} — read a tool's Java source (AI reads before it
  *       modifies).</li>
  *   <li>{@code create_tool} — compile AI-authored Java into a NEW live tool that
@@ -54,6 +56,34 @@ public final class MetaTools {
     public void registerAll(IoManager registry) {
         for (SyncToolSpecification spec : all()) {
             var tool = spec.tool();
+            registry.register(tool.name(), spec, null, tool.description(), true,
+                    net.marcloud.mcp.core.se.Ring.forBuiltin(tool.name(),
+                            net.marcloud.mcp.core.se.Ring.R3));
+        }
+    }
+
+    /**
+     * Register ONLY the model-facing tools of this provider into the model-facing registry.
+     *
+     * <p><b>Why this provider needs its own filtered path.</b> {@code McpCore.wireProvider}
+     * decides with an all-or-nothing rule: it calls this method if ANY name the provider
+     * contributed is model-facing, and then the provider decides for itself what lands. Passed
+     * {@link #registerAll} as that second argument, the ruling that moved
+     * {@code list_capabilities} to the model-facing side would have carried
+     * {@code create_tool} — the verb that compiles arbitrary Java into the game JVM — onto the
+     * surface with it. {@link net.marcloud.mcp.core.io.transport.ToolRegistry} already carries
+     * this method for the same reason; the two are now the only two straddling providers, and
+     * each reads the same single layer table rather than a private list.
+     *
+     * <p>It is not a copy of {@code ToolRegistry.registerModelFacing}'s logic — it is the same
+     * one-line call to the same table, in the same shape, because the table is the authority.
+     */
+    public void registerModelFacing(IoManager registry) {
+        for (SyncToolSpecification spec : all()) {
+            var tool = spec.tool();
+            if (net.marcloud.mcp.core.io.transport.ToolRegistry.isKernelLayered(tool.name())) {
+                continue;
+            }
             registry.register(tool.name(), spec, null, tool.description(), true,
                     net.marcloud.mcp.core.se.Ring.forBuiltin(tool.name(),
                             net.marcloud.mcp.core.se.Ring.R3));
@@ -279,10 +309,38 @@ public final class MetaTools {
 
     /**
      * A tool is reserved (not AI-overwritable) iff it is currently registered as a
-     * built-in. Derived from the live registry rather than a hand-maintained
-     * switch, so the reserved set is exactly the built-in set by construction —
-     * no drift, no omission (the drift the audit flagged as CRITICAL#2). The
-     * registry's register() enforces the same rule as a hard backstop.
+     * built-in. Derived from the live registry rather than a hand-maintained switch, so
+     * there is no hand-maintained list to drift -- which was the drift the audit flagged
+     * as CRITICAL#2.
+     *
+     * <p><b>Both halves of that are currently false, and this comment records why rather
+     * than what the code wishes.</b> {@code registry} is the field this class was
+     * constructed with, which is {@code surface}
+     * ({@code McpCore.java:558}) -- and kernel-layered names are <em>by
+     * definition</em> absent from {@code surface}. So this answers "not reserved" for
+     * every hidden tool: 33 of the 34 registered kernel-layered names are squattable,
+     * including {@code eval_java}, the R-1 hypervisor verb.
+     *
+     * <p>The intended backstop does not close it either. {@code IoManager}'s check is
+     * {@code !builtIn && previous != null && previous.builtIn()}
+     * ({@code IoManager.java:161}), and {@code previous} is read from the same surface,
+     * where {@code eval_java} does not exist -- so {@code previous} is null and the guard
+     * is skipped. <b>An earlier version of this comment asserted that backstop as a hard
+     * guarantee. It is not one.</b>
+     *
+     * <p>The reachability is what makes this more than a latent bug: promotion is an
+     * explicit supported feature ({@code -Dmcp.core.promote}, {@code promote()} at
+     * {@code :185}), so {@code promote("create_tool")} puts the verb in the model's hands,
+     * and the model can then install its own handler under a name an operator reads as
+     * the hypervisor's.
+     *
+     * <p>Fixing it means holding two registries -- the audited one for this check and the
+     * surface for {@code create_tool}'s install target -- which changes the constructor
+     * contract of the class the whole self-extension story depends on, and would also pull
+     * the 12 unregistered ADR-0004 {@code debug_*} folds into the reserved set. That is a
+     * design decision with a real trade-off and it is **reported for the Owner to rule on**,
+     * not silently taken. See
+     * {@code .ai-notes/docs/audits/2026-10-02-wave19-layer-filter.md} section 8.
      */
     private boolean isReserved(String name) {
         return registry.isBuiltin(name);

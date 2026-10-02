@@ -98,8 +98,7 @@ public final class ToolRegistry {
         // MANUFACTURES the kernel surface. Leaving it on the model surface while hiding
         // eval_java would be incoherent - the model can write the same three lines. See the
         // create_tool section of .ai-notes/docs/audits/2026-10-02-wave18-tool-layer.md.
-        kernel(m, "list_capabilities", "get_tool_source", "create_tool", "rollback_tool",
-                "redefine_class");
+        kernel(m, "get_tool_source", "create_tool", "rollback_tool", "redefine_class");
 
         // ---- KERNEL: the 7-layer reference monitor as its own subject ----
         kernel(m, "list_permissions", "drop_privilege", "restore_privilege",
@@ -167,6 +166,17 @@ public final class ToolRegistry {
         // Not the Kernel: a JSON file of what the model learned, and its own goal stack.
         game(m, "memory_write", "memory_search", "memory_delete",
                 "set_goal", "push_subgoal", "complete_goal", "narrate", "get_story");
+
+        // ---- MODEL-FACING: the one truthful "what can I do" verb (MetaTools) ----
+        // Owner ruling, 2026-10-02: list_capabilities is model-facing even though its subject
+        // is the capability registry itself, because MetaTools is HANDED the model-facing
+        // registry (McpCore.java:553) and listCapabilities() iterates THAT registry's
+        // capabilities(). So the one verb that answers "what can I do" lists exactly the set the
+        // model can do - never a kernel name, which is exactly what a name filter is for.
+        // The filter that makes that true is MetaTools.registerModelFacing; without it this row
+        // would drag all five meta names onto the surface. See
+        // .ai-notes/docs/audits/2026-10-02-wave19-layer-filter.md.
+        game(m, "list_capabilities");
 
         return java.util.Collections.unmodifiableMap(m);
     }

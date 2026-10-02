@@ -216,7 +216,7 @@ public final class ToolLayeringTest {
                     d.surface().invoke("eval_java", Map.of()));
 
             for (String name : new String[] {"install_hook", "read_field", "debug_manage",
-                    "create_tool", "list_capabilities", "drop_privilege", "seam_netty_install",
+                    "create_tool", "drop_privilege", "seam_netty_install",
                     "list_classes", "redefine_class", "send_raw_packet", "dev_probe"}) {
                 assertNull("'" + name + "' is kernel-layered and must not be on the surface",
                         d.surface().get(name));
@@ -312,6 +312,13 @@ public final class ToolLayeringTest {
      * {@code create_tool} is kernel-layered, so a model has no verb that manufactures one — the
      * answer to "a model that cannot see a verb can still be told to make one".
      *
+     * <p><b>Changed on purpose by the 2026-10-02 ruling, not relaxed.</b> This used to loop over
+     * all five meta names including {@code list_capabilities}, which the ruling moved to the
+     * model-facing side. The loop now names the four that are still kernel-layered and asserts
+     * {@code list_capabilities} has moved the OTHER way, with the reason — so the assertion is
+     * stronger than before, not weaker: it pins both halves of a straddling provider rather than
+     * only the half that was already there.
+     *
      * <p>Non-vacuous on both sides: the surface really does refuse the name, and the audited
      * registry really does hold the same spec under the same name, so this is a layering
      * decision and not a tool that failed to register.
@@ -321,12 +328,62 @@ public final class ToolLayeringTest {
         Driven d = drive(false, Ring.R_MINUS_1);
         try {
             for (String name : new String[] {"create_tool", "rollback_tool", "get_tool_source",
-                    "list_capabilities", "redefine_class"}) {
+                    "redefine_class"}) {
                 assertNotNull("'" + name + "' must still be registered — hiding a tool by not "
                         + "registering it would turn it into a stale gate row",
                         d.audited().get(name));
-                assertNull("'" + name + "' must not be on the model surface", d.surface().get(name));
+                assertNull("'" + name + "' is kernel-layered and must not be on the model surface",
+                        d.surface().get(name));
             }
+            assertNotNull("list_capabilities must still be registered in the audited registry",
+                    d.audited().get("list_capabilities"));
+            assertNotNull("list_capabilities is model-facing by the 2026-10-02 ruling, so it MUST "
+                            + "be on the surface — this is the verb the socket instructions name",
+                    d.surface().get("list_capabilities"));
+        } finally {
+            d.exec().shutdown();
+        }
+    }
+
+    /**
+     * The ruling's whole point: {@code list_capabilities} reports the MODEL-FACING set and
+     * nothing else, so it is a truthful answer to "what can I do" and leaks no kernel name.
+     *
+     * <p>This is the test that makes the instructions sentence defensible. It invokes the real
+     * handler through the real surface and compares its output against the surface's own
+     * membership, so it fails if the tool is ever handed the audited registry instead — which
+     * would silently make the one "what can I do" verb answer with 84 tools when only some are
+     * callable. It also fails if a kernel name ever shows up in the listing, which is the leak
+     * the name filter exists to prevent.
+     */
+    @Test
+    public void listCapabilitiesReportsExactlyTheModelFacingSet() {
+        Driven d = drive(false, Ring.R_MINUS_1);
+        try {
+            CallToolResult res = d.surface().invoke("list_capabilities", Map.of());
+            assertNotNull("list_capabilities must be reachable through the model surface", res);
+            assertFalse("the listing must not be a gate denial: " + res.content(),
+                    res.content().toString().contains("L2 ring"));
+            String listing = res.content().toString();
+
+            Set<String> onSurface = surfaceNames(d);
+            for (String name : onSurface) {
+                assertTrue("list_capabilities must report '" + name + "', which the model can "
+                                + "actually call — a truthful manifest is the entire reason the "
+                                + "ruling promoted it",
+                        listing.contains("- " + name + " (v"));
+            }
+            for (String name : new String[] {"create_tool", "rollback_tool", "get_tool_source",
+                    "redefine_class", "eval_java", "send_raw_packet", "install_hook"}) {
+                assertFalse("list_capabilities must NOT report kernel-layered '" + name + "': "
+                                + "the model would be told about a verb it cannot call. Listing: "
+                                + listing,
+                        listing.contains("- " + name + " (v"));
+            }
+            assertTrue("non-vacuity: the audited registry holds strictly more than the surface, so "
+                            + "this comparison can actually fail. Audited "
+                            + auditedNames(d).size() + " vs surface " + onSurface.size(),
+                    auditedNames(d).size() > onSurface.size());
         } finally {
             d.exec().shutdown();
         }
@@ -427,6 +484,16 @@ public final class ToolLayeringTest {
         game("set_goal", "the agent's own goal stack");
         game("get_story", "the agent's own goal stack and story log");
 
+        // MODEL-FACING by ruling, 2026-10-02 — the ONE name that moved. It is deliberately
+        // still listed here, in the GAME block, rather than deleted from the pin: the split is
+        // a ruling and the ruling changed. Its subject IS the capability registry (question 1),
+        // and it is model-facing anyway because MetaTools is HANDED the model-facing registry
+        // and enumerates THAT, so it reports exactly the set the model can call and never names
+        // a kernel tool. That makes it the one truthful "what can I do" verb — which is exactly
+        // why the socket instructions may keep naming it. What the ruling did NOT move is the
+        // other four meta names, and create_tool in particular.
+        game("list_capabilities", "reports the MODEL-FACING set verbatim; ruling 2026-10-02");
+
         // KERNEL: the subject is the Kernel itself (question 1).
         kernel("eval_java", "compiles and loads Java into the running game JVM");
         kernel("send_raw_packet", "compiles and reflectively runs caller-supplied Java (Ring:91-97)");
@@ -435,7 +502,6 @@ public final class ToolLayeringTest {
         kernel("create_tool", "compiles AI Java into a new registered tool");
         kernel("rollback_tool", "replaces a registered tool with an archived version");
         kernel("get_tool_source", "reads the registry's own source store");
-        kernel("list_capabilities", "enumerates the capability registry itself");
         kernel("install_hook", "ByteBuddy advice onto any loaded method");
         kernel("uninstall_hook", "reverts ByteBuddy advice");
         kernel("read_field", "reads a private field off a live object");
