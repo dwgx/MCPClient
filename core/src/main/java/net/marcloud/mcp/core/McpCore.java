@@ -73,6 +73,145 @@ public final class McpCore {
     private net.marcloud.mcp.core.flt.FltDynamicManager dynHooks;
 
     /**
+     * The MODEL-FACING registry: the {@link IoManager} handed to {@link SocketTransportServer}
+     * and {@link HttpFacade}, so {@code tools/list} and every model-reachable route carry the
+     * model-facing tools and nothing else.
+     *
+     * <p>Distinct from the audited registry {@link #registerBuiltins} fills. That one keeps
+     * every built-in so the gate tables, {@link #reportGateGaps} and
+     * {@code RegisteredBuiltinGateCoverageTest} still see the complete surface; hiding a tool
+     * must never be implemented by unregistering it, or the security tables would start
+     * reporting kernel tools as stale rows. Both registries share one {@link IoSupervisor} and
+     * one {@link SeReferenceMonitor}, so a promoted tool is gated exactly like the built-in it
+     * was copied from. Null until {@link #registerBuiltins} runs.
+     */
+    private IoManager modelSurface;
+
+    /** The executor {@link #registerBuiltins} created for the surface, when it had to make one. */
+    private IoSupervisor ownedSurfaceExecutor;
+
+    /** Promoted kernel-layered names, in promotion order. Read by {@link #promotedNames()}. */
+    private final java.util.List<String> promotedNames = new java.util.ArrayList<>();
+
+    /**
+     * The audited registry, kept so {@link #promote} can copy a capability out of it.
+     * Set by {@link #registerBuiltins}; null before that.
+     */
+    private IoManager auditedRegistry;
+
+    /**
+     * The model-facing registry — the one the MCP socket and the REST facade serve.
+     *
+     * <p>Non-null only after {@link #registerBuiltins} has run. A caller that wants to know
+     * what a model can actually reach reads THIS, not the audited registry.
+     */
+    public IoManager modelSurface() {
+        return modelSurface;
+    }
+
+    /** Kernel-layered names promoted so far, in promotion order. */
+    public java.util.List<String> promotedNames() {
+        return java.util.List.copyOf(promotedNames);
+    }
+
+    /**
+     * THE PROMOTION READER — the one that is not the model.
+     *
+     * <p>Reads two operator-controlled sources and nothing else:
+     * <ul>
+     *   <li>{@code -Dmcp.core.promote=eval_java,install_hook} — a launch argument, which the
+     *       model cannot set and cannot observe.</li>
+     *   <li>{@code mcp_promote.txt} in the game working directory — one name per line, {@code #}
+     *       comments and blank lines ignored. A file on the operator's disk.</li>
+     * </ul>
+     *
+     * <p><b>Why there is deliberately no model-reachable route to this.</b> A promotion route
+     * the model can call is not a promotion path: the whole point of layering is that a weak
+     * model does not choose what the kernel surface contains. So there is no tool for it, and
+     * {@code mcp_promote.txt} is not written by any tool either — the only verb that writes code
+     * is {@code create_tool}, which is itself kernel-layered. This is the answer to "invisible
+     * by default and visible only to the component that needs it": the component that needs it
+     * is the operator, and the operator's reader is this method.
+     *
+     * <p>Called once at the end of {@link #registerBuiltins}, and callable again at any time to
+     * pick up an edit to the file without a restart. Returns the names actually promoted by this
+     * call. Never throws: a bad entry is reported on stderr and skipped, because a typo in an
+     * operator's file must not keep the game from starting.
+     */
+    public java.util.List<String> applyPromotions() {
+        java.util.List<String> requested = new java.util.ArrayList<>();
+        String prop = System.getProperty("mcp.core.promote", "");
+        for (String s : prop.split(",")) {
+            if (!s.isBlank()) {
+                requested.add(s.trim());
+            }
+        }
+        java.nio.file.Path file = java.nio.file.Path.of("mcp_promote.txt");
+        if (java.nio.file.Files.isReadable(file)) {
+            try {
+                for (String line : java.nio.file.Files.readAllLines(file)) {
+                    String s = line.trim();
+                    if (s.isEmpty() || s.startsWith("#")) {
+                        continue;
+                    }
+                    requested.add(s);
+                }
+            } catch (java.io.IOException e) {
+                System.err.println("[MCP Core] could not read " + file
+                        + " (nothing promoted from it): " + e);
+            }
+        }
+        java.util.List<String> done = new java.util.ArrayList<>();
+        for (String name : requested) {
+            if (promote(name)) {
+                done.add(name);
+            }
+        }
+        return done;
+    }
+
+    /**
+     * Put one kernel-layered tool on the model-facing surface.
+     *
+     * <p><b>Promotion changes what a model can SEE, never what a subject may DO.</b> The
+     * promoted capability is gated by the same {@link SeReferenceMonitor} instance at the same
+     * declared {@link Ring} it always had, so a subject whose clearance was dropped below that
+     * ring is still refused — and the refusal is the monitor's own message. Nothing here grants
+     * a privilege.
+     *
+     * @return true if {@code name} is on the model-facing surface afterwards (including when it
+     *         was already model-facing, or was already promoted).
+     */
+    public boolean promote(String name) {
+        IoManager surface = this.modelSurface;
+        if (surface == null || name == null) {
+            return false;
+        }
+        if (surface.get(name) != null) {
+            return true;                       // already model-facing, or already promoted
+        }
+        net.marcloud.mcp.core.io.Capability cap =
+                auditedRegistry == null ? null : auditedRegistry.get(name);
+        if (cap == null) {
+            System.err.println("[MCP Core] promotion refused: '" + name
+                    + "' is not a registered tool (typo, or a tool this build does not have)");
+            return false;
+        }
+        // Copied, not re-derived: the promoted capability keeps its description, schema,
+        // builtIn flag and declared ring, so every surface that reads the ring (the REST
+        // catalog, list_permissions) reports the promoted tool exactly as it reported it
+        // while it was hidden.
+        surface.register(name, cap.spec(), cap.source(), cap.description(), cap.builtIn(),
+                cap.ring());
+        if (!promotedNames.contains(name)) {
+            promotedNames.add(name);
+        }
+        System.err.println("[MCP Core] PROMOTED kernel-layered tool '" + name
+                + "' onto the model-facing surface (still gated at " + cap.ring().tag() + ")");
+        return true;
+    }
+
+    /**
      * The game façade this Core is wired around — the SAME instance
      * {@link #registerBuiltins} hands to every tool provider.
      *
@@ -253,8 +392,17 @@ public final class McpCore {
         // ---- THE built-in surface ----
         // SeamController must exist before this call: SeamTools, ChatTools and ObserveTools
         // all take it, and so does the tick injector above.
+        //
+        // `executor` is passed so the model-facing surface shares it: the two registries
+        // supervise independently but must not double the thread budget of a running game.
         registerBuiltins(registry, engine, objects, ctx, hotLoad, hooks, dynHooks, seams,
-                actRuntime);
+                actRuntime, executor);
+
+        // The MODEL-FACING registry, built by the call above. Everything below this line —
+        // the MCP socket and the REST facade — is handed THIS and not `registry`, so a
+        // kernel-layered tool is registered, gated and callable in-process while being
+        // absent from tools/list and from every model-reachable route.
+        IoManager surface = modelSurface;
 
         // Startup self-check: cross-check the LIVE registry against the gate tables and
         // say so out loud. This is the same audit the test suite runs
@@ -270,9 +418,10 @@ public final class McpCore {
 
         // Socket transport (not stdio): the game owns the console, so a stdio
         // MCP server would corrupt the JSON-RPC stream. An AI client connects to
-        // the loopback port. The registry binds the live server for runtime
-        // create_tool / rollback propagation.
-        socketServer = new SocketTransportServer(registry);
+        // the loopback port. The MODEL-FACING registry binds the live server, so the
+        // advertised tool list is the layered one and a runtime create_tool / rollback
+        // pushes live to this client exactly as before.
+        socketServer = new SocketTransportServer(surface);
         try {
             socketServer.start();
         } catch (java.io.IOException e) {
@@ -298,7 +447,7 @@ public final class McpCore {
             } else {
                 // Pass the EventBus so GET /v1/stream (A.10 SSE feed) can push live
                 // events; it routes through the same authorized handle as every route.
-                httpFacade = new HttpFacade(registry, bind, httpPort, httpToken, bus);
+                httpFacade = new HttpFacade(surface, bind, httpPort, httpToken, bus);
                 if (!httpToken.isBlank()) {
                     System.err.println("[MCP Core] REST facade auth ENABLED (Authorization: Bearer <token>).");
                 }
@@ -327,6 +476,17 @@ public final class McpCore {
      * <p>Every collaborator here is the one production passes. Constructing a provider and
      * calling its {@code registerAll} builds tool specs and never dereferences the
      * collaborators, so this is drivable headless with trivial stand-ins.
+     *
+     * <p><b>Two registries, not one.</b> {@code registry} receives every built-in and stays the
+     * audited truth — the gate tables are checked against it, and {@link #reportGateGaps} reads
+     * it. {@code modelSurface} receives only the tools {@link ToolRegistry#layerOf} calls
+     * model-facing, and it is the registry the MCP socket and the REST facade are handed, so
+     * kernel-layered tools are registered, gated and invocable in-process while being absent
+     * from {@code tools/list} and from every model-reachable route.
+     *
+     * <p>This overload exists for callers that already have an {@link IoSupervisor} to share
+     * ({@link #start()} does). The 8-argument form creates one for the surface and records it so
+     * {@link #stop()} can shut it down.
      */
     public void registerBuiltins(IoManager registry, SeReferenceMonitor engine,
                                  net.marcloud.mcp.core.ob.ObManager objects, ToolContext ctx,
@@ -334,45 +494,86 @@ public final class McpCore {
                                  net.marcloud.mcp.core.flt.FltDynamicManager dynHooks,
                                  net.marcloud.mcp.core.flt.seam.SeamController seams,
                                  net.marcloud.mcp.core.drivers.act.ActRuntime actRuntime) {
+        IoSupervisor surfaceExec = new IoSupervisor(8, 5000L);
+        this.ownedSurfaceExecutor = surfaceExec;
+        registerBuiltins(registry, engine, objects, ctx, hotLoad, hooks, dynHooks, seams,
+                actRuntime, surfaceExec);
+    }
+
+    /** As above, with the model-facing surface sharing {@code surfaceExec}. */
+    public void registerBuiltins(IoManager registry, SeReferenceMonitor engine,
+                                 net.marcloud.mcp.core.ob.ObManager objects, ToolContext ctx,
+                                 LdrEngine hotLoad, FltManager hooks,
+                                 net.marcloud.mcp.core.flt.FltDynamicManager dynHooks,
+                                 net.marcloud.mcp.core.flt.seam.SeamController seams,
+                                 net.marcloud.mcp.core.drivers.act.ActRuntime actRuntime,
+                                 IoSupervisor surfaceExec) {
         // L4/L5 defense-in-depth against the LIVE monitor (was new AllowAllGate(), an
         // empty method body, so the documented second term of the AND did not exist).
         AccessGate gate = new MonitorAccessGate(engine);
 
+        // THE MODEL-FACING SURFACE. Same executor, same reference monitor, same supervisor —
+        // so a promoted tool is gated exactly like the built-in it was copied from — and a
+        // different registry, so only the model-facing names are advertised.
+        IoManager surface = new IoManager(surfaceExec, engine);
+        this.modelSurface = surface;
+        this.auditedRegistry = registry;
+
+        // ---- THE PROVIDERS ----
+        // Every provider registers into `registry` (the audited, complete surface) and,
+        // when every tool it contributed is model-facing, into `surface` as well. Which of
+        // those happens is DERIVED, never written down here: wireProvider diffs the names a
+        // provider added and consults ToolRegistry.layerOf. A provider nobody classified
+        // therefore defaults to kernel-layered, i.e. hidden.
         ToolRegistry builtins = new ToolRegistry(ctx);
-        builtins.registerAll(registry);
+        wireProvider(registry, surface, builtins::registerAll, builtins::registerModelFacing);
         // C11 (the enchant-table lapis spend). Separate from ToolRegistry because that file is
         // under concurrent edit; same ToolContext, same veto-guarded send path, same ring.
-        new net.marcloud.mcp.core.io.transport.EnchantTools(ctx).registerAll(registry);
+        net.marcloud.mcp.core.io.transport.EnchantTools enchant =
+                new net.marcloud.mcp.core.io.transport.EnchantTools(ctx);
+        wireProvider(registry, surface, enchant::registerAll, enchant::registerAll);
 
         // KI-12: the ESC door. Separate file and separate registration because the ESC key is a
         // raw LWJGL event handled inside Minecraft.runTick's keyboard loop, not a KeyBinding, so
         // no existing tool can deliver it -- see EscMenu, which calls
         // Minecraft.displayInGameMenu(), the same method the key calls. R3, like open_overlay: it
         // changes what is on screen and nothing else (no packet leaves the client).
-        new net.marcloud.mcp.core.io.transport.EscPanelTools().registerAll(registry);
+        net.marcloud.mcp.core.io.transport.EscPanelTools esc = new net.marcloud.mcp.core.io.transport.EscPanelTools();
+        wireProvider(registry, surface, esc::registerAll, esc::registerAll);
 
         // Register the self-referential meta-tools (introspect + self-extend +
-        // redefine_class hypervisor tool).
+        // redefine_class hypervisor tool). MetaTools is handed the MODEL-FACING registry,
+        // not the audited one, and that is load-bearing rather than cosmetic: create_tool
+        // registers what it builds into the registry it holds, so handing it the audited one
+        // would put every AI-authored tool somewhere the model can never call it, and
+        // create_tool's own success text ("It is now callable") would be false. All five
+        // meta-tools are kernel-layered, so none of them reaches the surface (wireProvider
+        // sees that from the names they add) — the verb is promoted, not absent.
         DynamicToolFactory factory = new DynamicToolFactory(hotLoad);
-        MetaTools meta = new MetaTools(registry, factory, hotLoad);
-        meta.registerAll(registry);
+        MetaTools meta = new MetaTools(surface, factory, hotLoad);
+        wireProvider(registry, surface, meta::registerAll, meta::registerAll);
 
         // Privilege tools (7-layer model): drop/restore/list clearance. Driven
         // through the same engine the gate reads, so a drop takes effect at once.
-        new PermissionTools(engine, registry).registerAll(registry);
+        PermissionTools permission = new PermissionTools(engine, registry);
+        wireProvider(registry, surface, permission::registerAll, permission::registerAll);
         // L4/L5 self-management (GAP-2): enable/disable_privilege + grant/revoke_capability.
         // Mutations bite only when engine is SeLocalMonitor; under P-SECURE the
         // interface defaults return false and the tools report "not locally owned".
-        new net.marcloud.mcp.core.se.PrivilegeControlTools(engine).registerAll(registry);
+        net.marcloud.mcp.core.se.PrivilegeControlTools privilege =
+                new net.marcloud.mcp.core.se.PrivilegeControlTools(engine);
+        wireProvider(registry, surface, privilege::registerAll, privilege::registerAll);
 
         // Durable memory (persists across restarts) — the knowledge counterpart
         // to create_tool's capabilities. Stored under the game working dir.
         MemoryStore memory = new MemoryStore(java.nio.file.Path.of("mcp_memory.json"));
-        new MemoryTools(memory).registerAll(registry);
+        MemoryTools memoryTools = new MemoryTools(memory);
+        wireProvider(registry, surface, memoryTools::registerAll, memoryTools::registerAll);
 
         // Narrative/intent (the "fable" layer): goal stack + story log.
         GoalStack goalStack = new GoalStack(200);
-        new NarrativeTools(goalStack).registerAll(registry);
+        NarrativeTools narrative = new NarrativeTools(goalStack);
+        wireProvider(registry, surface, narrative::registerAll, narrative::registerAll);
 
         // ---- Phase 2 capability layers (C1/C3/C5/C7/C8) ----
         // Each tool is registered through the same supervised registry, so the
@@ -382,10 +583,12 @@ public final class McpCore {
         // fixed network hooks and the dynamic ones via the HookSource SPI.
         CmQuery introspect = new CmQuery(
                 getClass().getClassLoader(), java.util.List.of(hooks, dynHooks));
-        new IntrospectionTools(introspect).registerAll(registry);
+        IntrospectionTools introspection = new IntrospectionTools(introspect);
+        wireProvider(registry, surface, introspection::registerAll, introspection::registerAll);
 
         // C3 INTERCEPT: runtime install/uninstall/reset of ByteBuddy hooks.
-        new HookTools(dynHooks, gate).registerAll(registry);
+        HookTools hookTools = new HookTools(dynHooks, gate);
+        wireProvider(registry, surface, hookTools::registerAll, hookTools::registerAll);
 
         // C5 MUTATE-STATE: read/write any field, invoke private methods, open
         // modules. Instrumentation reached through the gated AgentAccess seam.
@@ -394,13 +597,17 @@ public final class McpCore {
         // Invalidate MmAccess's layout-dependent caches after any redefine
         // (a DCEVM structural redefine can move field offsets → stale VarHandle).
         hotLoad.setOnRedefined(deep::invalidate);
-        new MutateStateTools(deep, game).registerAll(registry);
+        MutateStateTools mutate = new MutateStateTools(deep, game);
+        wireProvider(registry, surface, mutate::registerAll, mutate::registerAll);
 
         // C7 SYNTHESIZE: one-shot GC-able hidden-class tools.
-        new SynthTools(new PsSynthesizer()).registerAll(registry);
+        SynthTools synth = new SynthTools(new PsSynthesizer());
+        wireProvider(registry, surface, synth::registerAll, synth::registerAll);
 
         // C8 SEAM: Netty pipeline MITM / GLFW input / tick injection.
-        new net.marcloud.mcp.core.flt.seam.SeamTools(seams).registerAll(registry);
+        net.marcloud.mcp.core.flt.seam.SeamTools seamTools =
+                new net.marcloud.mcp.core.flt.seam.SeamTools(seams);
+        wireProvider(registry, surface, seamTools::registerAll, seamTools::registerAll);
 
         // PHASE T: Timeline ring — fold every EventBus event onto the GameClock as a
         // safe {tickId, kind, summary} entry. Subscribe to the GameEvent base type to
@@ -424,15 +631,20 @@ public final class McpCore {
                 new net.marcloud.mcp.core.ke.ChatLog(
                         Integer.getInteger("mcp.core.chatLogCap", 256));
         chatLog.attach(bus);
-        new net.marcloud.mcp.core.drivers.observe.ChatTools(chatLog, seams,
-                () -> game.player() == null ? null : game.player().getName())
-                .registerAll(registry);
+        net.marcloud.mcp.core.drivers.observe.ChatTools chat =
+                new net.marcloud.mcp.core.drivers.observe.ChatTools(chatLog, seams,
+                        () -> game.player() == null ? null : game.player().getName());
+        wireProvider(registry, surface, chat::registerAll, chat::registerAll);
 
-        new net.marcloud.mcp.core.drivers.observe.ObserveTools(
-                net.marcloud.mcp.core.ke.GameClock.INSTANCE, timeline, packetJournal,
-                seams).registerAll(registry);
+        net.marcloud.mcp.core.drivers.observe.ObserveTools observe =
+                new net.marcloud.mcp.core.drivers.observe.ObserveTools(
+                        net.marcloud.mcp.core.ke.GameClock.INSTANCE, timeline, packetJournal,
+                        seams);
+        wireProvider(registry, surface, observe::registerAll, observe::registerAll);
 
-        new net.marcloud.mcp.core.drivers.action.ActTools(actRuntime).registerAll(registry);
+        net.marcloud.mcp.core.drivers.action.ActTools act =
+                new net.marcloud.mcp.core.drivers.action.ActTools(actRuntime);
+        wireProvider(registry, surface, act::registerAll, act::registerAll);
 
         // C6 CONTROL-EXEC: native JVMTI debugger. Graceful no-op without
         // -agentpath:core-jvmti.dll — the debug_* tools still register and report
@@ -440,31 +652,80 @@ public final class McpCore {
         if (objects != null) {
             // L6 wired: debug ops can bind to a frozen thread handle; the subject
             // supplier ties a minted handle's owner to the gate's principal.
-            new net.marcloud.mcp.core.kd.DebugTools(gate, objects, engine::currentSubject)
-                    .registerAll(registry);
+            net.marcloud.mcp.core.kd.DebugTools debug =
+                    new net.marcloud.mcp.core.kd.DebugTools(gate, objects, engine::currentSubject);
+            wireProvider(registry, surface, debug::registerAll, debug::registerAll);
         } else {
-            new net.marcloud.mcp.core.kd.DebugTools(gate).registerAll(registry);
+            net.marcloud.mcp.core.kd.DebugTools debug = new net.marcloud.mcp.core.kd.DebugTools(gate);
+            wireProvider(registry, surface, debug::registerAll, debug::registerAll);
         }
 
         // Structured GUI interaction: expose the whole clickable GUI (buttons,
         // slots, text fields) to the LLM as addressable elements and drive the
         // real vanilla handlers by element id. gui_snapshot is R2 (game-thread
         // read); the action tools are R1 (server-visible effects) + SE_GUI_INTERACT.
-        new net.marcloud.mcp.core.drivers.gui.GuiTools(game, new net.marcloud.mcp.core.drivers.gui.GuiSnapshotService())
-                .registerAll(registry);
+        net.marcloud.mcp.core.drivers.gui.GuiTools gui =
+                new net.marcloud.mcp.core.drivers.gui.GuiTools(game,
+                        new net.marcloud.mcp.core.drivers.gui.GuiSnapshotService());
+        wireProvider(registry, surface, gui::registerAll, gui::registerAll);
 
         // dev_probe (R2 read-only): one-call live-game diagnostic — connection/world
         // presence + GL context (version/vendor/profile) — marshalled onto the game
         // thread. Degrades to absent headless.
-        new net.marcloud.mcp.core.drivers.video.DevTools(game).registerAll(registry);
+        net.marcloud.mcp.core.drivers.video.DevTools dev =
+                new net.marcloud.mcp.core.drivers.video.DevTools(game);
+        wireProvider(registry, surface, dev::registerAll, dev::registerAll);
 
         // Compat patch observability (R3 read-only): list_compat_patches reports the
         // startup patches armed by the engine at premain. The engine/database are
         // null-safe (a headless run without -javaagent reports an empty catalog).
-        new net.marcloud.mcp.core.compat.CompatTools(
-                net.marcloud.mcp.core.compat.Compat.database(),
-                net.marcloud.mcp.core.compat.Compat.engine())
-                .registerAll(registry);
+        net.marcloud.mcp.core.compat.CompatTools compat =
+                new net.marcloud.mcp.core.compat.CompatTools(
+                        net.marcloud.mcp.core.compat.Compat.database(),
+                        net.marcloud.mcp.core.compat.Compat.engine());
+        wireProvider(registry, surface, compat::registerAll, compat::registerAll);
+
+        // The non-model promotion reader runs LAST, so a name it promotes is one the
+        // audited registry already holds and the model surface can therefore serve.
+        java.util.List<String> promoted = applyPromotions();
+        System.err.println("[MCP Core] tool layers: " + surface.names().size()
+                + " model-facing, " + ToolRegistry.kernelLayeredNames().size()
+                + " kernel-layered (of " + registry.names().size()
+                + " registered built-ins)"
+                + (promoted.isEmpty() ? "" : "; promoted: " + promoted));
+    }
+
+    /**
+     * Register one provider into the audited registry, and into the model-facing surface
+     * when — and only when — every tool it contributed is model-facing.
+     *
+     * <p><b>The layer decision is derived here, not written down.</b> The names the provider
+     * added are read back off the live registry and fed to {@link ToolRegistry#layerOf}. That
+     * is why there is no second list of providers anywhere in the tree: a provider wired in
+     * and nobody classified lands on the kernel side by default, and a provider whose tools
+     * were reclassified needs no edit here at all.
+     *
+     * <p>{@code registerModelFacing} exists for the one provider that straddles both layers
+     * ({@code ToolRegistry}, whose {@code all()} carries both {@code eval_java} and 23
+     * model-facing tools); for every other provider the two arguments are the same method and
+     * the whole family lands together.
+     */
+    private static void wireProvider(IoManager registry, IoManager surface,
+                                     java.util.function.Consumer<IoManager> registerAll,
+                                     java.util.function.Consumer<IoManager> registerModelFacing) {
+        java.util.Set<String> before = new java.util.HashSet<>(registry.names());
+        registerAll.accept(registry);
+        java.util.Set<String> added = new java.util.HashSet<>(registry.names());
+        added.removeAll(before);
+        if (added.isEmpty()) {
+            return;
+        }
+        for (String name : added) {
+            if (!ToolRegistry.isKernelLayered(name)) {
+                registerModelFacing.accept(surface);
+                return;
+            }
+        }
     }
 
     /**
@@ -516,6 +777,12 @@ public final class McpCore {
         }
         if (httpFacade != null) {
             httpFacade.stop();
+        }
+        if (ownedSurfaceExecutor != null) {
+            // Only an executor the 8-arg registerBuiltins created is ours to close; start()
+            // shares the main one, which the caller owns.
+            ownedSurfaceExecutor.shutdown();
+            ownedSurfaceExecutor = null;
         }
     }
 

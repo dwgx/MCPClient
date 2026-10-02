@@ -206,8 +206,16 @@ public final class SimWorld implements ActActuator, BlockView {
                     + " cell holding a BlockChest -- and folds it across a night on the Daylight"
                     + " clock, and it reports the POINT reading (a chest on the last night tick) and"
                     + " the REGION reading (a chest on every night tick) separately, because a box"
-                    + " built at 3am passes the first and fails the second. What that row measures"
-                    + " is therefore exactly one thing: THE AGENT DID NOT DIG OUT ITS OWN BOX."
+                    + " built at 3am passes the first and fails the second. It has a PRODUCER now:"
+                    + " EvalSuite T26 (the_agent_built_the_box_and_it_stood_at_dawn) builds a chest"
+                    + " through the real recipe table in a world that had none -- planks x8 in a"
+                    + " 3x3, so a bench, which is planks x4 in a 2x2, which is a log -- and stands"
+                    + " it down through a production InteractIntent.place. What that row measures is"
+                    + " therefore two things and not one: the agent BUILT the box (the world is"
+                    + " censused for chests and for chest items BEFORE the policy's first action and"
+                    + " the pass condition requires both to have been zero, which is a measurement"
+                    + " and not a fixture promise -- a chest the fixture planted leaves the row red"
+                    + " with the box standing throughout), and the agent did not dig it out."
                     + " Nothing else in this substrate can remove a chest -- there is no fire block"
                     + " anywhere in it, and a chest is not flammable in 1.8.9 anyway (Blocks.chest"
                     + " is absent from BlockFire.init()'s 36 entries, BlockFire.java:74-108, so"
@@ -228,7 +236,9 @@ public final class SimWorld implements ActActuator, BlockView {
                     + " (EntityItem.java:145-147) against a night of 8,386 ticks: a stack knocked"
                     + " out of the box at dusk is gone 2,386 ticks before dawn. Neither that clock"
                     + " nor the container is transcribed here, so the honest sentence for the"
-                    + " fourth north-star criterion is that it measures the box, not its contents");
+                    + " fourth north-star criterion is that it measures the box the agent built and"
+                    + " kept, not its contents"
+        );
 
     // ===== the world =====
 

@@ -113,7 +113,8 @@ public final class EvalSuite {
                 new T22TheBenchHasToExistFirst(),
                 new T23TheDropThatNeverLanded(),
                 new T24TheNightIsSomethingATaskCanAssert(),
-                new T25ShelterThroughTheNight());
+                new T25ShelterThroughTheNight(),
+                new T26TheAgentBuiltTheBoxAndItStoodAtDawn());
     }
 
     // ===== helpers shared by the tasks =====
@@ -2691,6 +2692,371 @@ public final class EvalSuite {
                     + " about eight neighbour CELLS and a column, not a reachability search:"
                     + " nothing here proves a mob could not have walked to the body, only that the"
                     + " eight cells around it were closed";
+        }
+    }
+
+    // ===== T26 =====
+
+    /**
+     * The fourth north-star row, and the first time anything in this suite PRODUCES one.
+     *
+     * <p><b>What was missing.</b> {@link DawnChest} was a predicate with two test files and no
+     * caller: {@code grep} found it in its own file, in those two tests, and in one sentence of
+     * {@code SimWorld.KNOWN_GAPS}. No task in {@link #all()} built a chest, so the criterion the
+     * Owner's north star names was a sentence in a comment -- a capability documented as doing
+     * something whose producer is absent, which is the shape
+     * {@code docs/agency/failure-shapes.md} exists to catalogue.
+     *
+     * <p><b>The goal, and nothing else.</b> {@code "chest"}. Not one word of the plan is in this
+     * task body: not wood, not planks, not a bench, not the 3x3. The world is built so the goal
+     * is reachable in principle, a {@link GoalPolicy} is handed the string, and the chain comes
+     * out of {@code Craft.recipesFor} per run. What that chain costs is the whole point: a chest
+     * is {@code planks x8} in a 3x3 ({@code RecipesCrafting.java:25}), the 3x3 costs a bench, the
+     * bench is {@code planks x4} in a 2x2, and the planks are a log. So the first link needing a
+     * bench is the goal itself, and an agent that reserved its planks for the box without paying
+     * for the bench would come up short at the last click -- the same arithmetic T22 was written
+     * for, one recipe deeper.
+     *
+     * <p><b>Crafting is the only source, and that is what makes the provenance measurable.</b> A
+     * chest block is not harvestable by anything: {@code BlockChest.isFullCube} is false
+     * ({@code BlockChest.java:52-56}) so {@code canSilkHarvest} is false, and
+     * {@code ItemInWorldManager.tryHarvestBlock} only harvests a block when
+     * {@code ItemStack.canHarvestBlock} says so, which no item in the registry returns for a
+     * chest. So in this world a chest enters the block grid by exactly one route: a chest ITEM
+     * was placed. And a chest item enters the bag by exactly one route here, because there is no
+     * chest in the world to mine: {@code Craft.recipesFor("chest")}. Zero chests at the census
+     * and one at dawn is therefore not a coincidence to be trusted -- it is the only path the
+     * substrate offers.
+     *
+     * <p><b>THE PROVENANCE CENSUS, and why it is a measurement rather than a promise.</b> The
+     * Owner's ruling on this criterion was that <em>the world starts from zero; the agent must
+     * build it</em>, and the reason given is the sharp one: nothing in this substrate removes a
+     * chest except the agent's own dig, so a predicate that only asks "does this cell hold a
+     * BlockChest" scores a world that was handed one exactly as high as a world where the agent
+     * made one. The obvious answer -- build the fixture with no chest in it -- is a CONSTRAINT, not
+     * a measurement: it is a promise about the setup that no assertion checks, so an edit that
+     * plants a chest leaves the row green and nobody notices. So the row takes the census itself:
+     * {@link #chestsStanding} over the whole world volume and {@link SimWorld#count} over the
+     * whole bag are read BEFORE the policy's first action, and the pass condition requires both
+     * to have been zero. That is what makes the planted control go red: the chest is there, the
+     * box stands at dawn, {@link DawnChest#heldThroughout()} answers true all night -- and the row
+     * still refuses, because the census says the agent found it rather than built it.
+     *
+     * <p><b>Both halves of "standing", and the stronger one decides.</b> {@link DawnChest} reports
+     * the POINT reading ({@code standingAtDawn}) and the REGION reading ({@code heldThroughout})
+     * separately, and the pass condition takes the REGION one: a box that appeared one tick
+     * before dawn is not a box that stood through a night, and the point reading would say it
+     * was. Both are printed, so a reader can see which decided the row.
+     *
+     * <p><b>Where the craft chain ends and this file begins.</b> Stated rather than blurred:
+     * {@link GoalPolicy#obtain} is the whole decision -- it works out that a chest needs a bench,
+     * that the bench needs planks, that planks need a log, and it walks, digs, places, opens and
+     * crafts through the production controllers. The final step, PUTTING THE BOX DOWN, is one
+     * production {@link InteractIntent#place} submitted by {@link #standTheBox}, because
+     * {@code obtain} ends with the item in the hand and nothing in the policy places a goal it
+     * has just made. The cell it goes in is named by the fixture ({@link #BOX_X}, {@link #BOX_Y},
+     * {@link #BOX_Z}) rather than searched for, because {@link DawnChest} takes a cell as a
+     * constructor-time decision and a row whose instrument cell moved with the agent would be
+     * measuring a search. The world facts asserted are the block at that cell and the census --
+     * never {@code ActOutcome.message()}, never the policy's own opinion of its success.
+     *
+     * <p><b>One run, one world, no re-roll.</b> A failing chain is a finding and is reported as
+     * one.
+     */
+    static final class T26TheAgentBuiltTheBoxAndItStoodAtDawn implements Task {
+
+        /**
+         * The task's name, as a constant rather than only as {@link #id()}, because
+         * {@link #runWith} is static so the controls outside this class can drive this task's rows,
+         * and an instance method cannot be named from a static context.
+         */
+        static final String ID = "T26 the_agent_built_the_box_and_it_stood_at_dawn";
+
+        private static final int LOG_X0 = -6;
+        private static final int LOG_X1 = 1;
+        private static final int LOG_Z0 = 8;
+        private static final int LOG_Z1 = 9;
+        private static final int WORLD_X0 = -20;
+        private static final int WORLD_X1 = 20;
+        private static final int WORLD_Z0 = -20;
+        private static final int WORLD_Z1 = 20;
+        /** The lowest and highest y the census sweeps, so a box on a roof counts too. */
+        private static final int SWEEP_Y0 = 60;
+        private static final int SWEEP_Y1 = 70;
+        /** Where the box has to end up. {@code plain(64, ...)} floors at 63, so this is one above. */
+        static final int BOX_X = 2;
+        static final int BOX_Y = 64;
+        static final int BOX_Z = 0;
+        /** The stance the placement is made from: one cell west of the box, on the same floor. */
+        private static final int STAND_X = BOX_X - 1;
+        private static final int STAND_Y = BOX_Y;
+        private static final int STAND_Z = BOX_Z;
+
+        /**
+         * Where the FIXTURE put a chest, if it did -- the control's only variable.
+         *
+         * <p>Two plants rather than one, and the reason is that a single control cannot show what
+         * it was written to show:
+         *
+         * <ul>
+         *   <li>{@link #AT_BOX_CELL} is the sharp one. The chest the criterion looks at is the
+         *       one that was already there, {@link DawnChest} answers "a chest stood throughout"
+         *       on all 8,386 samples, and the row still refuses. That is the Owner's ruling
+         *       demonstrated rather than asserted.</li>
+         *   <li>{@link #ELSEWHERE} is the isolating one. The agent builds and pays for its own box
+         *       exactly as in the passing run, and the world's one difference is a chest the
+         *       fixture put somewhere else. Every other row -- the craft, the placement, the
+         *       spend, the night ledger, the survival -- is green, so the census is the ONLY thing
+         *       holding the row down, and deleting it is visible. A control whose negative half
+         *       stays negative after the guard is removed proves the guard does nothing.</li>
+         * </ul>
+         */
+        enum Plant {
+            NONE,
+            AT_BOX_CELL,
+            ELSEWHERE
+        }
+
+        /** Where {@link Plant#ELSEWHERE} puts its chest: out on the plain, away from the chain. */
+        private static final int ELSEWHERE_X = -8;
+        private static final int ELSEWHERE_Y = 64;
+        private static final int ELSEWHERE_Z = -8;
+
+        @Override
+        public String id() {
+            return ID;
+        }
+
+        /**
+         * A dirt plain, a stand of oak within walking distance, and no chest anywhere in it.
+         *
+         * <p>Static and package-visible so the controls in
+         * {@code TheDawnChestRowHasAProducerTest} run this geometry rather than a second copy of
+         * it that could drift. The world itself does NOT promise to be chest-free -- the row
+         * measures that, in {@link #runWith}, and a promise is exactly what this criterion is not
+         * allowed to rest on.
+         */
+        static SimWorld buildWorld() {
+            return new SimWorld().plain(64, "dirt", WORLD_X0, WORLD_X1, WORLD_Z0, WORLD_Z1)
+                    .standOn(0, 64, 0).facing(0f).atHealth(20.0D)
+                    .box(LOG_X0, 64, LOG_Z0, LOG_X1, 64, LOG_Z1, "log");
+        }
+
+        /** Every chest in the swept volume of the world, counted off the block grid. */
+        static int chestsStanding(SimWorld w) {
+            return countBlocks(w, "chest", WORLD_X0, SWEEP_Y0, WORLD_Z0, WORLD_X1, SWEEP_Y1,
+                    WORLD_Z1);
+        }
+
+        @Override
+        public Result run() {
+            return runWith(GoalPolicy::new, Plant.NONE);
+        }
+
+        /**
+         * This task's world and this task's rows, with the decision supplied and with the box
+         * optionally PLANTED BY THE FIXTURE instead of built.
+         *
+         * <p><b>Why the plant lives here and not in the test.</b> The control that proves "a chest
+         * that was already here does not satisfy this row" has to run the SAME rows against the
+         * SAME world, or it proves nothing about them. A control with its own copy of the pass
+         * condition is a second suite and the two drift; so this method is the one place the
+         * planted run exists, and {@link Plant} is its only variable.
+         *
+         * @param policyFor builds the decision for the world and harness this task just made
+         * @param plant     where the fixture puts a chest before the census, which is what the
+         *                   Owner's ruling has to reject
+         */
+        static Result runWith(BiFunction<SimWorld, EvalHarness, Policy> policyFor, Plant plant) {
+            SimWorld w = buildWorld();
+            switch (plant) {
+                case AT_BOX_CELL -> w.put(BOX_X, BOX_Y, BOX_Z, "chest");
+                case ELSEWHERE -> w.put(ELSEWHERE_X, ELSEWHERE_Y, ELSEWHERE_Z, "chest");
+                case NONE -> {
+                    // nothing planted: this is the shipped run
+                }
+            }
+
+            // THE CENSUS. Read before the policy exists, let alone before it acts, and asserted in
+            // the pass condition below rather than left as a property of this file.
+            int chestsBefore = chestsStanding(w);
+            int chestItemsBefore = w.count("chest");
+
+            EvalHarness h = new EvalHarness(w);
+            Policy policy = policyFor.apply(w, h);
+            boolean got;
+            boolean placed;
+            try {
+                got = policy.obtain("chest");
+                placed = got && standTheBox(w, h);
+            } catch (RuntimeException thrown) {
+                // A throw is a FAILURE with a reason, not an escape and not a pass.
+                return new Result(ID, false, "the policy threw "
+                        + thrown.getClass().getSimpleName() + ": " + thrown.getMessage()
+                        + " -- reported as a FAILURE because a runner that reads an exception as"
+                        + " a pass has green rows that mean nothing");
+            }
+            String trace = policy instanceof GoalPolicy gp ? gp.traceSummary()
+                    : "(this policy carries no trace: " + policy.getClass().getSimpleName() + ")";
+
+            int chestsAfter = chestsStanding(w);
+            int chestItemsAfter = w.count("chest");
+            // The window is the production one and the sampling is every tick, so nothing here
+            // decides for itself where night begins. See T25, whose nightAt is the same shape.
+            DawnChest box = standAndWaitOutTheNight(w, h);
+
+            boolean startedFromZero = chestsBefore == 0 && chestItemsBefore == 0;
+            // Scoped to the NAMED CELL, not to the whole world. "Exactly one chest in the world"
+            // would also catch a planted box somewhere else, which sounds right and is not what
+            // this row is for: the criterion is about the box at this cell, and it is the CENSUS
+            // that owns the "and nothing else was here already" half. Splitting them this way is
+            // what lets Plant.ELSEWHERE isolate the census -- with a world-wide count, that control
+            // would stay red after the census guard was deleted and would prove nothing about it.
+            boolean boxCellPaidFor = DawnChest.isChest(w.blockObjectAt(BOX_X, BOX_Y, BOX_Z))
+                    && chestItemsAfter == 0;
+            boolean stoodThroughout = box.measured() && box.heldThroughout();
+            boolean alive = survived(w);
+            // The point reading is printed rather than asserted: the region reading implies it, so
+            // requiring both would be arithmetic on the fixture rather than a second fact.
+            boolean pass = got && placed && startedFromZero && boxCellPaidFor && stoodThroughout
+                    && alive;
+            return new Result(ID, pass, String.format(java.util.Locale.ROOT,
+                    "%s. policy reported %s and the box %s. PROVENANCE: %d chest block(s)"
+                            + " and %d chest item(s) in the bag BEFORE the agent's first action; %d"
+                            + " block(s) standing and %d item(s) in the bag at dawn. Box cell"
+                            + " (%d,%d,%d)=%s. %s survival: %s. %s chain: %s",
+                    pass ? "the agent built the box and it stood throughout the night"
+                            : "the box criterion was NOT met: "
+                                    + describe(got, placed, startedFromZero, chestsBefore,
+                                            chestItemsBefore, boxCellPaidFor, chestsAfter,
+                                            chestItemsAfter, box, alive),
+                    got ? "success" : "failure",
+                    placed ? "stood down by the agent's own click, on a cell that was empty"
+                            : "was never stood down by the agent",
+                    chestsBefore, chestItemsBefore, chestsAfter, chestItemsAfter, BOX_X, BOX_Y,
+                    BOX_Z, String.valueOf(w.blockAt(BOX_X, BOX_Y, BOX_Z)), box.fact(),
+                    survivalFact(w), whatThisCannotShow(), trace));
+        }
+
+        /**
+         * The last mechanical step: walk to the stance beside the box cell and click the floor's
+         * top face under it.
+         *
+         * <p>The production {@link RouteIntent} and {@link InteractIntent#place}, submitted
+         * through the harness like every other move in this suite, so what lands in the grid is
+         * whatever {@code SimWorld.rightClickBlock} does -- {@code pos.offset(face)}, the held
+         * {@code ItemBlock}'s block, and the stack decremented. A chest conjured straight into the
+         * grid would pass this task while testing nothing, and the T22 rows already exist to pin
+         * the placement half for a bench.
+         *
+         * <p><b>And the cell has to have CHANGED, which the first version of this did not
+         * check.</b> It asked {@code isChest(blockAt(cell))} afterwards, which is also what the
+         * planted control world answers -- {@code rightClickBlock} correctly refuses a placement
+         * into an occupied cell, so the agent placed nothing, and the row still said "placed".
+         * Found by running the control in {@code TheDawnChestRowHasAProducerTest}, which is the
+         * entire reason a control reuses the rows rather than asserting beside them: the planted
+         * run reported {@code chestsAfter == 1} AND {@code chestItemsAfter == 1}, one box that was
+         * never paid for. The two facts below are the fix -- the cell was empty, and the cell is a
+         * chest now -- and neither is implied by the other.
+         */
+        private static boolean standTheBox(SimWorld w, EvalHarness h) {
+            // Sampled BEFORE the click. A cell that already held a chest cannot become evidence
+            // that this agent put one there.
+            boolean emptyBefore = !DawnChest.isChest(w.blockObjectAt(BOX_X, BOX_Y, BOX_Z));
+            h.submit(new RouteIntent(STAND_X, STAND_Y, STAND_Z, 0));
+            h.runMove(1200);
+            double dist = w.horizontalDistanceTo(STAND_X + 0.5D, STAND_Z + 0.5D);
+            if (dist > 1.2D) {
+                return false;
+            }
+            // The cell under the box, clicked on its UP face: vanilla places at pos.offset(face).
+            h.submit(InteractIntent.place(BOX_X, BOX_Y - 1, BOX_Z, Face.UP.index(), 0.5D, 0.5D,
+                    0.5D));
+            h.runInteract(60);
+            // DawnChest's own question about a block, not a name comparison of our own.
+            return emptyBefore && DawnChest.isChest(w.blockObjectAt(BOX_X, BOX_Y, BOX_Z));
+        }
+
+        /**
+         * Run the whole night with the box cell sampled on every tick of it.
+         *
+         * <p><b>The window is derived, not written.</b> {@link NightEnclosure#duskTick()} and
+         * {@link NightEnclosure#nightTicks()} are asked of the production {@code Daylight} curve,
+         * so this method holds no tick count of its own and cannot drift when the curve moves.
+         * Sampling is {@link DawnChest#DEFAULT_PERIOD_TICKS}, one per tick, because a coarser
+         * period would report a box that was absent for a handful of ticks as one that stood
+         * throughout.
+         */
+        private static DawnChest standAndWaitOutTheNight(SimWorld w, EvalHarness h) {
+            int night = NightEnclosure.nightTicks();
+            w.atWorldTime(NightEnclosure.duskTick() - 1L);
+            DawnChest box = new DawnChest();
+            for (int tick = 0; tick <= night; tick++) {
+                h.tick();
+                box.observe(w.enclosureGrid(), BOX_X, BOX_Y, BOX_Z, w.worldTime());
+            }
+            return box;
+        }
+
+        /** Which world fact is missing, so a failure names the row rather than the task. */
+        private static String describe(boolean got, boolean placed, boolean startedFromZero,
+                int chestsBefore, int chestItemsBefore, boolean boxCellPaidFor, int chestsAfter,
+                int chestItemsAfter, DawnChest box, boolean alive) {
+            List<String> missing = new java.util.ArrayList<>();
+            // The provenance clause first, always. A chest that was already standing makes every
+            // other row read green, so a reader who sees them before this one would conclude the
+            // criterion passed.
+            if (!startedFromZero) {
+                missing.add("the world already held " + chestsBefore + " chest block(s) and "
+                        + chestItemsBefore + " chest item(s) before the agent acted, so a box at"
+                        + " dawn measures the FIXTURE and not the agent -- this row requires the"
+                        + " world to start from zero");
+            }
+            if (!got) {
+                missing.add("the agent never obtained a chest");
+            }
+            if (got && !placed) {
+                missing.add("the agent obtained a chest but did not stand one down at (" + BOX_X
+                        + "," + BOX_Y + "," + BOX_Z + "): either the stance never arrived or the"
+                        + " cell did not go from empty to a chest, so no click of its own put a box"
+                        + " there");
+            }
+            if (!boxCellPaidFor) {
+                missing.add("the box cell does not hold a chest that was paid for out of the bag: "
+                        + chestsAfter + " chest block(s) stand in the world and " + chestItemsAfter
+                        + " chest item(s) are still in it at dawn, and the named cell (" + BOX_X
+                        + "," + BOX_Y + "," + BOX_Z + ") is not one box made from nothing and spent");
+            }
+            if (!box.measured()) {
+                missing.add("no night tick was sampled, so this row says nothing about a box");
+            } else if (!box.heldThroughout()) {
+                missing.add("the box was not standing on every night tick: absent on "
+                        + box.missingSamples() + " of " + box.samples() + " samples, first absent"
+                        + " at clock " + box.firstAbsentTick());
+            }
+            if (!alive) {
+                missing.add("the player died");
+            }
+            return missing.isEmpty() ? "the world disagreed with no named fact; re-read the row"
+                    : String.join(" and ", missing);
+        }
+
+        /**
+         * The limits, printed in the result rather than only in this javadoc.
+         *
+         * <p>The north star is three clauses and this row is the fourth one, measured. It is not
+         * the whole north star, and it is not the Owner's question either: this is a policy, not a
+         * model, and nothing in it says a weak language model would have decided to build a box.
+         */
+        private static String whatThisCannotShow() {
+            return "NOT COVERED, and not quotable as if it were: this row says the agent BUILT a"
+                    + " box and did not dig it out, and that is all. The chest has no container"
+                    + " behind it in this substrate, so its CONTENTS are not measured at all; there"
+                    + " is no lighting, so nothing spawns in the dark and no night damages"
+                    + " anybody, so the box standing is not evidence that the night was survived"
+                    + " BECAUSE of the box; and the decision here is GoalPolicy, a Java reference"
+                    + " implementation, so nothing in this row says a language model would have"
+                    + " produced this chain";
         }
     }
 

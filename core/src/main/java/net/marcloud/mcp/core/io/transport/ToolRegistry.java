@@ -33,8 +33,205 @@ import net.minecraft.network.Packet;
  * </ul>
  * Arbitrary raw-packet send is exposed via {@code send_chat}'s sibling once
  * packet construction helpers land; the ActionManager already supports it.
- */
+ *
+ * <h2>The two layers, and the rule that assigns a tool to one of them</h2>
+ *
+ * <p><b>THE RULE, in two questions, asked in this order.</b>
+ * <ol>
+ *   <li><b>Does the tool change the Kernel?</b> The Kernel is the JVM and its loaded classes,
+ *       the bytecode hooks and the intercept seams, the 7-layer reference monitor, the
+ *       capability registry itself, the native debug (JVMTI) bridge, and the agent's own
+ *       startup patches. A tool that reaches into any of those is <b>KERNEL-LAYERED</b>.</li>
+ *   <li><b>Otherwise, is its subject the Minecraft session?</b> The world, the connection to
+ *       the server, the client's own screens and inputs, the player's inventory and hands, or
+ *       the agent's notes about that session. Such a tool is <b>MODEL-FACING</b>.</li>
+ * </ol>
+ * <p><b>The default for a name nobody declared is KERNEL-LAYERED.</b> Deny by default: a new
+ * provider wired into {@code McpCore.registerBuiltins} and nobody classified must not silently
+ * become something the model can see and call. That default is not a licence to skip the
+ * declaration, either &mdash; {@code ToolLayeringTest} requires every <i>registered</i> built-in
+ * to carry an explicit row, precisely so the default can never be reached by a real tool.
+ *
+ * <p><b>Where the declarations are.</b> {@link #LAYERS}, below, is the single place to read the
+ * whole split. Nothing else in the tree decides a layer: {@code McpCore.registerBuiltins} derives
+ * what it feeds to the model-facing surface from {@link #layerOf(String)}, and the promotion
+ * reader consults the same table. Adding a tool means adding a row here.
+ *
+ * <p><b>What this is and is not.</b> Layering is a <i>surface-shaping</i> control: it decides
+ * what a name costs in the model's context and what it may reach for first. It is not a sandbox.
+ * The sandbox term in this tree is the reference monitor ({@link net.marcloud.mcp.core.se.Ring}),
+ * and it keeps applying to every tool on either layer, promoted or not &mdash; promotion changes
+ * what a model can <i>see</i>, never what a subject is <i>allowed</i> to do.
+  */
 public final class ToolRegistry {
+
+    /**
+     * Which of the two surfaces a tool belongs to. See the class javadoc for the rule.
+     *
+     * <p>{@link #KERNEL} is the safe default for an undeclared name; see {@link #layerOf}.
+     */
+    public enum Layer {
+        /** On the model-facing surface: advertised over MCP, callable by name. */
+        GAME,
+        /** Kernel-layered: registered and gated, but NOT advertised and NOT callable by name. */
+        KERNEL
+    }
+
+    /**
+     * The single declaration of the game/kernel split. Read this to know what the model sees.
+     *
+     * <p>Grouped by the provider that registers the names, and by the question-1 subject that
+     * puts each group on the kernel side. Names are declared whether or not they are currently
+     * registered: the eleven {@code debug_*} JVMTI action names are folded behind
+     * {@code debug_manage}/{@code debug_handle} (ADR-0004) and are NOT registered, but they are
+     * declared here anyway so that (a) a name-shaped probe cannot discover them by contrast and
+     * (b) the reservation authority covers the whole kernel vocabulary rather than only the
+     * handful that happens to be live.
+     */
+    private static final Map<String, Layer> LAYERS = buildLayers();
+
+    private static Map<String, Layer> buildLayers() {
+        Map<String, Layer> m = new java.util.LinkedHashMap<>();
+
+        // ---- KERNEL: the capability registry as its own subject (MetaTools) ----
+        // create_tool is here for a reason that is NOT "it is scary": it is the verb that
+        // MANUFACTURES the kernel surface. Leaving it on the model surface while hiding
+        // eval_java would be incoherent - the model can write the same three lines. See the
+        // create_tool section of .ai-notes/docs/audits/2026-10-02-wave18-tool-layer.md.
+        kernel(m, "list_capabilities", "get_tool_source", "create_tool", "rollback_tool",
+                "redefine_class");
+
+        // ---- KERNEL: the 7-layer reference monitor as its own subject ----
+        kernel(m, "list_permissions", "drop_privilege", "restore_privilege",
+                "enable_privilege", "disable_privilege", "grant_capability", "revoke_capability");
+
+        // ---- KERNEL: the JVM's loaded classes (C1 introspect, C5 mutate-state) ----
+        kernel(m, "list_classes", "describe_class", "find_method", "list_hooks",
+                "read_field", "write_field", "invoke_method", "open_module");
+
+        // ---- KERNEL: bytecode instrumentation (C3 hooks, C7 synthesize, C8 seams) ----
+        kernel(m, "install_hook", "uninstall_hook", "eval_ephemeral",
+                "seam_netty_install", "seam_netty_uninstall",
+                "seam_glfw_key_hook", "seam_glfw_mouse_hook",
+                "seam_tick_enable", "seam_tick_disable");
+
+        // ---- KERNEL: the native debug (JVMTI) bridge (C6) ----
+        // debug_manage/debug_handle are the two REGISTERED folds; the eleven names below are
+        // their actions and are not registered at all (ADR-0004 folded them).
+        kernel(m, "debug_manage", "debug_handle",
+                "debug_suspend_thread", "debug_pop_frame", "debug_force_return",
+                "debug_set_breakpoint", "debug_clear_breakpoint", "debug_single_step",
+                "debug_read_local", "debug_write_local", "debug_watch_field",
+                "debug_open_thread", "debug_close_handle");
+
+        // ---- KERNEL: the agent's own REPL, and the packet sender that is code execution ----
+        // send_raw_packet is here because Ring.java:91-97 already says what it is: it compiles
+        // and reflectively runs caller-supplied Java, so it is the same arbitrary-in-proc-code
+        // power class as eval_java, not a network-effect tool. The typed do_* senders are the
+        // model-facing way to put a packet on the wire.
+        kernel(m, "eval_java", "send_raw_packet");
+
+        // ---- KERNEL: infrastructure diagnostics ----
+        // Both report on the agent's own runtime (the GL context; the premain patch catalog),
+        // not on the Minecraft session, so question 1 catches them.
+        kernel(m, "dev_probe", "list_compat_patches");
+
+        // ---- MODEL-FACING: ToolRegistry's own game surface (this file) ----
+        // read_player_state, recent_packets, send_chat, disconnect_report, scan_surroundings,
+        // world_view, find_block, inspect_block, craft_plan, capture_screen, server_info,
+        // open_overlay, transfer_item, do_client_status, do_select_slot, do_close_container,
+        // do_dig, do_set_abilities, do_place_block, do_set_creative_slot, do_click_slot,
+        // do_use_entity, do_entity_action  (23 - the other two of all() are kernel, above)
+        game(m, "read_player_state", "recent_packets", "send_chat", "disconnect_report",
+                "scan_surroundings", "world_view", "find_block", "inspect_block", "craft_plan",
+                "capture_screen", "server_info", "open_overlay", "transfer_item",
+                "do_client_status", "do_select_slot", "do_close_container", "do_dig",
+                "do_set_abilities", "do_place_block", "do_set_creative_slot", "do_click_slot",
+                "do_use_entity", "do_entity_action");
+
+        // ---- MODEL-FACING: the actuation layer (ActTools) ----
+        game(m, "act_set", "act_plan", "act_cancel", "act_status", "press_key_binding");
+
+        // ---- MODEL-FACING: the container/enchant/ESC doors ----
+        game(m, "do_enchant_item", "open_pause_menu");
+
+        // ---- MODEL-FACING: the GUI surface (GuiTools) ----
+        game(m, "gui_snapshot", "gui_snapshot_image", "gui_click_element", "gui_type_text",
+                "gui_press_key", "gui_trajectory");
+
+        // ---- MODEL-FACING: reading the session's own observed traffic and chat ----
+        game(m, "chat_read", "clock_now", "timeline_tail", "packets_tail", "packet_get",
+                "packet_view");
+
+        // ---- MODEL-FACING: the agent's notes about the session ----
+        // Not the Kernel: a JSON file of what the model learned, and its own goal stack.
+        game(m, "memory_write", "memory_search", "memory_delete",
+                "set_goal", "push_subgoal", "complete_goal", "narrate", "get_story");
+
+        return java.util.Collections.unmodifiableMap(m);
+    }
+
+    private static void kernel(Map<String, Layer> m, String... names) {
+        for (String n : names) {
+            Layer prev = m.put(n, Layer.KERNEL);
+            if (prev != null) {
+                throw new IllegalStateException("'" + n + "' is declared twice in LAYERS ("
+                        + prev + " then KERNEL)");
+            }
+        }
+    }
+
+    private static void game(Map<String, Layer> m, String... names) {
+        for (String n : names) {
+            Layer prev = m.put(n, Layer.GAME);
+            if (prev != null) {
+                throw new IllegalStateException("'" + n + "' is declared twice in LAYERS ("
+                        + prev + " then GAME)");
+            }
+        }
+    }
+
+    /**
+     * The layer of {@code toolName}, or {@link Layer#KERNEL} when the name is not declared.
+     *
+     * <p>Deny by default, in the same spirit as {@code Ring.forBuiltin}'s R3 fallback and
+     * {@code SeToolRequirement}'s safe defaults: a name this table has never heard of is not
+     * something the model gets to see.
+     */
+    public static Layer layerOf(String toolName) {
+        Layer l = LAYERS.get(toolName);
+        return l == null ? Layer.KERNEL : l;
+    }
+
+    /** True when {@code toolName} is kernel-layered - i.e. hidden from the model surface. */
+    public static boolean isKernelLayered(String toolName) {
+        return layerOf(toolName) == Layer.KERNEL;
+    }
+
+    /** Every name this table declares, model-facing and kernel alike. */
+    public static java.util.Set<String> declaredNames() {
+        return LAYERS.keySet();
+    }
+
+    /** The declared model-facing names. */
+    public static java.util.Set<String> modelFacingNames() {
+        return namesWith(Layer.GAME);
+    }
+
+    /** The declared kernel-layered names, including names that are not registered. */
+    public static java.util.Set<String> kernelLayeredNames() {
+        return namesWith(Layer.KERNEL);
+    }
+
+    private static java.util.Set<String> namesWith(Layer layer) {
+        java.util.Set<String> out = new java.util.LinkedHashSet<>();
+        for (Map.Entry<String, Layer> e : LAYERS.entrySet()) {
+            if (e.getValue() == layer) {
+                out.add(e.getKey());
+            }
+        }
+        return java.util.Collections.unmodifiableSet(out);
+    }
 
     private final ToolContext ctx;
     /** PHASE W.7: last WorldView, for world_view mode=diff. */
@@ -84,6 +281,33 @@ public final class ToolRegistry {
     public void registerAll(IoManager registry) {
         for (SyncToolSpecification spec : all()) {
             Tool t = spec.tool();
+            registry.register(t.name(), spec, null, t.description(), true,
+                    net.marcloud.mcp.core.se.Ring.forBuiltin(t.name(),
+                            net.marcloud.mcp.core.se.Ring.R3));
+        }
+    }
+
+    /**
+     * Register ONLY the model-facing tools of this provider into the model-facing registry.
+     *
+     * <p><b>Why this provider needs its own filtered path.</b> It is the one provider in
+     * {@code McpCore.registerBuiltins} whose tools straddle both layers: {@code all()} is 25
+     * specs, of which {@code eval_java} and {@code send_raw_packet} are kernel-layered (the
+     * latter because it compiles and reflectively runs caller-supplied Java - see
+     * {@code Ring.java:91-97}). Every other provider is wholly on one side, so
+     * {@code McpCore} can decide per provider from the names that provider contributed.
+     * Here the decision has to be per name, and it reads the same table everything else does.
+     *
+     * <p>Registering the same spec into two registries is not double registration: each
+     * {@link IoManager} wraps it in its own supervisor and keeps its own stats, so each surface
+     * measures exactly the calls that arrived on it.
+     */
+    public void registerModelFacing(IoManager registry) {
+        for (SyncToolSpecification spec : all()) {
+            Tool t = spec.tool();
+            if (isKernelLayered(t.name())) {
+                continue;
+            }
             registry.register(t.name(), spec, null, t.description(), true,
                     net.marcloud.mcp.core.se.Ring.forBuiltin(t.name(),
                             net.marcloud.mcp.core.se.Ring.R3));
