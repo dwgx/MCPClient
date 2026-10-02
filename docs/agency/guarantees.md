@@ -1,13 +1,23 @@
 # Guarantees and instruments: what this kernel now holds, and what pins it
 
 2026-10-02. Written after a day of auditing-and-fixing, not before one; refreshed the same
-evening after the clock and grading waves landed. **38 guarantees**, each carrying the
-`file:line` that implements it and the **exact test class** that goes red if it regresses —
-or the word **unenforced**, which is the only honest entry when no such test exists.
+evening after the clock and grading waves landed, then again after the damage, enclosure and
+corpus waves, and then a third time for a **full anchor sweep**. **47 guarantees**, each
+carrying the `file:line` that implements it and the **exact test class** that goes red if it
+regresses — or the word **unenforced**, which is the only honest entry when no such test exists.
 
-**Every `file:line` in this file has been opened.** Nothing here is quoted from a report. When
-a line moved, the citation moved with it, and the corrections are listed in
-`.ai-notes/docs/audits/2026-10-02-wave10-guarantees-refresh.md`.
+**Every `file:line` in this file has been opened, twice.** The first refresh corrected thirty-plus
+wrong anchors left by the version before it. The second found **sixteen more**, in nine rows of
+§1 and four places in §4/§5 — and two of those groups were wrong *as a block*, every member off by
+exactly one line, which is the signature of a number copied out of a diff rather than counted off
+a file. That is not a rounding error to be fixed once. It is why **§6.10** now says how to cite a
+line number, and why the rule is written to outlive this pass.
+
+**A guarantee's row must cite a test that reads the thing the row is about.** That is the specific
+error this file exists to stop and it has already happened here twice — once in this file while it
+was being written, and once for `BuildScriptContractTest`, which reads `build-clang.sh` in a
+different directory (§1d). **A test class's name is not evidence of what it reads**, and it is the
+one error in this document a reader cannot detect for themselves.
 
 **Why this file exists at all.** This repository has produced the same defect shape
 repeatedly: a capability documented as doing something whose producer is absent, renamed,
@@ -15,7 +25,8 @@ or never asked a question. A patch that armed and changed nothing. A security ga
 `require()` was an empty method body. A schema that refused a verb the actuator had. Tool
 descriptions naming arguments that did not exist. An interface method documented "never
 null" that returned a one-frame-stale value to zero callers. **A movement-trace regression
-test that surefire never collected.**
+test that surefire never collected.** **Ten `w.health() > 0.0D` comparisons that evaluated
+`20.0 > 0.0`, in the very suite whose charter is "every verdict is a world fact"** (§1f).
 
 So the job of this document is not to describe the design. It is to make each guarantee
 **checkable rather than believable**. A row without a test class is a claim; a row with one
@@ -29,6 +40,10 @@ this file is a distillation of them; where the two disagree, the reports under
 2026-10-02. Those produced these changes, and the directory is gitignored
 (`.gitignore:56`, the `.ai-notes/` line), so none of them will travel with the repository.
 This file is the part that will.
+
+The correction logs are `.ai-notes/docs/audits/2026-10-02-wave10-guarantees-refresh.md` and
+`.ai-notes/docs/audits/2026-10-02-wave12-doc-sweep.md`, both gitignored and both worthless
+without this file.
 
 ---
 
@@ -49,62 +64,76 @@ Read the result from `core/target/surefire-reports/*.xml`, not from the console 
 console total and the on-disk reports disagreed until the report directory was cleared,
 because probe runs leave stale entries in it.
 
-**The number as of this writing: 300 classes / 1883 tests / 0 failures / 0 errors / 1
+**The number as of this writing: 310 classes / 1940 tests / 0 failures / 0 errors / 1
 skipped.** It is one coherent run, and the directory's total is **not** the same number: the
-directory holds **301** XML files and a naive sum says `1884`, wrong by exactly one. One
-report, `TEST-net.marcloud.mcp.core.drivers.action.DiagTest.xml`, carries an mtime of `09:19`
-while the other **300** all carry `10:35`; it is left over from a probe run of a class that
-**does not exist in the tree** (`core/src/test/java/.../DiagTest.java` is absent).
-**Group the reports by mtime before summing them.** That one file is why §0 is a section and
-not a sentence: a test count is a claim about a set of files, and the set has to be named.
+directory holds **312** XML files and a naive sum says `1944`, wrong by exactly **four**. Two
+reports are stale, both from probe runs of classes that **do not exist in the tree**:
 
-**And the number moved while this section was being written, which is the honest reason it is
-dated rather than stated as a constant.** It read **299 classes / 1877 tests** off a `10:11`
-run, and by the time the file was finished a sibling had added
-`core/src/test/java/net/marcloud/mcp/core/eval/ScratchLavaProbeTest.java` (6 tests) and the
-suite had been re-run at `10:35`. The six are the whole difference. Anyone who re-measures and
-gets something else should **diff the report directory**, not assume the tree is broken.
+| stale report | tests | mtime | class in `core/src/test/java`? |
+|---|---|---|---|
+| `net.marcloud.mcp.core.drivers.action.DiagTest` | 1 | `09:19` | **absent** |
+| `net.marcloud.mcp.core.eval.ScratchLavaProbeTest` | 3 | `10:44` | **absent** |
 
-**The same bijection checked from the other end.** `core/src/test/java` holds **300** files
-matching surefire's default includes (§3), and there are **300** reports for them, one for one,
-with **zero** files lacking a report. The earlier warning in this section — that
+The **310** live reports carry two mtimes, `11:37` (22 files, 119 tests) and `11:38` (288
+files, 1821 tests), which is one run split across a minute boundary and not two runs.
+**Group the reports by mtime before summing them.** Two files are why §0 is a section and not a
+sentence: a test count is a claim about a set of files, and the set has to be named. Note also
+that `ScratchLavaProbeTest` read **6** tests when this section was last written and reads **3**
+now — the file has been deleted and its report has not, which is precisely how a stale entry
+becomes an invented one.
+
+**The same bijection checked from the other end.** `core/src/test/java` holds **333** `.java`
+files, **310** of them match surefire's default includes (§3), and there are **310** reports for
+them, one for one, with **zero** files lacking a report and **zero** reports without a file. The
+earlier warning in this section — that
 `ADecisionRecordedOnASlotIsReadableByTheOneComponentThatDecidesTest` existed and had never been
 executed — is **resolved**: it is collected, it has a report, and its five tests are green. Row
 12 is no longer a design claim.
 
+**The one skip is pre-existing and named.** `LevelSchemePathGuardPatchTest` reads `tests="9"
+skipped="1"`, and the skipped method is
+`aSymlinkOutOfSavesIsRefusedByContainmentButAcceptedByVanilla` — an assumption about what vanilla
+1.8.9 does on Windows that the vendored source does not settle.
+
 ### 0.1 Where the count came from, and which of its legs are evidence
 
-The total is measured. The path that got there is not, in three of its seven steps, and the
+The total is measured. The path that got there is not, in more of its legs than it was, and the
 difference is worth printing rather than rounding:
 
 | step | delta | what backs the number |
 |---|---|---|
-| baseline before the collection gap was closed | — | historical; **not** re-derivable from the reports now on disk |
-| the 7 renamed contract tests (§3.1) | **+19** | **measured**: `3+4+1+4+1+4+2`, each read off its own report |
-| `ARRIVED_AFTER_A_LANEIsReachableOnAProductionRecordTest` | **+3** | **measured**: its report says `tests="3"` |
-| belief-consumers' three classes | +14 | historical: measured on disk at the time, and the coherent `1839` it produced |
+| baseline before the collection gap was closed (1803) | — | historical; **not** re-derivable from the reports now on disk |
+| the 7 renamed contract tests (§3.1) | **+19** | **measured**: `3+4+1+4+1+4+2`, each read off its own report, re-read this pass |
+| `ARRIVED_AFTER_A_LANEIsReachableOnAProductionRecordTest` | **+3** | **measured**: its report says `tests="3"`, re-read this pass |
+| belief-consumers' three classes | +14 | historical |
 | wave 8 to the grading wave's baseline | +11 | historical |
-| **the clock wave** (§1e rows 33-36) | **+21** | **measured**: its four new classes carry `6 + 4 + 5 + 6` on their own reports |
-| **the grading wave** (§1e rows 37-38) | **+6** | **measured**: `ABeliefCensusOverTheActScenariosTest` is `7`, less the one `@Test` method the wave **deleted** from `ADigCompletionSaysWhatItActuallySawTest` (report now `6`; this document recorded `7` before) |
-| **wave-9 subtotal** | **+27** | 1850 + 21 + 6 = **1877**, which is what the reports said at `10:11` |
-| a sibling's probe class, since | **+6** | **measured**: `ScratchLavaProbeTest` is `tests="6"` on its own report |
-| **total, at `10:35`** | **+33** | 1850 + 21 + 6 + 6 = **1883**, which is what the reports say now |
+| **the clock wave** (§1e rows 33-36) | **+21** | historical **as of this pass** — the four classes still exist and still read `6 + 4 + 5 + 6`, but the `1877` run they were measured against is no longer on disk |
+| **the grading wave** (§1e rows 37-38) | **+6** | historical for the same reason. `ABeliefCensusOverTheActScenariosTest` still reads `7` and `ADigCompletionSaysWhatItActuallySawTest` still reads `6`, so both legs of this delta still hold — what is gone is the report that made the sum `1877` checkable |
+| **wave-9 subtotal** | **+27** | 1850 + 21 + 6 = **1877** |
+| **the damage wave** (§1f rows 39-41) | **+14** | **measured**: three new classes read `7 + 4 + 3` on their own reports |
+| **the enclosure wave** (§1f rows 42-44) | **+18** | **measured**: four new classes read `5 + 5 + 4 + 4` on their own reports |
+| **the corpus wave** (§1f rows 45-46) | **+31** | **measured**: four new classes read `8 + 8 + 7 + 8` on their own reports — an arming class and a real-vanilla-class class per patch |
+| **total, at `11:38`** | **+63** | 1877 + 14 + 18 + 31 = **1940**, which is what the reports say |
 
-**The two waves are not `+16` and `+11`.** They are `+21` and `+6`, and the total is the same
-either way, which is exactly why the split is worth getting right: a decomposition whose parts
-can be redistributed without changing its sum is a decomposition nobody has checked. **Five** of
-the eight deltas above are read off a report; the other three are marked historical and are not
-laundered into evidence by being in the same table.
+**The clock and grading waves are not `+16` and `+11`.** They are `+21` and `+6`, and the total
+is the same either way, which is exactly why the split is worth getting right: a decomposition
+whose parts can be redistributed without changing its sum is a decomposition nobody has checked.
 
-**And this table was written before the last row happened, which is the cleanest possible
-argument for §6.9.** The document was refreshed against a `10:11` measurement of 1877, and
-1877 was correct when it was written. A sibling added six tests, the suite was re-run, and 1877
-became wrong **without a single character of this file changing**. The last two rows are the
-repair, and they exist to be read as an example rather than as an arithmetic claim.
+**And this table lost two of its legs between one refresh and the next, which is the finding.**
+It previously marked the clock and grading waves **measured** and pointed at their class reports
+as the backing. Those reports are gone — cleared by a later run — so the marking had become a
+claim about evidence that no longer exists while still reading as evidence. **Five** legs are
+measured today and each can be pointed at a report; **five** are historical and are not laundered
+into evidence by being in the same table. The correction is not that the old numbers were wrong.
+It is that a row labelled *measured* must still name a report that exists.
 
-**Re-measure anyway.** This repository has pinned a test count in a document and had it be wrong
-within one round, twice (§0.1 of `branch-topology.md` records it for commit counts; this is the
-same failure with a different subject).
+**And the two stale reports are the cleanest possible argument for §6.9.** Both belong to classes
+that were deleted and never had their reports cleared. `ScratchLavaProbeTest` was **6** tests in
+the version of this document that cited it and is **3** now, so a reader checking that citation
+would find a report that disagrees with the number printed beside it. **Re-measure anyway.** This
+repository has pinned a test count in a document and had it be wrong within one round, three
+times (§0.1 of `branch-topology.md` records it for commit counts; this is the same failure with a
+different subject).
 
 ---
 
@@ -113,9 +142,19 @@ same failure with a different subject).
 Each row: the claim, where it is implemented, the test class that fails on regression, and
 how many test methods that class actually has — **read from that class's own surefire XML,
 not counted by eye and not carried from a previous version of this file**. **UNENFORCED**
-means no test in the repository fails if the guarantee stops holding. **There is currently no
-such row**: the last one, row 32, was closed by `scripts/test_sign_patch.py` and the story of
-how is kept under the row.
+means no test in the repository fails if the guarantee stops holding.
+
+**There is exactly one such row, and it is new: row 47** (§1f). It is a claim about what vendored
+source does *not* permit — that `ResourcePackRepository`'s destination name is constrained before
+any `File` is built, so a containment check there would fix nothing. Nothing fails if that regex
+ever changes, and the row says so rather than borrowing a test that reads something else. The
+previous unenforced row, 32, was closed by `scripts/test_sign_patch.py` and the story of how is
+kept under the row.
+
+**A row that cites a test must cite one that reads the thing the row is about.** That is the
+specific error this file exists to stop, it has happened here twice, and **it is the one error in
+this document a reader cannot detect for themselves** — a plausible class name beside a plausible
+anchor looks exactly like evidence.
 
 ### 1a. Trust and patching
 
@@ -154,7 +193,7 @@ bypassed it. It is now in `writeOwnerOnly`, the only function that writes the ke
 | # | guarantee | implemented at | enforced by | tests |
 |---|---|---|---|---|
 | 6 | The MOVE path propagates the belief grade to the record on **both** the terminal and the running path | `drivers/act/MoveApplier.java:388` (terminal), `:441` and `:459` (running) — five `withBelief(` call sites in `core/src/main`, three in `MoveApplier` and two in `InteractApplier` (`:58`, `:75`) | `ARouteRefusalThatCountedUnreadCellsIsNotTheSameFailureOnTheSlotAsOnTheOutcomeTest` | 6 |
-| 7 | "Nobody looked" and "somebody looked and could not see" are **different values** at the record boundary | `drivers/act/SlotRecord.java:89` and `drivers/act/ActOutcome.java:146` — both `UNGRADED` are now `null`, with `mayActOn()` as the door | same as row 6 | 6 |
+| 7 | "Nobody looked" and "somebody looked and could not see" are **different values** at the record boundary | `drivers/act/SlotRecord.java:89` and `drivers/act/ActOutcome.java:147` — both `UNGRADED` are now `null`, with `mayActOn()` as the door | same as row 6 | 6 |
 | 8 | A route refusal that counted unread cells is not the same failure as one over impassable terrain, **on the record** | `drivers/plan/RoutePlanning.java:202-216` (`noRouteMessage`, graded on `unreadCells` at `:210-215`); the grade and the count both leave on the `ActOutcome` at `:234-237` | row 6's test is the seam test; the type-level half is `ARouteRefusalOnUnreadTerrainIsNotTheSameFailureAsOnImpassableTerrainTest` | 6 + 8 |
 | 9 | The dig's completion says whether this client **saw it, inferred it, or could not look** | `drivers/act/DigController.java` (`withoutUpgrade` grades a stale claim rather than restating it) | `ADigCompletionSaysWhatItActuallySawTest` | 6 |
 | 10 | Grading the crosshair does not cost a world read | `ActActuator.mouseOver()` now returns `Graded<Target>` (`drivers/act/ActActuator.java:64`; the only production implementation is `LivePlayerActuator.java:75`) | `ABeliefOnADigCostsNoWorldReadTest`, `TheCrosshairSaysItWasTracedAgainstTheLastFrameTest` | 3 + 4 |
@@ -247,9 +286,11 @@ goal by eating its own planks. That mutation is the evidence the protection is r
 *not* enforced is that the eval could catch a broken policy at all: `GoalPolicy` is
 test-only, has zero references from `core/src/main`, and cannot be substituted
 (`public final`, constructed directly at **eleven** sites). There is **no seam**, so a
-deliberately broken policy cannot be run and the suite has **no negative control** — 24 tasks
-with world-fact assertions, two ever observed red, none ever observed red *because the
-policy was broken on purpose*. The `alive` conjunct is a second, separate hole; see §4.
+deliberately broken policy cannot be run and the suite has **no negative control of its own** —
+25 tasks with world-fact assertions, two ever observed red, none ever observed red *because the
+policy was broken on purpose*. §1f row 40 is the project's first negative control, and it is about
+the eval's survival row rather than about `GoalPolicy`, so **this hole is still open.** The
+`alive` conjunct was a second, separate hole; it is closed (§1f row 39) and §4 carries the rest.
 
 **Row 32 was UNENFORCED when this row was written, and the story of how it became enforced is
 the reason it is still here.** The fix was real and it was in the script: `sign-patch.sh` asks
@@ -279,10 +320,10 @@ no JDK and no built module, so it is the cheapest green in the repository.
 | # | guarantee | implemented at | enforced by | tests |
 |---|---|---|---|---|
 | 33 | The client's "is it night" answer is **derived from the clock**, not read off a field that stopped moving | `drivers/world/WorldViewCapture.java:502` — `daytime = Daylight.isDaytime(time)`, the one line the defect lived on; the live accessor is `drivers/act/LivePlayerActuator.java:243`, declared at `drivers/act/ActActuator.java:360` | `TheProductionDayNightReadIsNotFrozenTest` (drives `WorldViewCapture.env` itself by reflection, on a world built to be exactly as wrong as a real client) + `TheClockCostsTheWalkNoWorldReadTest` | 4 + 6 |
-| 34 | The night boundaries are **vanilla's own**, asserted across all 24,000 ticks | `drivers/world/Daylight.java:97` (`skylightSubtracted`), `:112` (`isDaytime`, delegating to `EnvironmentWeather.isDaytime(int)` so the threshold is restated nowhere); transcribed from `World.calculateSkylightSubtracted` at `World.java:1403-1413` | `DaylightMatchesTheVanillaCurveTest` | 6 |
-| 35 | The clock helper is **structurally incapable** of becoming a second frozen read — proven from bytecode, not from reading | `Daylight`'s five public methods at `:70`, `:97`, `:112`, `:117`, `:122` take a `long` and return arithmetic; there is no `World` parameter, no field, and no seam | `TheClockCostsTheWalkNoWorldReadTest.theDaylightHelperContainsNoWorldCallAtAll` (zero calls into `net/minecraft/world/` or `net/minecraft/entity/`, zero to `World.isDaytime` or `getSkylightSubtracted`) and `.theLiveActuatorDoesNotDelegateToTheFrozenVanillaRead` (exactly one call to `Daylight.isDaytime`, zero to `World.isDaytime`) | (within the 6) |
+| 34 | The night boundaries are **vanilla's own**, asserted across all 24,000 ticks | `drivers/world/Daylight.java:98` (`skylightSubtracted`), `:113` (`isDaytime`, delegating to `EnvironmentWeather.isDaytime(int)` so the threshold is restated nowhere); transcribed from `World.calculateSkylightSubtracted` at `World.java:1403-1413` | `DaylightMatchesTheVanillaCurveTest` | 6 |
+| 35 | The clock helper is **structurally incapable** of becoming a second frozen read — proven from bytecode, not from reading | `Daylight`'s five public methods at `:71`, `:98`, `:113`, `:118`, `:123` take a `long` and return arithmetic; there is no `World` parameter, no field, and no seam | `TheClockCostsTheWalkNoWorldReadTest.theDaylightHelperContainsNoWorldCallAtAll` (zero calls into `net/minecraft/world/` or `net/minecraft/entity/`, zero to `World.isDaytime` or `getSkylightSubtracted`) and `.theLiveActuatorDoesNotDelegateToTheFrozenVanillaRead` (exactly one call to `Daylight.isDaytime`, zero to `World.isDaytime`) | (within the 6) |
 | 36 | A sunset that does not cross the hour bucket is still **visible** in a diff | `drivers/world/WorldViewDiff.envDiff` gains `worldTime` and `daytime`; the bucket is 1,000 ticks wide and vanilla's night begins at 13,807, so dusk at `:13807` and dawn at `:22193` both sit **inside** a bucket | `TheDiffCarriesTheClockTest` — asserts the two ticks share a bucket as a *premise*, so the test fails loudly rather than passing for the wrong reason | 5 |
-| 37 | Every `ActOutcome` factory site in the act and plan drivers **names its derivation**, and the site is the claim | five named constants in `drivers/act/ActOutcome.java`: `:66` `READ_DIRECTLY = Belief.OBSERVED`, `:76` `DERIVED_FROM_READS = Belief.INFERRED`, `:88` `PLANNED_ON_CLIENT_WORLD`, `:99` `REUSED_CELL`, `:111` `READ_CAME_BACK_EMPTY = Belief.UNKNOWN`; the permitted set is `GRADED_DERIVATIONS` at `:114-117` | `ABeliefCensusOverTheActScenariosTest.everyOutcomeSiteInTheActLayerStatesItsDerivation` — fails on one more **or one fewer** site | 7 |
+| 37 | Every `ActOutcome` factory site in the act and plan drivers **names its derivation**, and the site is the claim | five named constants in `drivers/act/ActOutcome.java`: `:67` `READ_DIRECTLY = Belief.OBSERVED`, `:77` `DERIVED_FROM_READS = Belief.INFERRED`, `:89` `PLANNED_ON_CLIENT_WORLD`, `:100` `REUSED_CELL`, `:112` `READ_CAME_BACK_EMPTY = Belief.UNKNOWN`; the permitted set is `GRADED_DERIVATIONS` at `:115-118` | `ABeliefCensusOverTheActScenariosTest.everyOutcomeSiteInTheActLayerStatesItsDerivation` — fails on one more **or one fewer** site | 7 |
 | 38 | The unread count rides **beside** the grade, never inside it, and absent is not zero | `ActOutcome.java:37` (the `Integer unreadCells` component) beside `belief`; recorded on `SlotRecord.java:46` with `NO_COUNT = null` at `:149`; carried through **three** `MoveApplier` stamps at `:393`, `:442`, `:459` (and two in `InteractApplier` at `:59`, `:76`); on the wire at `ActTools.java:1015` | `ABeliefCensusOverTheActScenariosTest` — asserts `unreadCells == 412` beside `UNKNOWN` and `unreadCells == 0` beside `OBSERVED` (`:422-437`) | 7 |
 
 **Row 33's defect was worse than a stale value, and the severity is the whole reason this
@@ -363,15 +404,141 @@ not a gap.
 
 **And `UNGRADED` is not a fourth `Belief`.** `Belief` (`core/util/Belief.java:50`) has exactly
 three values — `OBSERVED` at `:60`, `INFERRED` at `:70`, `UNKNOWN` at `:80`. `UNGRADED` is the
-**null default** on `SlotRecord` (`:89`) and `ActOutcome` (`:146`), and `mayActOn()` is its only
+**null default** on `SlotRecord` (`:89`) and `ActOutcome` (`:147`), and `mayActOn()` is its only
 safe reader, because a bare `null != UNKNOWN` comparison **fails open**: every ungraded line
 would read as actionable.
+
+### 1f. Damage, enclosure, and the corpus: the three slices that landed after the last refresh
+
+| # | guarantee | implemented at | enforced by | tests |
+|---|---|---|---|---|
+| 39 | The eval's survival row reads the **low-water mark of a bar the world moved**, not the end of a fixture field | `EvalSuite.survived` at `eval/EvalSuite.java:153-155` returns `w.minimumHealth() > 0.0D && w.alive()`; `EvalSuite.neverBelowNorthStar` at `:165-167` is the 18-floor claim; `NORTH_STAR_HEALTH` at `:134` is re-exported from `SurvivalDamage.NORTH_STAR_FLOOR` rather than repeated; the producer is `eval/SurvivalDamage.java` (main tree, 451 lines) and the accessor is `SimWorld.minimumHealth()` at `SimWorld.java:665` | `TheSurvivalRowDetectsAPlantedHazardTest` | 4 |
+| 40 | The eval **can fail**, and the proof is a planted hazard rather than a demonstration | `EvalSuite.T20TheDirectLineIsLava` (`EvalSuite.java:1671`) grew a `plantedHazardRun()` seam at `:1772`, **inside T20**, so the control reuses T20's own five pass rows (`:1789`) instead of copying them; the control calls it at `TheSurvivalRowDetectsAPlantedHazardTest.java:166` | same class | 4 |
+| 41 | The damage arithmetic is vanilla's, and the authority is **not** the block class | `drivers/world/FireDamage.java:61` — `LAVA_CONTACT_DAMAGE = 8`, correct because the whole class is in half-hearts; vanilla's `Entity.setOnFireFromLava` (`Entity.java:539-545`) deals `DamageSource.lava, 4.0F` at `:543` and then `setFire(15)` at `:544` | `ALavaBandThatKillsThePlayerIsVanillasArithmeticTest` — asserts the sequence tick by tick, not at an end state | 7 |
+| 42 | "Enclosed" is **two halves reported separately**, so a failure can say which one failed | `eval/Enclosure.java:124` — `public record Verdict(boolean skyClosed, int wallsMissing, int wallsTotal)`, not a boolean; `sideClosed()` at `:127-129`, `enclosed()` at `:132-134`, `describe()` at `:137-140` | `TheEnclosurePredicateHasBothVerdictsFromOneWorldTest` | 5 |
+| 43 | The shelter claim is over a **window**, and a window that was never measured is refused rather than reported as held | `eval/NightEnclosure.java:130-132` — `sheltered()` is `measured() && openSamples == 0`; `measured()` at `:135`; the window's ticks are derived from the production clock at `duskTick()` `:194` | `AShelterIsARegionOverTheNightAndNotARoofAtDawnTest` | 5 |
+| 44 | Shelter and health floor are **joined into one value**, and each half is measured independently of the other | `EvalSuite.NightClaim` at `EvalSuite.java:200`; `nightClaim(w, enclosure)` at `:210` reads both and defaults neither; `T25ShelterThroughTheNight` registered at `:115`, class at `:2443` | `TheNightShelterAndTheHealthFloorAreJoinedTest` | 4 |
+| 45 | SEC-2 changes the real compiled vanilla class and the engine says so | `compat/Compat.java:96` registers it; the defect is `ResourcePackRepository.deleteOldServerResourcesPacks` (`ResourcePackRepository.java:254-268`) calling `FileUtils.listFiles` on a directory nothing created, unguarded at `:256` | `ServerResourcePackDirGuardPatchArmingTest`, `ServerResourcePackDirGuardPatchMeetsTheRealVanillaClassTest` | 8 + 7 |
+| 46 | SEC-3 guards both null-dereference entry points and the engine says so | `compat/Compat.java:101`; `Scoreboard.java:218` and `Scoreboard.java:296` | `ScoreboardNullGuardPatchArmingTest`, `ScoreboardNullGuardPatchMeetsTheRealVanillaClassTest` | 8 + 8 |
+| 47 | **A corrected claim.** The top-ranked corpus defect is an **availability** failure, not a path traversal — and a containment check there would have fixed nothing | `ResourcePackRepository.java:179-186` constrains the destination name to `hash.matches("^[a-f0-9]{40}$")` or the literal `"legacy"` **before any `File` is constructed** at `:188` | **UNENFORCED** — nothing in the repository fails if that regex ever changes | — |
+
+**Rows 39 and 40 exist because of the defect they replace, and the defect was this document's own
+subject matter.** Ten `w.health() > 0.0D` comparisons stood in `EvalSuite` — seven plus one
+conjoined, and **two more inside T24's two legs that the task brief did not name**. Every one of
+them evaluated `20.0 > 0.0`, because nothing in an eval loop could write the field: `health` was
+set by the fixture's own `atHealth`, raised by a food heal, and otherwise untouched. **There was
+no world in which any eval task could fail on its survival row**, which means there was no world in
+which it passed either. `SimWorld.health` is gone; the ledger replaced it.
+
+**All ten are now zero.** `grep -n "health() > 0.0D" EvalSuite.java` returns comments only, and
+the one conjoined site (formerly `:947`) is `EvalSuite.java:1101` —
+`survived(w) && w.minimumHealth() == 3.0D`, where the `== 3.0` half is now the low point over a
+700-tick walk rather than the value `atHealth(3.0D)` set four lines above.
+
+**Row 40 is a design decision and not a convenience, and it is the part worth stealing.** The
+control plants **T20's own hazard** by removing the one thing that makes the task easy —
+`GoalPolicy`'s route around the lava band — and walking the straight line instead, then drives it
+through T20's own `plantedHazardRun()` seam rather than re-deriving the verdict. **A control with
+its own copy of the pass condition is a second suite, and the two drift.**
+
+**One half of the fixture *is* duplicated, on purpose, and the distinction is worth keeping.**
+The control's `bandBetweenSpawnAndOre()` writes T20's geometry out again rather than sharing a
+builder, and says so in its own javadoc, because the claim it makes is about *that* world's
+geometry and a reader should be able to check the cells against the band the numbers describe.
+**The pass rows are shared; the geometry is written out. Those are two different decisions and
+only the first one is about avoiding drift.**
+
+**Row 40's mutation numbers, as reported by the slice that ran them.** Deleting the lava contact
+from `SurvivalDamage.step` gives **9** failures; making lava decorative with
+`if (false && hazards.inLava() && !dead)` gives **9**; routing the hazard probe through
+`ActActuator.blockAt` instead of the world's own grid gives **2**. The second is the interesting
+one: it fails with *"the safe run ended at 20.0 and the planted run at 20.0"*, which is exactly
+the world T20 previously could not be told apart from.
+
+**Row 41 records an asymmetry so the next person does not spend the hour.** `BlockLava.java` is
+**absent from the vendored block tree** — `client/src/main/java/net/minecraft/block/` holds 155
+top-level block classes (158 entries, counting the `material`, `properties` and `state`
+subpackages), and **no `*Lava*` block exists anywhere in the vendored client.**
+The authority for lava contact damage is therefore `Entity.setOnFireFromLava`, not a block
+class, and an integrator briefed to expect a block will look for it, not find it, and conclude
+the number is unverifiable. **And the javadoc above the constant leaves out the guard**:
+`setOnFireFromLava` is wrapped in `if (!this.isImmuneToFire)` at `Entity.java:541`, so the `8`
+is what a non-immune body takes. The constant's own javadoc (`FireDamage.java:57-60`) notes
+armour but not immunity.
+
+**Row 42's rejections are the guarantee as much as its definition is.** Three better-sounding
+definitions were considered and each fails for a different reason:
+
+- **"Can the player see the sky", alone.** This is a **light** question in vanilla, not a safety
+  one — `Chunk.canSeeSky` (`Chunk.java:904-910`) exists to decide whether skylight reaches a cell.
+  A player at the bottom of a one-wide, four-deep pit is sky-closed and reachable by anything that
+  walks. Necessary, not sufficient.
+- **Light level**, which is the number a player would actually feel and the truest version of "the
+  player was safe". **`SimWorld` cannot evaluate it**, and `KNOWN_GAPS` says there is no lighting
+  here rather than approximating it. **Writing a rule nothing can evaluate would be a predicate
+  that has only ever agreed with itself.**
+- **Path reachability**, the most faithful definition available: "can anything walk from outside
+  to where the player is". Deliberately **not** taken, because it is a decision about what the
+  world permits rather than a measurement of what the body has — **that belongs to the planner,
+  and this is the instrument.** It is named as the next definition rather than smuggled in.
+
+**Row 44's acceptance criterion is invisible once the test exists, so it is written down as
+§6.11.** `held == sheltered && floorHeld` is false in three of the four combinations, so a test
+that only ever asserts `held` cannot tell "sheltered and hurt" from "exposed and untouched", and
+either run is a way for one half to do all the work. The class asserts the whole four-cell table.
+Its measured mutation numbers: making `Verdict.enclosed()` return true gives **12**; reverting
+`neverBelowNorthStar` to bare `minimumHealth() > 0` gives **4**; making `nightClaim` drop the
+enclosure half so `held == floorHeld` gives **3**. The first two fail **different** tests inside
+the file, which is the whole claim.
+
+**The class carries 4 tests and 28 assertion call sites**, counted off the file rather than the
+reports, which do not carry assertion counts: 12 in the four-cell table, 5 in the
+floor-is-not-survival test, 8 in the row-reads-both-halves test, 3 in the shared-fixture test.
+A brief for this slice called it 31. **The file is the authority and the file says 28.**
+
+**Rows 45 and 46 are the landing ratio going from 1 of 10 to 3 of 10, and both prove
+`targetsChanged`, never merely "armed".** SEC-2's third mutation is the one worth recording:
+commenting out the instruction insertion reproduces **exactly the `GlClampToEdge` armed-but-inert
+shape**, and the suite goes red — **3** failures out of 15. A patch test that has never seen that
+shape cannot distinguish armed from applied, which is the same reason row 1 exists at all.
+
+**Row 47 is the first row in this section whose value is a claim about what the source does *not*
+permit, and it is the reason the section has one.** `ResourcePackRepository.java:179-186`
+constrains the destination name before any `File` is built, so no separator, `.`, `..` or NUL can
+reach the filesystem; `deleteOldServerResourcesPacks` only ever deletes files already inside the
+directory it lists. SEC-1 is a containment failure; this is an availability failure. **A row that
+records a corrected claim is worth as much as one that records a confirmed one**, and the test
+that would enforce it does not exist, which is what the **UNENFORCED** in its column means.
+
+---
+
+### 1g. What this sweep corrected, so the next pass does not have to guess
+
+Sixteen citations in the previous version of this file were wrong. Two of the groups were wrong
+**as a block**, every member off by exactly one line, which is what a number copied out of a diff
+hunk header looks like rather than a number counted off an open file:
+
+| where | was | is |
+|---|---|---|
+| row 7, §1e tail | `ActOutcome.java:146` | `ActOutcome.java:147` — `:146` is the javadoc closer |
+| row 34 | `Daylight.java:97`, `:112` | `:98`, `:113` |
+| row 35 | `Daylight`'s methods at `:70`, `:97`, `:112`, `:117`, `:122` | `:71`, `:98`, `:113`, `:118`, `:123` — all five |
+| row 37 | constants at `:66`, `:76`, `:88`, `:99`, `:111`, `:114-117` | `:67`, `:77`, `:89`, `:100`, `:112`, `:115-118` — all six |
+| §2.3 | `ALLOWLIST` entries at `:71-101`; size `4` at `:156` | `:72-101`; `:156-159` |
+| §4 | `SimWorld.KNOWN_GAPS` at `SimWorld.java:156-164` | the list is declared at `SimWorld.java:110`; the chest sentence quoted there is at `:166-167` |
+| §4.1 | `droppedOntoFloor()` at `SimWorld.java:285`, accessor `:1193` | `:327` and `:1342` |
+| §4 | "24 tasks", "`18.0` appears zero times" | **25** tasks, and `18.0` appears **five** times |
+| §5.5 | "two class names are cited in javadoc that do not exist" | **both were repaired**; the paragraph had become false without the file changing |
+
+**The count is the finding, not the corrections.** Sixteen is not a handful, and they were spread
+across nine rows and four sections rather than concentrated in one stale corner — which says the
+anchors here were being written **by inference**, not by reading. That is why **§6.10** exists.
 
 ---
 
 ## 2. The measurement instruments, and what each one pins
 
-Five instruments. For each: what it would catch, and — the half that matters more — what it
+Seven instruments. For each: what it would catch, and — the half that matters more — what it
 is structurally blind to.
 
 ### 2.1 The eight-scenario movement digest
@@ -474,8 +641,8 @@ attached. So two claims are read from the compiled classes:
 
 Scans `core/src/main` for both spellings of an OBSERVED claim — `Graded.observed(` (bare or
 qualified) and `Belief.OBSERVED`, one regex at `:114-116` — and fails on **one more or one
-fewer** than the **four** allowlisted files (`ALLOWLIST` at `:67`, entries `:71-101`; one-more
-at `:126-132`, one-fewer at `:136-141`; the size — `4` — at `:156`, file existence at `:161-163`
+fewer** than the **four** allowlisted files (`ALLOWLIST` at `:67`, entries `:72-101`; one-more
+at `:126-132`, one-fewer at `:136-141`; the size — `4` — at `:156-159`, file existence at `:161-163`
 and a reason on every entry at `:165-167`). The class itself carries **4** tests.
 
 The four are `BlockProbe` (design 2.A #5, the one correctly ordered read in the repository),
@@ -535,6 +702,44 @@ about the world than any site in the tree makes.
   than the record it came from**, and the loss is by construction. Reading `act_status`
   gets you the grade; reading `act_plan`'s failure reason does not.
 
+### 2.5 The survival ledger's zero-read proof
+
+`core/src/test/java/net/marcloud/mcp/core/eval/TheSurvivalDamageCostsNoWorldReadTest.java` —
+**3 tests**, and the same A/B shape as §2.2 applied to the hazard rather than to the clock.
+
+Two runs differing **only** in whether the cell the body stands in holds lava, with no intent
+submitted, so both halves do identical controller work and any difference in the block-read count
+is the damage path's own cost. It is **0** for lava, **0** for water, and **0** for the void.
+
+- **Catches:** a damage rule that asks the world something the walk already read — a second
+  probe to confirm the cell, a hazard check on top of the collision check.
+- **Blind to — and this is why the second half of each test exists:** a path that read nothing
+  **and did nothing** also costs zero. So every test's second half asserts the damage actually
+  happened, and the third test asserts the seam is still being used, because **a zero measured
+  against a walk that never looks is blindness, not economy.**
+- **Mutation:** routing the hazard probe through `ActActuator.blockAt` instead of the world's own
+  grid gives **2** failures with the message *"60 ticks of standing in lava cost 300 reads through
+  the controller seam and the same 60 ticks on a plain cost 360."* Zero on both sides would have
+  been a different defect and this assertion shape is what distinguishes them.
+
+### 2.6 The enclosure's zero-read proof, which is the same argument twice
+
+`core/src/test/java/net/marcloud/mcp/core/eval/TheEnclosureCostsTheWalkNoWorldReadTest.java` —
+**4 tests**.
+
+Answering "is this body enclosed" every night tick costs nothing, which is a claim worth pinning
+because the obvious implementation — route the enclosure question through `ActActuator` so it is
+consistent with everything else — spends a read per tick and would be invisible in a diff.
+
+- **Catches:** a cell-by-cell enclosure scan that reaches the controller seam instead of the
+  world's own block grid.
+- **Blind to:** the same thing §2.5 is blind to, and for the same reason. `NightEnclosure` also
+  exposes a **sampling period**, so a scan that is cheap per sample and expensive per second is
+  still possible; what is pinned is the cost per sample, not the cost per night.
+- **Why it is listed separately rather than folded into §2.2:** two instruments guarding the same
+  property on two different substrates is not duplication. §2.2 guards the walk; this guards the
+  night, and the two have different fixtures, different failure messages, and different mutants.
+
 ---
 
 ## 3. The surefire collection gap — a trap for the next person
@@ -546,22 +751,22 @@ Surefire's default includes match `**/Test*.java`, `**/*Test.java`, `**/*Tests.j
 `AThingDoesSomething.java` and `TheThingIsSomething.java` — **which surefire does not
 collect.** `core/pom.xml` configures no `<includes>`, so the defaults apply.
 
-Measured on this tree, 2026-10-02, after the wave-9 additions:
+Measured on this tree, 2026-10-02, re-measured during the anchor sweep:
 
 | # | measurement | value |
 |---|---|---|
-| 1 | `.java` files under `core/src/test/java` | **323** |
-| 2 | matching surefire's default includes | **300** |
+| 1 | `.java` files under `core/src/test/java` | **333** |
+| 2 | matching surefire's default includes | **310** |
 | 3 | not matching | **23** |
 | 4 | of the 23, files carrying at least one `@Test` | **7 — and all 7 end in `LiveIT`** |
 | 5 | of the 23, files carrying **zero** `@Test` | **16** |
 
-**300 is also the number of reports in `core/target/surefire-reports` for real classes**, one
-for one, with zero files lacking a report (§0). That is the strongest statement available about
-this table: every file the include pattern matches was asked a question by the last run.
-Rows 1 and 2 also move while other people are working — they were 322 and 299 an hour before
-this table was written, and the difference is a sibling's new test file. Re-measure; do not
-subtract.
+**310 is also the number of reports in `core/target/surefire-reports` for real classes**, one
+for one, with zero files lacking a report and zero reports without a file (§0). That is the
+strongest statement available about this table: every file the include pattern matches was asked
+a question by the last run. Rows 1 and 2 also move while other people are working — they were 323
+and 300 before the damage, enclosure and corpus waves, and the difference is nine new test files.
+Re-measure; do not subtract.
 
 ### 3.1 What was fixed
 
@@ -649,22 +854,32 @@ the part that is.**
 
 ## 4. What remains unmeasured
 
-Stated plainly, because the list is short and the claims behind it are large.
+Stated plainly, because the list is short and the claims behind it are large. **Two of the four
+north-star criteria changed status while this document was being refreshed**, and both changes
+were invisible from here until somebody opened the files.
 
-**The self-play eval has 24 tasks** (`grep -c 'implements Task' eval/EvalSuite.java` = 24).
-It is a high-quality integration and composition gate over the production controllers:
-world-fact assertions across locomotion, the input-layer timing gate, hazard reporting,
-inventory transfer, two container models, and the placement chain, with mutations run in both
-directions. **It is not a north-star measurement, and no task in it bears on one.**
+**The self-play eval has 25 tasks** (`grep -c 'implements Task' eval/EvalSuite.java` = 25 — it
+read 24 before the enclosure wave added `T25ShelterThroughTheNight`). It is a high-quality
+integration and composition gate over the production controllers: world-fact assertions across
+locomotion, the input-layer timing gate, hazard reporting, inventory transfer, two container
+models, the placement chain, and now a survival ledger and an enclosure predicate, with mutations
+run in both directions. **It is still not a north-star measurement in the sense the Owner's
+sentence means**, and the reason has not changed: it drives a policy written in Java, and the
+acceptance object is the weak model's decision (§6.2).
 
-The north star names four things. Here is what exists for each:
+The north star names four things. Here is what exists for each, re-measured:
 
 | criterion | measured? | what exists instead |
 |---|---|---|
-| survive a shelter / have a shelter by dawn | **No.** No task builds an enclosure; there is no "is the player enclosed" predicate anywhere in the substrate | nothing |
-| health never below 18 | **No.** `18.0` appears **zero** times in the eval tree | `w.health() > 0.0D`, unfalsifiable in the tasks that use it |
-| a box standing at dawn | **No.** A chest does not exist in this substrate — `SimWorld.KNOWN_GAPS` (`SimWorld.java:156-164`) says so: *"a chest, a furnace and an enchanting table all still return a plain placement refusal"* | nothing |
-| a whole night | **Partly, and the "partly" is exactly the interesting part.** The substrate **has a clock** — `SimWorld` advances `worldTime` 1:1 per tick, transcribed from `WorldServer.java:206-209`, and T24 walks a leg in daylight, waits the night out, and walks a second leg inside it | "it got dark" is assertable. **"it was dangerous" is not**, and `SimWorld.KNOWN_GAPS` says exactly that: *"the CLOCK exists and the LIGHTING does not, and the two are not the same gap"*. Nothing spawns in the dark, no zombie burns at dawn, no light level gates a cell, a torch changes nothing |
+| survive a shelter / have a shelter by dawn | **Yes, as a predicate; not yet as a decision.** `eval/Enclosure.java` and `eval/NightEnclosure.java` exist, `T25ShelterThroughTheNight` reports both halves of the claim, and three controls prove each piece can fail (§1f rows 42-44). What is missing is a **model** choosing to build the roof — the claim is measured, the behaviour is not yet produced | `Enclosure.Verdict` at `Enclosure.java:124` (sky-closed AND side-closed, reported as three fields), folded over a window by `NightEnclosure.sheltered()` at `NightEnclosure.java:130-132` |
+| health never below 18 | **Yes.** `SurvivalDamage.NORTH_STAR_FLOOR = 18.0F` (`SurvivalDamage.java:71`), re-exported as `EvalSuite.NORTH_STAR_HEALTH` (`EvalSuite.java:134`) and asserted by `EvalSuite.neverBelowNorthStar` at `:165-167`. `18.0` appears **five** times in the eval tree where it used to appear **zero** | the bar is now a ledger the world's own damage rules write; `ALavaBandThatKillsThePlayerIsVanillasArithmeticTest` walks it tick by tick |
+| a box standing at dawn | **No.** A chest does not exist in this substrate — `SimWorld.KNOWN_GAPS` (declared at `SimWorld.java:110`) says so at `:166-167`: *"a chest, a furnace and an enchanting table all still return a plain placement refusal"* | nothing |
+| a whole night | **Partly, and the "partly" has not moved.** The substrate **has a clock** — `SimWorld` advances `worldTime` 1:1 per tick, transcribed from `WorldServer.java:206-209`, and T24 walks a leg in daylight, waits the night out, and walks a second leg inside it | "it got dark" is assertable, and since the enclosure wave "it was enclosed" is too. **"it was dangerous" is still not**, and `KNOWN_GAPS` says exactly that: *"the CLOCK exists and the LIGHTING does not, and the two are not the same gap"*. Nothing spawns in the dark, no zombie burns at dawn, no light level gates a cell, a torch changes nothing |
+
+**The first two rows are the reason §4 shrank, and they are not yet the whole north star.** A
+predicate that exists is not a behaviour that happens: what is measured is that the harness can
+tell whether a body was sheltered and whether its bar held, not that a weak model plus a system
+prompt builds the roof. That gap is the same gap §6.2 describes from the other side.
 
 Four verified facts behind that table:
 
@@ -694,19 +909,33 @@ Four verified facts behind that table:
    is the weak model's decision, and a Java component choosing from the clock would replace
    that decision with an arithmetic fact.
 
-3. **No damage source is reachable from a task.** `SimWorld.health` has three writers:
-   `atHealth` (fixture only), `damagePlayer` (whose only caller is `SimMob.tick`), and an
-   `advanceUse` food heal that **raises** health. `damagePlayer` needs a `SimMob`, and
-   `spawnMob` is called from **zero** `EvalSuite` tasks — its four callers are all in
-   `AMobThatActsIsMeasuredInTheWorldTest`, which is not one of the 24. So
-   `w.health() > 0.0D` is the constant `20.0 > 0.0`: it appears at **ten** sites
-   (`EvalSuite.java:724, 1326, 1445, 1537, 1641, 1758, 1843, 1976, 2008`, plus the one at
-   `:947`), and that last one conjoins it with `w.health() == 3.0D`, which is equally
-   unfalsifiable for the same reason. T24 added two of the ten and asserted `health=20.0`
-   at both ends of a night it waited out, which is the same constant read twice. **The suite
-   contains no run in which the player loses health at all**, and `alive` reads as if it were
-   evidence. A constant-true assertion in a suite whose charter is "every verdict is a world
-   fact" is worse than no assertion.
+3. **A damage source is reachable from a task now, and was not.** This entry used to read *"No
+   damage source is reachable from a task"* with the proof that `SimWorld.health` had three
+   writers, none of them an environmental hazard, so `w.health() > 0.0D` was the constant
+   `20.0 > 0.0` at **ten** sites. **All ten are gone.** `SimWorld.health` is gone with them:
+   `SurvivalDamage` (main tree, 451 lines) now holds the ledger, and lava, drowning, fire, the
+   void and falls all write it through the same order vanilla's `Entity.update` runs them in.
+   Two things about the old entry are worth keeping because they are still true and now
+   constrain the fix rather than describe a hole:
+
+   - `spawnMob` is still called from **zero** `EvalSuite` tasks — its four callers are all in
+     `AMobThatActsIsMeasuredInTheWorldTest` (`SimWorld.java` aside), which is not one of the 25.
+     So no mob moves the bar from inside an eval task; the hazards that do are environmental.
+   - The mob path had a real transcription defect that this wave fixed rather than reproduced:
+     `SimWorld.damagePlayer` used the **full** 20-tick hurt window, while
+     `EntityLivingBase.attackEntityFrom` tests `hurtResistantTime > maxHurtResistantTime / 2.0F`
+     — a **10**-tick band. The old code made every mob hit land at half the game's rate. It now
+     routes through the same `SurvivalDamage.attackFrom` the hazards use, so a body cannot be
+     invulnerable to lava and mortal to a zombie.
+
+   **What replaced the ten tautologies, and why the replacement is not equally vacuous.** Two
+   shared rows do the work: `EvalSuite.survived` reads `SimWorld.minimumHealth()`, the **low-water
+   mark** of the bar rather than its final value, so a survivor who was one lava tick from dead
+   three hundred ticks earlier is reported as what it was; and `EvalSuite.neverBelowNorthStar` is
+   the project's own 18-floor claim rather than a bare survival check. T20 is the task that has to
+   carry it, because T20 is the task with a lethal hazard next to the route — and `lavaTicks`
+   there is the damage rules' own counter, not a scan of a trace, so it cannot be satisfied by a
+   code path that never applied damage. §1f row 40 is the control that proves it.
 
 4. **`GoalPolicy` is 1317 lines, has zero references from `core/src/main`, exposes one action
    family, and cannot be substituted** — `public final`, constructed directly at eleven sites.
@@ -717,8 +946,10 @@ Four verified facts behind that table:
 ### 4.1 Two smaller items, verified this session
 
 - **`SimWorld.droppedOntoFloor()` has zero readers in the entire repository**
-  (declared at `SimWorld.java:285`, accessor at `:1193`; re-measured, because the file has
-  grown since the original line numbers were taken). Its sibling `thrownByPlayer` carries
+  (field declared at `SimWorld.java:327`, accessor at `:1342`; re-measured twice during this
+  sweep, because the previous version of this document cited `:285` and `:1193` and **both were
+  wrong** — `:285` is the javadoc opener of an unrelated field). The only hits for the name
+  anywhere in `core/src` are inside `SimWorld.java` itself. Its sibling `thrownByPlayer` carries
   five readers — four assertions in `AFullBagGetsAMakeRoomMoveBeforeItRefusesToDigTest`
   (`:58`, `:81`, `:132`, `:187`) and one in `GoalPolicy.java:321`. The split is right and
   only one half is load-bearing. By this repository's own stated test for decoration — *"a
@@ -822,21 +1053,26 @@ not by a test that watches for change:
   count, and a count is exactly what a decoration also produces.
 
 **The generalisable form: a test that asserts a property of a component is silent about the
-property of the seam between components.** Each of the five was caught by asking that question
+property of the seam between components.** Each of these was caught by asking that question
 ("and who reads *that*?") or by driving the real thing, which is why §4.1 is a list rather than
 a green suite.
 
 **And the mirror-image mistake has its own form, which is easier to make because it looks
-careful.** Two class names are cited in main-source javadoc that **do not exist**, and they are
-named here only so they are never copied again: `Daylight.java` points at a clock test and
-`ActOutcome.java` points at a derivation test, and neither file is in the tree. The real homes
-are `TheClockCostsTheWalkNoWorldReadTest` and `ABeliefCensusOverTheActScenariosTest`. **A
-plausible, specific, invented test-class name is the most convincing form this shape takes**,
-because a reader has no reason to doubt a name that specific — and unlike a wrong line number, a
-wrong class name cannot be caught by following the citation. Every `file:line` in §1 and every
-class name beside it was therefore checked by asking the file system, not by asking whether the
-name looked right. (§2.3's allowlist is the standing counter: it asserts every entry is a file
-that really exists, for the same reason.)
+careful: cite a test class that reads something else.** `BuildScriptContractTest` is the class a
+search for "what tests the scripts?" points at, and it reads `build-clang.sh` in a different
+directory (§1d). A row citing it for the signing script was wrong that way once, in draft. **A
+test class's name is not evidence of what it reads**, and unlike a wrong line number a wrong
+class name cannot be caught by following the citation — a reader has no reason to doubt a name
+that specific. Every `file:line` in §1 and every class name beside it is therefore checked by
+asking the file system, and **by asking what the class opens, reads, or drives.**
+
+**The two invented-javadoc citations this section used to name are both repaired.** The previous
+version of this paragraph recorded that `Daylight.java` and `ActOutcome.java` each pointed at a
+test class that did not exist. Both now name real ones — `Daylight.java:32` names
+`TheClockCostsTheWalkNoWorldReadTest` and `ActOutcome.java:44` names
+`ABeliefCensusOverTheActScenariosTest` — and **the paragraph had become false without either file
+changing.** That is the cheapest possible demonstration of the whole shape: a document can
+describe a defect that has since been fixed, and keep doing it confidently.
 
 ---
 
@@ -899,7 +1135,41 @@ is exactly three constants on purpose — `UNKNOWN` is not coarser than `INFERRE
 
 **6.9 Do not pin a number in this document.**
 The counts in §0, §0.1 and §3 were accurate when written and §0 says so explicitly, **and §0.1
-marks which of its own seven deltas are measured and which are carried history** — because a
+marks which of its own legs are measured and which are carried history** — because a
 decomposition whose parts can be shuffled without changing its sum is a decomposition nobody
 has checked. Re-measure them; the instruction is in the document for the same reason the
 instruction is in `branch-topology.md` §0.1.
+
+**6.10 Do not cite a line number you did not open.**
+This pass found **sixteen** wrong anchors across nine rows of §1 and four places in §4/§5, and
+**two of the groups were wrong as a block — every member off by exactly one line**, which is the
+signature of a number copied out of a diff hunk header rather than counted off an open file.
+Sixteen is not a handful, and they were spread across the document rather than concentrated in one
+stale corner, which says the anchors here were being written **by inference**.
+
+So: open the file and count. Do not carry a number forward from a previous version of this
+document, from a brief, or from a stack trace. **If a line cannot be opened, cite the symbol
+instead** — `EvalSuite.survived`, `FireDamage.LAVA_CONTACT_DAMAGE`, `Enclosure.Verdict` — and say
+plainly that the line number was not verified. A symbol survives a refactor. A stale line number
+is a confident wrong answer, and it is indistinguishable from a right one to every reader except
+the person who opens the file.
+
+**6.11 Do not call it a join test unless removing either half breaks it.**
+`held == sheltered && floorHeld` is false in three of the four combinations and true in one, so
+a test that only ever asserts `held` cannot tell *"sheltered and hurt"* from *"exposed and
+untouched"* — and either of those two runs is a way for one half to do all the work while the
+suite stays green. `TheNightShelterAndTheHealthFloorAreJoinedTest` therefore asserts the whole
+four-cell table, and its acceptance criterion is a **pair of mutations that fail different tests
+inside the same file**: making `Enclosure.Verdict.enclosed()` return true gives **12**, and
+reverting `neverBelowNorthStar` to bare `minimumHealth() > 0` gives **4**.
+
+The reason this is a rule and not a footnote: **the criterion is invisible the moment the test
+exists.** A green join test looks exactly like a real one. The only thing that distinguishes them
+is an experiment somebody ran and recorded, and nobody is going to re-derive it from reading the
+test. **A test that has never been seen red is not evidence, and a join test that has never had a
+half deleted is not a join test.**
+
+**6.12 Do not cite a test that does not read the thing the row is about.**
+This is the error §1 exists to stop and the one a reader cannot detect for themselves. A row is
+a receipt or it is a claim, and it is a claim the moment the named test opens a different file
+than the row describes. When you add a row, open the enforcing class and name what it reads.

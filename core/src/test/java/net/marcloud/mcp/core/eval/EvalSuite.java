@@ -1,6 +1,7 @@
 package net.marcloud.mcp.core.eval;
 
 import java.util.List;
+import java.util.function.BiFunction;
 
 import net.marcloud.mcp.core.drivers.act.ActActuator.Face;
 import net.marcloud.mcp.core.drivers.act.ActPhase;
@@ -1667,11 +1668,29 @@ public final class EvalSuite {
      * <p><b>The pickaxe is given, and that is the isolation.</b> The only variable in this run is
      * the route. A world that also made the agent build a tool would re-measure T19 and bury the
      * hazard behind forty ticks of crafting.
+     *
+     * <p><b>The policy is injected, not constructed here.</b> {@link #run()} delegates to
+     * {@link #runWith(BiFunction)} with {@code GoalPolicy::new}, so the decision is an argument
+     * rather than a line in the middle of the task. That is what makes this task the seam's
+     * load-bearing gate: the world, the rows and the report below are ONE body, and swapping the
+     * policy is the only thing that changes. Before this, the task hard-wired
+     * {@code new GoalPolicy(w, h)} and there was no way to run this world's rows against any
+     * other decision at all.
      */
     static final class T20TheDirectLineIsLava implements Task {
+        /**
+         * The task's name, as a constant rather than only as {@link #id()}.
+         *
+         * <p>Because {@link #runWith} is static -- it has to be, so a control outside this class
+         * can run this task's rows -- and an instance method cannot be named from a static
+         * context. The id is the ONE string that must agree between the shipped row and every
+         * injected run, so it is written once here and both read it.
+         */
+        static final String ID = "T20 the_direct_line_is_lava";
+
         @Override
         public String id() {
-            return "T20 the_direct_line_is_lava";
+            return ID;
         }
 
         private static final int SPAWN_X = -8;
@@ -1686,6 +1705,22 @@ public final class EvalSuite {
 
         @Override
         public Result run() {
+            return runWith(GoalPolicy::new);
+        }
+
+        /**
+         * This task's world and this task's rows, with the decision supplied.
+         *
+         * <p><b>Why the factory rather than a {@link Policy}.</b> A policy is bound to a world
+         * when it is constructed ({@code new GoalPolicy(world, harness)}), so a caller that
+         * already holds a world cannot hand one over -- and the caller here does hold one, or
+         * builds it. The factory receives the freshly-built world and the harness and returns
+         * the decision-maker for exactly those two, which is the only shape in which the shipped
+         * policy and an injected one are interchangeable.
+         *
+         * @param policyFor builds the decision for the world and harness this task just made
+         */
+        static Result runWith(BiFunction<SimWorld, EvalHarness, Policy> policyFor) {
             SimWorld w = new SimWorld().plain(64, "dirt", -24, 23, LAVA_Z0, 20)
                     .standOn(SPAWN_X, 64, SPAWN_Z).facing(0f).atHealth(20.0D);
             // The band reaches the northern edge of the land on purpose. Past it there is no floor
@@ -1696,8 +1731,22 @@ public final class EvalSuite {
             w.give(0, "stone_pickaxe", 1);
 
             EvalHarness h = new EvalHarness(w);
-            GoalPolicy policy = new GoalPolicy(w, h);
-            boolean got = policy.obtain("cobblestone");
+            Policy policy = policyFor.apply(w, h);
+            String trace;
+            boolean got;
+            try {
+                got = policy.obtain("cobblestone");
+            } catch (RuntimeException thrown) {
+                // A throw is a FAILURE with a reason, not an escape and not a pass. A runner that
+                // let it propagate would take the whole suite down on a decision defect, and one
+                // that swallowed it would report a row it never computed.
+                return new Result(ID, false, "the policy threw "
+                        + thrown.getClass().getSimpleName() + ": " + thrown.getMessage()
+                        + " -- reported as a FAILURE because a runner that reads an exception as"
+                        + " a pass has green rows that mean nothing");
+            }
+            trace = policy instanceof GoalPolicy gp ? gp.traceSummary()
+                    : "(this policy carries no trace: " + policy.getClass().getSimpleName() + ")";
 
             boolean gone = w.blockAt(ORE_X, ORE_Y, ORE_Z) == null;
             boolean holding = w.count("cobblestone") > 0;
@@ -1735,8 +1784,8 @@ public final class EvalSuite {
                                     + " being reached -- the walk survived and the night is not"
                                     + " the shape the project asks for",
                             w.minimumHealth(), NORTH_STAR_HEALTH);
-            return new Result(id(), pass, String.format(java.util.Locale.ROOT,
-                    "%s. policy reported %s. outcrop cell (%d,%d,%d)=%s; cobblestone=%d;"
+            return new Result(ID, pass, String.format(java.util.Locale.ROOT,
+                    "%s. policy %s reported %s. outcrop cell (%d,%d,%d)=%s; cobblestone=%d;"
                             + " health=%.1f; the health bar's low point was %.1f of a %.1f floor and"
                             + " %s; the damage rules recorded %d tick(s) inside the lava band and"
                             + " %s; the straight line is %.1f blocks and crosses %d lava cell(s),"
@@ -1745,11 +1794,12 @@ public final class EvalSuite {
                     pass ? "the goal was reached and the walk went around a lethal straight line"
                             : "the goal was NOT reached: " + describe(gone, holding, alive,
                                     heldNorthStar, w.minimumHealth(), inLava, lavaTicks, lineBlocked),
+                    policy,
                     got ? "success" : "failure", ORE_X, ORE_Y, ORE_Z,
                     String.valueOf(w.blockAt(ORE_X, ORE_Y, ORE_Z)), w.count("cobblestone"),
                     w.health(), w.minimumHealth(), NORTH_STAR_HEALTH, northStar, lavaTicks,
                     w.survival().ledger(), straight, lineBlocked, walked, w.posX(), w.posY(), w.posZ(),
-                    policy.traceSummary()));
+                    trace));
         }
 
         /**

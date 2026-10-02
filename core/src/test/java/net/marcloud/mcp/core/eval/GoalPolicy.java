@@ -63,13 +63,21 @@ import net.minecraft.item.ItemStack;
  * localises the break to a controller or to a missing capability rather than to a planner, which
  * is the distinction that makes the result actionable.
  *
+ * <p><b>It is now substitutable, and that is the change.</b> {@code implements Policy} with the
+ * main-tree {@code net.marcloud.mcp.core.eval.Policy} seam is what makes a deliberately broken
+ * decision runnable here: before it, this class was {@code public final} and constructed
+ * directly at eleven sites, so no task could be run with any policy but this one and the suite
+ * had no negative control. {@link #obtain(String)} was already the whole public decision
+ * surface, so the interface cost nothing and moved nothing -- the seam existed in the shape
+ * the class already had.
+ *
  * <p><b>One substitution, declared.</b> The nearest-block search below is this file's own rather
  * than {@code BlockFinder}'s: {@code BlockFinder.search} is package-private and
  * {@code BlockFinder.find} needs a live {@code WorldClient}, so neither is reachable from here.
  * The world queries it makes -- {@link SimWorld#dropOf} and vanilla's {@code canHarvestBlock} --
  * are the real ones, so the harvest gate this task is about is the game's own and not a copy.
  */
-public final class GoalPolicy {
+public final class GoalPolicy implements Policy {
 
     /** Hard ceiling on the search radius, matching {@code BlockFinder.MAX_RADIUS}. */
     private static final int SEARCH_RADIUS = 24;
@@ -152,6 +160,20 @@ public final class GoalPolicy {
     /** The run as one line, for a task's report field. */
     public String traceSummary() {
         return trace.isEmpty() ? "(the policy did nothing)" : String.join(" | ", trace);
+    }
+
+    /**
+     * The name a task's report prints for this decision.
+     *
+     * <p>Present because {@link BrokenPolicies} overrides it, and a report that names one
+     * decision by what it is and the other by {@code GoalPolicy@6d06d69c} is a report a reader
+     * has to interpret. Not part of {@link Policy}: the interface stays one method wide, and
+     * every implementation of {@code toString} here is about legibility of a diagnostic, not
+     * about behaviour.
+     */
+    @Override
+    public String toString() {
+        return "GoalPolicy (the reference decision: derives its chain from the recipe table)";
     }
 
     private void note(String what) {
