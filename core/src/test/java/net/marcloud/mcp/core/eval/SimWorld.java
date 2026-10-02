@@ -186,7 +186,21 @@ public final class SimWorld implements ActActuator, BlockView {
                     + " line above carries, and for the same reason. Fire RESISTANCE POTION is the"
                     + " one that will bite soonest: Entity:505 refuses every fire hit outright when"
                     + " it is active, and this world has no potions, so a task that ever gives one"
-                    + " will get a wrong answer rather than a missing one");
+                    + " will get a wrong answer rather than a missing one",
+            "ENCLOSURE is measurable and DANGER is not, and the two are not the same gap. The"
+                    + " block grid is real, so Enclosure can ask vanilla's own question -- is this"
+                    + " cell's column blocked above (Chunk.canSeeSky:904-910, read through"
+                    + " generateHeightMap:221-236, whose rule is getLightOpacity() != 0) and are"
+                    + " all eight horizontal neighbours of the two cells the body occupies cells a"
+                    + " body cannot enter (SimWorld.solid) -- and NightEnclosure can fold that"
+                    + " across a whole night sampled on the Daylight clock. What is still absent"
+                    + " is every reason a player gives for wanting a roof at all: no light level, so"
+                    + " the mob spawn gate cannot fire; no pathfinding reachability, so 'nothing"
+                    + " could get in' is a statement about the eight neighbour CELLS and not about"
+                    + " whether anything could walk a corridor to them; and nothing in the night"
+                    + " damages anybody (see the clock entry above). So 'the player was enclosed'"
+                    + " and 'the player was never hurt' are two MEASUREMENTS of one body over one"
+                    + " night and are NOT a claim that the enclosure caused the survival");
 
     // ===== the world =====
 
@@ -1182,6 +1196,30 @@ public final class SimWorld implements ActActuator, BlockView {
         seamReads++;
         Block b = blockAtObj(bx, by, bz);
         return b == null ? null : nameOfBlock(b);
+    }
+
+    /**
+     * The vanilla block object at a cell, read off {@link #blockAtObj} and therefore off
+     * {@code seamReads}.
+     *
+     * <p><b>This exists so the enclosure predicate can run on every tick of a night.</b>
+     * {@link #blockAt} is the one seam a controller has and it is counted, so a measurement that
+     * went through it would spend hundreds of reads per night and drift the exact numbers
+     * {@code TheBeliefLayerCostsNoWorldReadTest} and {@code TheClockCostsTheWalkNoWorldReadTest}
+     * pin at 25. The enclosure is the eval's own instrument reading a grid the world already
+     * holds, exactly as {@link #materialInBodyBox} does for the hazard test, and it costs the
+     * walk the same nothing.
+     */
+    public Block blockObjectAt(int bx, int by, int bz) {
+        return blockAtObj(bx, by, bz);
+    }
+
+    /**
+     * The enclosure predicate's view of this grid, which is the method reference above and
+     * nothing else.
+     */
+    public Enclosure.CellGrid enclosureGrid() {
+        return this::blockObjectAt;
     }
 
     /**

@@ -111,7 +111,8 @@ public final class EvalSuite {
                 new T21CountBeforeYouSpend(),
                 new T22TheBenchHasToExistFirst(),
                 new T23TheDropThatNeverLanded(),
-                new T24TheNightIsSomethingATaskCanAssert());
+                new T24TheNightIsSomethingATaskCanAssert(),
+                new T25ShelterThroughTheNight());
     }
 
     // ===== helpers shared by the tasks =====
@@ -163,6 +164,54 @@ public final class EvalSuite {
      */
     static boolean neverBelowNorthStar(SimWorld w) {
         return w.minimumHealth() >= NORTH_STAR_HEALTH;
+    }
+
+    /**
+     * The claim worth shipping, and the two claims it is made of.
+     *
+     * <p><b>Why this is a record of three booleans and not one.</b> The thing the Owner's north
+     * star is made of -- a shelter, health never below 18 -- is two measurements that used to live
+     * in different worlds and could not be joined: the enclosure did not exist, and the health bar
+     * was a constant. Joining them into a single boolean would hide the only interesting case,
+     * which is the one where the two halves DISAGREE. A conjunction reports false in three of the
+     * four combinations and true in one, so a caller cannot tell "sheltered and hurt" from
+     * "exposed and untouched" by reading it -- and those two are exactly the runs that decide
+     * whether the join is real or whether one of the halves is doing all the work.
+     *
+     * <p>So the pair is carried and the conjunction is derived. Dropping either half makes this
+     * record wrong on a different run than dropping the other would: {@code held == sheltered &&
+     * floorHeld} is FALSE for a sheltered-but-hurt run (so a health floor that had reverted to
+     * bare survival would turn it green) and FALSE for an exposed-but-untouched run (so an
+     * enclosure predicate that always said "sheltered" would turn it green).
+     * {@code TheNightShelterAndTheHealthFloorAreJoinedTest} plants both of those runs and reports
+     * the mutation counts.
+     *
+     * <p><b>What this is not.</b> It is not a causal claim, and {@code SimWorld.KNOWN_GAPS} says
+     * why in the entry this slice added: this substrate has no lighting, so nothing spawns in the
+     * dark, and nothing in a night damages anybody on its own. Two measurements of one body over
+     * one night is what this is.
+     *
+     * @param sheltered   every night sample was enclosed -- {@link NightEnclosure#sheltered()}
+     * @param floorHeld   the bar's low-water mark stayed at or above the floor
+     * @param held        the conjunction, which is what the task row reports
+     * @param shelterFact the enclosure ledger, including its window and its resolution
+     * @param healthFact  the survival ledger, including whether the row measured anything
+     */
+    public record NightClaim(boolean sheltered, boolean floorHeld, boolean held,
+                             String shelterFact, String healthFact) {
+    }
+
+    /**
+     * Joins the enclosure ledger to the health bar for one run.
+     *
+     * <p>Both halves are read here and neither is defaulted, so a caller cannot accidentally
+     * report a night on which only one of them was measured.
+     */
+    static NightClaim nightClaim(SimWorld w, NightEnclosure enclosure) {
+        boolean sheltered = enclosure.sheltered();
+        boolean floorHeld = neverBelowNorthStar(w);
+        return new NightClaim(sheltered, floorHeld, sheltered && floorHeld, enclosure.fact(),
+                survivalFact(w));
     }
 
     /**
@@ -2341,6 +2390,260 @@ public final class EvalSuite {
                     + " chosen it";
         }
     }
+
+    // ===== T25 =====
+
+    /**
+     * The eval can finally answer the Owner's question, and the answer has two halves that can
+     * disagree.
+     *
+     * <p><b>What this row is.</b> Four runs over the same world geometry, one full night each,
+     * differing only in where the body stands and whether it is dropped in from ten blocks up.
+     * Each run reports a {@link NightClaim}: whether the body was enclosed on every tick of the
+     * night, whether the health bar stayed at or above 18, and the conjunction. The four runs are
+     * laid out so that exactly one of them is a conjunction of two trues and the other three each
+     * contradict one half, which is the only arrangement in which the row is a JOIN rather than
+     * one measurement wearing the other's name.
+     *
+     * <table>
+     *   <caption>The four runs, and what each one is for</caption>
+     *   <tr><th>run</th><th>enclosure</th><th>health floor</th><th>for</th></tr>
+     *   <tr><td>inside the shaft, standing</td><td>sheltered</td><td>held</td>
+     *       <td>the north star, the shape the project asks for</td></tr>
+     *   <tr><td>on the open plain, dropped in</td><td>exposed</td><td>moved</td>
+     *       <td>its negative: the same world with neither half satisfied</td></tr>
+     *   <tr><td>inside the shaft, dropped in</td><td>sheltered</td><td>moved</td>
+     *       <td>a health floor that reverted to bare survival would turn this green</td></tr>
+     *   <tr><td>on the open plain, standing</td><td>exposed</td><td>held</td>
+     *       <td>an enclosure predicate that always said 'sheltered' would turn this green</td></tr>
+     * </table>
+     *
+     * <p><b>Why a fall is the plant, and why not lava.</b> Nothing in this substrate can move the
+     * health bar during a night on its own -- there is no lighting, so nothing spawns in the dark
+     * and nothing walks in ({@code SimWorld.KNOWN_GAPS}) -- so the row has to move it deliberately.
+     * Lava is the obvious choice and it is wrong here: {@code setOnFireFromLava} deals 8 half-hearts
+     * of contact and then ignites 300 ticks of burning ({@code FireDamage.java:61,70}), so a body
+     * that touches lava once ends the night at zero whatever the fixture does afterwards. A corpse
+     * cannot demonstrate a health FLOOR, and it cannot demonstrate that a floor is different from
+     * bare survival either. A ten-block drop is the only hazard here whose damage is paid once:
+     * {@code FallDamage.damageFor} ({@code FallDamage.java:62-66}) charges {@code ceil(distance - 3)}
+     * on the landing tick and nothing after it, which leaves the bar strictly inside (0, 18) --
+     * alive, hurt, and below the floor, the only state in which the floor is a threshold rather
+     * than a synonym for being alive.
+     *
+     * <p><b>Nothing here consults the enclosure predicate to place a body.</b> A run is "the body
+     * is at this cell at this height". The enclosure is then measured from the block grid and the
+     * health from the survival ledger, independently, over the same clock. If either measurement
+     * were reading the other, the two disagreement runs could not both exist.
+     *
+     * <p><b>And the drop is planted, so this is a join of two measurements and not a causal
+     * story.</b> {@link #whatThisCannotShow()} says so in the result string a reader actually sees,
+     * rather than only in this javadoc.
+     */
+    static final class T25ShelterThroughTheNight implements Task {
+
+        @Override
+        public String id() {
+            return "T25 a_shelter_is_a_region_over_a_night_not_a_roof_at_dawn";
+        }
+
+        /** The sealed shaft's feet cell. */
+        static final int SHELTER_X = 0;
+        static final int SHELTER_Z = 0;
+        /** A cell on the same plain with no roof above it and no wall beside it. */
+        static final int OPEN_X = -12;
+        static final int OPEN_Z = -12;
+        /** {@code plain(64, ...)} floors at 63, so a body standing on it occupies cell y=64. */
+        static final int FEET_Y = 64;
+        /**
+         * Where a dropped body starts. Ten blocks above the floor, which
+         * {@code FallDamage.damageFor} prices at {@code ceil(10 - 3)} = 7 half-hearts.
+         */
+        static final int DROP_Y = FEET_Y + 10;
+        /**
+         * The top of the shaft's walls: one above {@link #DROP_Y}, so a body at the top of the
+         * drop still has eight solid neighbours at its head height and is still enclosed while it
+         * falls.
+         */
+        static final int SHAFT_TOP_Y = DROP_Y + 1;
+        /** The cell that closes the column, and so is what "cannot see the sky" finds first. */
+        static final int ROOF_Y = SHAFT_TOP_Y + 1;
+
+        /**
+         * The world: a stone plain, and one column of it walled on four sides from the floor up to
+         * {@link #SHAFT_TOP_Y} and closed at {@link #ROOF_Y}.
+         *
+         * <p>Static and package-visible so the controls in
+         * {@code TheEnclosurePredicateHasBothVerdictsFromOneWorldTest},
+         * {@code AShelterIsARegionOverTheNightAndNotARoofAtDawnTest} and
+         * {@code TheNightShelterAndTheHealthFloorAreJoinedTest} run on this geometry rather than on
+         * three copies of it that could drift.
+         */
+        static SimWorld buildWorld() {
+            SimWorld w = new SimWorld().plain(FEET_Y, "stone", -24, 24, -24, 24)
+                    .standOn(SHELTER_X, FEET_Y, SHELTER_Z).facing(0f).atHealth(20.0D);
+            for (int[] side : new int[][] {{1, 0}, {-1, 0}, {0, 1}, {0, -1}}) {
+                for (int y = FEET_Y; y <= SHAFT_TOP_Y; y++) {
+                    w.put(SHELTER_X + side[0], y, SHELTER_Z + side[1], "stone");
+                }
+            }
+            w.put(SHELTER_X, ROOF_Y, SHELTER_Z, "stone");
+            return w;
+        }
+
+        /**
+         * Runs one whole night with the body where the fixture put it, sampling the enclosure on
+         * every tick of it.
+         *
+         * <p><b>The window is derived, not written.</b> {@link NightEnclosure#duskTick()} asks the
+         * production {@code Daylight} helper for the first night tick of a day, so the run starts
+         * one tick before dusk and ticks until the clock has been through every tick the same
+         * helper calls night. On this tree that is dusk 13807 and 8,386 night ticks, and no tick
+         * count is written into this method.
+         *
+         * <p>No intent is ever submitted, so nothing here is subject to {@code NavController}'s
+         * {@code ThreadLocalRandom} reaction delay and the four runs are reproducible.
+         */
+        static NightEnclosure nightAt(SimWorld w) {
+            int night = NightEnclosure.nightTicks();
+            w.atWorldTime(NightEnclosure.duskTick() - 1L);
+            EvalHarness h = new EvalHarness(w);
+            NightEnclosure enclosure = new NightEnclosure();
+            for (int tick = 0; tick <= night; tick++) {
+                h.tick();
+                Stance feet = w.stance();
+                enclosure.observe(w.enclosureGrid(), feet.x(), feet.y(), feet.z(), w.worldTime());
+            }
+            return enclosure;
+        }
+
+        @Override
+        public Result run() {
+            // ---------- run A: enclosed throughout, and untouched ----------
+            SimWorld safe = buildWorld();
+            NightClaim shelteredAndHeld = nightClaim(safe, nightAt(safe));
+
+            // ---------- run B: exposed throughout, and dropped in ----------
+            SimWorld exposed = buildWorld().standOn(OPEN_X, DROP_Y, OPEN_Z);
+            NightClaim exposedAndMoved = nightClaim(exposed, nightAt(exposed));
+
+            // ---------- run C: enclosed, and dropped in ----------
+            //
+            // The control a health floor cannot fake. The enclosure half answers true here and the
+            // bar still falls below the floor while the body lives, so a `neverBelowNorthStar`
+            // that had silently reverted to bare survival would report this run as a pass and the
+            // row would stop being a join.
+            SimWorld shaftHurt = buildWorld().standOn(SHELTER_X, DROP_Y, SHELTER_Z);
+            NightClaim shelteredButHurt = nightClaim(shaftHurt, nightAt(shaftHurt));
+
+            // ---------- run D: exposed, and nothing reached it ----------
+            //
+            // The control an enclosure predicate cannot fake. Nothing hurt this body, so a
+            // predicate that answered "sheltered" unconditionally would report this run as the
+            // north star and the row would stop being a join.
+            SimWorld openUntouched = buildWorld().standOn(OPEN_X, FEET_Y, OPEN_Z);
+            NightClaim exposedButHeld = nightClaim(openUntouched, nightAt(openUntouched));
+
+            boolean pass = shelteredAndHeld.sheltered() && shelteredAndHeld.floorHeld()
+                    && shelteredAndHeld.held()
+                    && !exposedAndMoved.sheltered() && !exposedAndMoved.floorHeld()
+                    && !exposedAndMoved.held()
+                    && shelteredButHurt.sheltered() && !shelteredButHurt.floorHeld()
+                    && !shelteredButHurt.held()
+                    && !exposedButHeld.sheltered() && exposedButHeld.floorHeld()
+                    && !exposedButHeld.held();
+
+            return new Result(id(), pass, String.format(java.util.Locale.ROOT,
+                    "%s. SHELTER is defined as (a) the body's own column is blocked above, read as"
+                            + " Chunk.canSeeSky (Chunk.java:904-910) over the getLightOpacity() != 0"
+                            + " rule of generateHeightMap:221-236, AND (b) all eight horizontal"
+                            + " neighbours of the two cells a standing body occupies are cells a"
+                            + " body cannot enter (SimWorld.solid). Both halves or it is not a"
+                            + " shelter: a roof alone is a cover, and sky-closedness alone is a pit."
+                            + " The claim is over a WINDOW, not a moment -- every night tick of the"
+                            + " clock -- so a roof built at 4am is not a shelter at dawn. Window:"
+                            + " dusk at clock %d and %d night ticks, both DERIVED from Daylight"
+                            + " rather than written down. One sample per tick; the scan reads the"
+                            + " grid the world already holds and costs the controller seam nothing."
+                            + " Same world geometry for all four runs; the only variables are which"
+                            + " cell the body is in and whether it starts ten blocks up."
+                            + " RUN A (shaft, standing): sheltered=%s floorHeld=%s held=%s,"
+                            + " low point %.1f. %s"
+                            + " RUN B (open plain, dropped in): sheltered=%s floorHeld=%s held=%s,"
+                            + " low point %.1f. %s"
+                            + " RUN C (shaft, dropped in): sheltered=%s floorHeld=%s held=%s,"
+                            + " low point %.1f -- a health floor that had reverted to bare survival"
+                            + " would call this a pass, because the body is still alive. %s"
+                            + " RUN D (open plain, standing): sheltered=%s floorHeld=%s held=%s,"
+                            + " low point %.1f -- an enclosure predicate that always said"
+                            + " 'sheltered' would call this a pass. %s"
+                            + " Exactly one of the four runs is a conjunction of two trues, which is"
+                            + " what makes the row a join rather than one measurement wearing the"
+                            + " other's name. %s",
+                    pass ? "a shelter and a health floor are now one measurement the eval can make"
+                            : "the join did not come out as specified: "
+                                    + describe(shelteredAndHeld, exposedAndMoved, shelteredButHurt,
+                                            exposedButHeld),
+                    NightEnclosure.duskTick(), NightEnclosure.nightTicks(),
+                    shelteredAndHeld.sheltered(), shelteredAndHeld.floorHeld(),
+                    shelteredAndHeld.held(), safe.minimumHealth(),
+                    shelteredAndHeld.shelterFact(),
+                    exposedAndMoved.sheltered(), exposedAndMoved.floorHeld(),
+                    exposedAndMoved.held(), exposed.minimumHealth(),
+                    exposedAndMoved.shelterFact(),
+                    shelteredButHurt.sheltered(), shelteredButHurt.floorHeld(),
+                    shelteredButHurt.held(), shaftHurt.minimumHealth(),
+                    shelteredButHurt.shelterFact(),
+                    exposedButHeld.sheltered(), exposedButHeld.floorHeld(),
+                    exposedButHeld.held(), openUntouched.minimumHealth(),
+                    exposedButHeld.shelterFact(),
+                    whatThisCannotShow()));
+        }
+
+        /** Which of the four runs came out wrong, so a failure names the run rather than the row. */
+        private static String describe(NightClaim a, NightClaim b, NightClaim c, NightClaim d) {
+            List<String> wrong = new java.util.ArrayList<>();
+            if (!a.sheltered() || !a.floorHeld() || !a.held()) {
+                wrong.add("run A (shaft, standing) wanted sheltered+floorHeld and got " + a);
+            }
+            if (b.sheltered() || b.floorHeld() || b.held()) {
+                wrong.add("run B (open plain, dropped in) wanted neither half and got " + b);
+            }
+            if (!c.sheltered() || c.floorHeld() || c.held()) {
+                wrong.add("run C (shaft, dropped in) wanted sheltered and NOT floorHeld and got "
+                        + c);
+            }
+            if (d.sheltered() || !d.floorHeld() || d.held()) {
+                wrong.add("run D (open plain, standing) wanted NOT sheltered and floorHeld and got "
+                        + d);
+            }
+            return wrong.isEmpty() ? "the world disagreed with no named fact; re-read the row"
+                    : String.join(" and ", wrong);
+        }
+
+        /**
+         * The limits, printed in the result rather than only in the javadoc.
+         *
+         * <p>A row that reads "sheltered through the night and never below 18" is two things that
+         * are easy to read as one causal story, and they are not one here: the drop is the
+         * fixture's, and without lighting there is nothing in a night that would have walked in
+         * through the missing wall.
+         */
+        private static String whatThisCannotShow() {
+            return "NOT COVERED, and not quotable as if it were: the damage in runs B and C is"
+                    + " PLANTED by the fixture -- a ten-block drop the body is placed at -- because"
+                    + " this substrate has no lighting: no light level gates a cell, no hostile mob"
+                    + " spawns in the dark, and nothing in a night damages anybody on its own. So"
+                    + " this row joins two MEASUREMENTS of one body over one night; it does not"
+                    + " show that the enclosure CAUSED the survival, and no model appears in it at"
+                    + " all -- the body is where the fixture put it, so nothing here says a weak"
+                    + " language model would have built the shaft. The enclosure is also a statement"
+                    + " about eight neighbour CELLS and a column, not a reachability search:"
+                    + " nothing here proves a mob could not have walked to the body, only that the"
+                    + " eight cells around it were closed";
+        }
+    }
+
 
     // ===== goal-directed world queries =====
 

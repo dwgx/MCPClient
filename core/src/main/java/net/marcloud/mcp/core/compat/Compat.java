@@ -88,6 +88,17 @@ public final class Compat {
         // server-sent level://../../../x is refused before the client opens the file; signing
         // is the normal signature-verify path, like every other patch above.
         db.register(new net.marcloud.mcp.core.compat.patches.LevelSchemePathGuardPatch());
+        // SEC-2: deleteOldServerResourcesPacks() calls FileUtils.listFiles on a
+        // server-resource-packs directory that nothing in the class ever creates, so the FIRST
+        // resource pack any server sends throws IllegalArgumentException on the client thread and
+        // takes the night down. Ships SIGNED by the kernel key and DOES arm; signing is the
+        // normal signature-verify path, like every other patch above.
+        db.register(new net.marcloud.mcp.core.compat.patches.ServerResourcePackDirGuardPatch());
+        // SEC-3: Scoreboard.removeObjective and Scoreboard.removeTeam dereference their argument
+        // with no null check, and handleTeams / handleScoreboardObjective pass a server-named
+        // lookup straight in. Both run on the client thread, so a server naming an objective or
+        // team the client never had throws NPE and ends the night. Ships SIGNED by the kernel key.
+        db.register(new net.marcloud.mcp.core.compat.patches.ScoreboardNullGuardPatch());
         return db;
     }
 
