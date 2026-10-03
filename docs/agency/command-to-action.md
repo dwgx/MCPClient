@@ -21,10 +21,22 @@
 > 是每一节自己的横幅。整份文档一句"已验证"会比一句"未验证"危险得多。
 >
 > **2026-08-22(进 git 的主线):** GitHub `main` 已快进到与 `mcp-core` 同一 tip,
-> Mac qml4j UI 就是产品 UI。`act_set move.route` 与 `act_plan` 的 Windows COMPLETE
-> 已验(含突变体打红)。§2 的历史标题不要读成「MOVE 还没闭环」。Owner 未拍:
-> Fork E/F、`act_plan` 技能库、STEP_UP 真跳、craft 生产驱动。SHA/条数以工作站
+> Mac qml4j UI 就是产品 UI。`act_set` 的 `move.go_to`(**当时叫 `move.route`,今天按名拒绝**)
+> 与 `act_plan` 的 Windows COMPLETE 已验(含突变体打红)。§2 的历史标题不要读成「MOVE 还没闭环」。
+> Owner 未拍:**Fork E/F、`act_plan` 技能库**、STEP_UP 真跳、craft 生产驱动。SHA/条数以工作站
 > `.ai-notes/STATUS.md` 为准,本文不钉。
+>
+> **2026-10-03:上面那份"未拍"清单里,STEP_UP 真跳与 craft 生产驱动都已经落地了** ——
+> 见 §5.0 与 §1.2。**剩下的是 Fork E、F、以及 `act_plan` 技能库。**
+> 留在这里是因为 `guarantees.md` §6.16 说的那一类:一份"还没做"的清单最容易腐烂,
+> 因为修复它没有任何 diff 可看,而那句话读起来仍然通顺。
+>
+> **2026-10-03:§1 那张「已经建好的部分」的表被整张重扫过。** 十一行里九行的位置失效、
+> 两处声称本身不成立(其中一处会让下一个人**重复添加已经存在的三个方法**),
+> 而整批行号都被换成了符号。重扫记录、漏掉的六件交付物、以及这张表该以什么形式存在,
+> 全部在 **§1.2**;§1.1 的四个 `DigController` 锚点也全部重写(其中两条的**说法**变了,
+> 不只是行号)。§2 与 §4 各有一条会被当成待办去做的过期声称,就地加了订正块。
+> **本轮不改 `guarantees.md` 与 `failure-shapes.md`。**
 
 `docs/` 之前**完全没有内核侧文档**(18 份全是 dwm 与 macOS),这是第一份。
 
@@ -61,22 +73,35 @@
 
 这一层的设计质量高于我审计前的预期,列出来是为了防止后人推倒重来。
 
-| 东西 | 位置 | 为什么值得保留 |
-|---|---|---|
-| **三通道正交意图模型** | `ActSlot.java:15-21`、`ActRuntime.java:104-108` | move / look / interact **并发**,`effectiveTick = lastCompleted+1`,所以工作线程提交永不半应用。看和走可以同时发生,不必序列化 |
-| **`ActActuator` 无客户端 seam + `FakeActuator`** | `ActActuator.java:3-17`、`core/src/test/.../act/FakeActuator.java` | 行动层最高杠杆的设计选择:**controller 可以 headless 单测** |
-| **`MovementInput` 楔子(client 零改动)** | `ActMovementInput.java:39-62`、`MovementInputInstaller.java:104-120` | 先委托 vanilla,仅在 ACTIVE 时覆盖,空闲时完全隐形;玩家实体身份变了会重新装 |
-| **列式 RLE 网格** | `LocalGrid.java:38-98` | `O((2r+1)²)` 而非三次方,垂直剖面按空气可压缩。**扩展 column 记录,不要退回实心立方** |
-| **结构化 token 预算** | `ObserveProfile.java:16-46`、`ToolRegistry.java:488-497` | 同一次调用 2 KB vs 38 KB。这一条自己就推翻了两个"blocker"级断言 |
-| **一次快照一个 tick、无引用** | `WorldViewCapture.java:41,53-54` | 各 section 之间没有撕裂读 |
-| **感知与行动共享地址空间** | `WorldViewCapture.java:128,152-157`、`LocalGrid.java:101-114` | 实体 id 直接喂给 `act_set look{entityId}`;registry 名两侧同样剥离,所以网格里的 `iron_ore` 和背包里的 `iron_pickaxe` 对得上 |
-| **ring / L4 / L5 三张侧表 + 漂移测试** | `se/Ring.java:116-118`、`se/SeToolRequirement.java:135-136`、`se/CapabilityCatalog.java:65-66`、`PolicySideTableDriftTest.java:74-77` | 那个测试**已经抓到过** `act_*` 以 HIGH writer 身份发布却没有 L4 权限。新增 nav/craft 工具必须进三张表,忘了测试会说 |
-| ~~**`LiveIT` skip-gate 模式**~~ **已废除,别照它写** | 现在是 `core/src/test/.../LiveGameGate.java` | 见下方横幅。原文推荐的双 `Assume` 让"显式要求真机"也报成功,而**照这一行写出来的 `HoldLiveIT` 就带着那个缺陷**(2026-08-04) |
+> **2026-10-03 全表重扫。位置一列全部改成符号,不再有行号。**
+>
+> 原因是本表一个月没动就已经**九行里五行完全失效、两行部分失效、只有两行还准**,
+> 另有两处**声称本身**不成立,而这正是 `guarantees.md` §6.10 与 §6.14 早就写下的形状:
+> 行号是会过期的引用,符号不是。§1.1 的四个 `DigController` 锚点则**全部**失效。
+> 逐行错在哪、漏了什么、以及这张表该以什么形式存在,见 §1.2。
+
+**「今天」= 2026-10-03 亲手打开文件确认。** 一行都不采信上一版表格。
+
+| 东西 | 位置(符号) | 今天 | 为什么值得保留 |
+|---|---|---|---|
+| **三通道正交意图模型** | `ActSlot`(三值枚举)、`GameClock.lastCompletedTick()`、`ActRuntime` 类注释里 `effectiveTick` 那段契约 | 仍成立 | move / look / interact **并发**,`effectiveTick = lastCompleted+1`,所以工作线程提交永不半应用。看和走可以同时发生,不必序列化 |
+| **`ActActuator` 无客户端 seam + `FakeActuator`** | `ActActuator` 接口 javadoc、`LivePlayerActuator`、`core/src/test/.../act/FakeActuator.java` | 仍成立,**但接口已长大** | 行动层最高杠杆的设计选择:**controller 可以 headless 单测**。今天它承载的方法远超当初那九个读访问器 —— 见 §1.2 与 §2 订正块,那里列出了今天实际存在的七个移动状态读访问器 |
+| **`MovementInput` 楔子(client 零改动)** | `ActMovementInput.updatePlayerMoveState()`、`MovementInputInstaller` | 仍成立 | 先委托 vanilla,仅在 ACTIVE 时覆盖,空闲时完全隐形;玩家实体身份变了会重新装 |
+| **列式 RLE 网格** | `LocalGrid.Column`、`LocalGrid.Run`、`LocalGrid.runs()` | 仍成立 | `O((2r+1)²)` 而非三次方,垂直剖面按空气可压缩。**扩展 column 记录,不要退回实心立方** |
+| **结构化 token 预算** | `ObserveProfile`(三档)、`WorldViewLegend.HEADER`、`WorldViewDescriptionBudgetTest.REGISTRY_DESC_BUDGET` | 仍成立,**机制已换** | 同一次调用 2 KB vs 38 KB。今天的强制点不是 `ToolRegistry` 里的一段代码,而是一条预算测试 + 一份常驻/按需分家 |
+| **一次快照一个 tick、无引用** | `WorldViewCapture.capture()` | 仍成立 | 各 section 之间没有撕裂读:`tickId` 取一次,六段在同一次调用里采完,返回**一个** `WorldView` |
+| **感知与行动共享地址空间** | `LocalGrid.wireName()`、`WorldViewCapture` 里方块名与物品名**各自**那一处 `indexOf(':')`、`BlockFinder` 的入向解析 | 仍成立,**比原文更强** | 实体 id 直接喂给 `act_set look{entityId}`;registry 名两侧同样剥离,所以网格里的 `iron_ore` 和背包里的 `iron_pickaxe` 对得上。今天还多一层:读不到的名字拼作 `?`(`LocalGrid.NAME_UNREADABLE`)而不是 `"unknown"` —— 后者与一个真叫 unknown 的方块读起来一模一样,而且曾经混进 `blockCounts` 长出一个任何 `find_block` 都找不到的幻影方块类型。`?` 撞不上真名字,因为 `LocalGrid` 自己的 javadoc 记着对已启动注册表的实测:方块名与物品名都只由 `[a-z_2]` 组成 |
+| **ring / L4 / L5 三张侧表 + 漂移测试** | `Ring.BUILTIN_RINGS`、`SeToolRequirement`、`CapabilityCatalog`、`PolicySideTableDriftTest`、`RegisteredBuiltinGateCoverageTest` | 仍成立 | 那两个测试**已经抓到过** `act_*` 以 HIGH writer 身份发布却没有 L4 权限。新增工具必须进三张表,忘了测试会说。**本轮新增的 `night_shelter` 只进了 `Ring` 与 `CapabilityCatalog` 两张,没进 `SeToolRequirement` —— 这是有意的:** 它是 R3 的只读账本,不写任何资源,于是 L3/L4 两张表对它**不适用**,而 `RegisteredBuiltinGateCoverageTest` 有一份显式的 `night_shelter` 记录来钉住这一点。"两张表"不是"忘了第三张" |
+| **移动状态读访问器** | `ActActuator.position()` / `.onGround()` / `.collidedHorizontally()` / `.onClimbable()` / `.inWater()` / `.air()` / `.fallDistance()` | **原文写下的当天就已有三个,其余四个是 2026-10-02 加的** | 闭环 MOVE 的读侧。**没有它们,MOVE 只能数 tick**。日期不是细节:`position`/`onGround`/`collidedHorizontally` 来自 `fc7ebe8`(2026-08-03),与本文件初稿**同一天** —— 也就是说这份文件从写出来的第一刻起就在说"这些不存在" |
+| **导航执行器(自有邻居生成器)** | `NeighborGen`、`Planner`、`RouteExecutor`、`Move`、`Stance`、`NavController.toStance()` | **2026-08-05 起在树里**(`c090fcc`) | Fork B 的"在 `LocalGrid` 上写局部转向 + 自有邻居生成器"今天在树里:六个 move kind,其中"搭桥"和"爬梯"是横向之外的两个,四向无对角是**刻意的省略** |
+| **隔夜账本与 craft 落地** | `NightShelter`、`NightEnclosure`、`ShelterTools`、`EnvView`(world_view 的 `env` 段)、`InteractIntent.Kind.CRAFT` | **本会话交付,原文完全没有** | 见 §1.2 的"漏了什么"一节 |
+| ~~**`LiveIT` skip-gate 模式**~~ **已废除,别照它写** | `core/src/test/java/net/marcloud/mcp/core/LiveGameGate.java` | 仍成立 | 见下方横幅。原文推荐的双 `Assume` 让"显式要求真机"也报成功,而**照这一行写出来的 `HoldLiveIT` 就带着那个缺陷**(2026-08-04) |
 
 > **订正(2026-08-04):上一行原来推荐的写法已被废除,而这份文档本身害过一次。**
 >
-> 原文是:`LiveIT` skip-gate 模式,`DigLiveIT.java:23-27`,"`-Dmcp.it.live=true`,否则
-> assume-skip。§6 每个实验都照这个写"。
+> 原文是:`LiveIT` skip-gate 模式,"`-Dmcp.it.live=true`,否则 assume-skip。§6 每个实验都照这个写"。
+> (2026-10-03 补:原文引的 `DigLiveIT.java:23-27` 今天也已经漂成一段 javadoc ——
+> 那个类自己都被 `LiveGameGate` 改写过。**这正是本表全部行号会漂的直接演示。**)
 >
 > 那个形状门控**两次** —— `Assume(mcp.it.live)` 之后再 `Assume(game reachable)` ——
 > 所以一个显式带 `-Dmcp.it.live=true` 跑的操作者拿到的是 skip + BUILD SUCCESS,
@@ -100,25 +125,203 @@
 `DigController.java` 是一个**真正持久、自终止、自纠正的多 tick controller**:
 
 ```
-RESOLVING(校验目标+距离,startDig) -> DIGGING(每 tick pumpDig,轮询 blockPresent) -> COMPLETE/CANCELLED/FAILED
+RESOLVING(校验目标+距离,startDig) -> DIGGING(每 tick pumpDig,问 targetGone) -> COMPLETE/CANCELLED/FAILED
 ```
 
-- 每 tick `pumpDig`,**轮询 `blockPresent` 判完成**(`:81-85`)
-- `pumpDig` 报无进展 → **诚实失败**(`:106-108`),不假装在挖
-- 超出 `reachDistance` → 失败,因为游戏本来就会拒绝(`:90`)
-- 遵守 vanilla `blockHitDelay` 重试上限而不是每 tick 猛敲 `startDig`(`:96-103`)
+> **2026-10-03 重扫:下面四个行号全部失效,而其中两条的**说法**也变了。**
+>
+> | 原引用 | 今天它指的是 | 正确的符号 |
+> |---|---|---|
+> | `:81-85` "每 tick pumpDig,轮询 blockPresent 判完成" | `completionRead` 字段的一段 javadoc | `DigController.tick()` 的 `case DIGGING` 分支 |
+> | `:90` "超出 reachDistance 失败" | `private String completionRead;` | `DigController.outOfReach()` |
+> | `:96-103` "遵守 blockHitDelay 重试上限" | `readSinceGraded` 字段的 javadoc | `tick()` 的 `case RESOLVING` 分支 + `DEFAULT_START_ATTEMPTS` |
+> | `:106-108` "pumpDig 报无进展 → 诚实失败" | `diggingBlock` 字段的 javadoc | `tick()` 里 `if (!progressed)` |
+>
+> **两条说法变了:**
+>
+> **① 完成判据不再轮询 `blockPresent`。** 今天问的是 `targetGone()`,而它问的是
+> **目标**而不是空间:dig 开始的 tick 上采一次 `diggingBlock` 这个名字,之后每 tick
+> 再读一次 `blockAt`,**名字变了就是完成**。`blockPresent` 只在起点那次读不到名字时
+> 才作为兜底。**为什么改**:`blockPresent` 对水、岩沙、砂砾和高草都是 true,
+> 所以拿它当完成判据会把任何"刚挖掉又被填上"的位置报成还在挖。
+>
+> **② 而且顺序是承重的。** GONE 测试排在 STALL 测试**之前** —— `pumpDig` 报的是
+> "这一 tick 有没有施加伤害",而挖完方块的那一 tick 无事可损伤,会返回 false。
+> 先查 stall 会把刚刚挖掉的方块报成 "dig stalled"。这是本文件该记住的那类形状。
 
-**导航需要的正是这个形状。** 所以第一步不是发明架构,是把这个模式复制到 MOVE 上。
+- 每 tick `pumpDig`,**完成由 `targetGone()` 判**(不是 `blockPresent`)
+- `pumpDig` 报无进展 → **诚实失败**(`if (!progressed)`),不假装在挖
+- 超出 `reachDistance` → 失败,因为游戏本来就会拒绝(`outOfReach()`)
+- 遵守 vanilla `blockHitDelay` 重试上限而不是每 tick 猛敲 `startDig`(`maxStartAttempts`,默认 `DEFAULT_START_ATTEMPTS`)
+
+**今天这条样板已经有另外两个消费者:** `CraftController`(`act_set interact{kind:"craft"}`)
+与 `HoldController`(`act_set interact{kind:"hold"}`)。两者都在 `InteractIntent` 的
+`Kind` 里,而 `Kind#CRAFT` 的 javadoc 把理由写成了与 `Kind#DIG` 逐字对称的一句:
+一个由 `ActTickLoop` 在游戏线程上驱动的多 tick 状态机,能被 `act_cancel` 取消、
+被 `act_status` 观察、被 `act_plan` 串成序列 —— 给它一个独立工具意味着
+第二个要门控的地方、第二个状态读、第二个取消、第二个串接器,而这一层一样都不缺。
+**导航需要的正是这个形状**,所以第一步不是发明架构,是把这个模式复制到 MOVE 上 ——
+那一步也做完了(见 §1 表的"导航执行器"行)。
+
+### 1.2 这张表的漂移记录,以及它该以什么形式存在
+
+#### (a) 逐行重扫结果(2026-10-03,每一行都亲手打开文件)
+
+| 原行 | 原位置 | 今天 | 判定 |
+|---|---|---|---|
+| 三通道 | `ActSlot.java:15-21`、`ActRuntime.java:104-108` | `ActSlot` 是 15-22 行的三值枚举;`ActRuntime` 的 104-108 是 `leaseApplied` 字段的 javadoc,而 `effectiveTick` 那句在**类注释**里 | 位置失效,声称成立 |
+| seam + Fake | `ActActuator.java:3-17` | 接口 javadoc 现在是 6-21 行;3-17 落在 javadoc 开头 | 位置漂了 3 行,声称成立 |
+| MovementInput 楔子 | `ActMovementInput.java:39-62`、`MovementInputInstaller.java:104-120` | 39-62 是 `updatePlayerMoveState()`,**准确**;installer 的 104-120 是身份变化重装 + sprint,**准确** | **两处都成立** |
+| 列式 RLE | `LocalGrid.java:38-98` | 38-98 是 `NAME_UNREADABLE` 的 javadoc 与 `wireName()`;列结构在 `Column`/`Run`/`runs()` | 位置失效,声称成立 |
+| token 预算 | `ObserveProfile.java:16-46`、`ToolRegistry.java:488-497` | `ObserveProfile` 的 16-46 **准确**(三档旋钮全在里面);`ToolRegistry` 的 488-497 是一个 `catch (Throwable) { return null; }` 与 `sendTyped`,和 token 预算无关 | 一处失效一处成立,**声称本身也旧了** |
+| 一次快照一 tick | `WorldViewCapture.java:41,53-54` | 41/53-54 是 `SECTIONS` 与 `unknownSections` 的 javadoc;快照在 `capture()` | 位置失效,声称成立 |
+| 共享地址空间 | `WorldViewCapture.java:128,152-157`、`LocalGrid.java:101-114` | 128 是 gamemode 读、152-157 是 SelfView 构造;剥离在 `wireName()` 与 `WorldViewCapture` 两处 `indexOf(':')` | 位置失效,声称成立 |
+| 三张侧表 | `Ring.java:116-118`、`SeToolRequirement.java:135-136`、`CapabilityCatalog.java:65-66`、`PolicySideTableDriftTest.java:74-77` | 前三个分别落在 `do_set_creative_slot`/`do_use_entity`、`do_click_slot` 的注释、`do_dig`/`do_set_abilities`;**漂移测试那处 74-77 恰好是讲 act_set 豁免如何被关掉的那段 javadoc,准确** | 三个失效一个成立 |
+| LiveIT 废除 | 路径,无行号 | `core/src/test/java/net/marcloud/mcp/core/LiveGameGate.java` 在 | 成立 |
+| **DigController 四个锚点** | `:81-85`/`:90`/`:96-103`/`:106-108` | 全部是 javadoc;且两条**说法**变了(见 §1.1 的订正块) | **四个失效,两个声称作废** |
+
+**外加两处不在表里、但同样会误导下一个人的声称:**
+
+1. **§2 说「`ActActuator` 的 9 个读访问器里没有一个是移动状态」——不成立。**
+   今天 `position()` / `onGround()` / `collidedHorizontally()` / `onClimbable()` /
+   `inWater()` / `air()` / `fallDistance()` **七个都在**。
+2. **§4 第 1 步说「给 `ActActuator` 加 3-4 个读访问器」——已经加过了。**
+   照它做事的人会重复添加已存在的方法,而更糟的是:这七个访问器正是
+   `NavController` 与 `ClimbSteering`/`SwimSteering` 的输入,**它们的加法本身就是
+   Fork B 与 Fork C 的实现**,不是待办。
+
+#### (b) 这张表漏掉的东西(按交付批次)
+
+**本会话(2026-10-03)落地、原文完全没有的:**
+
+| 东西 | 符号 | 为什么属于「不要重建」 |
+|---|---|---|
+| 隔夜账本接线 | `NightShelter`、`NightEnclosure`、`ShelterTools`、`McpCore` 里那三行装配 | 一个**只在隔夜 tick 上填**的账本;`NightShelter.exposedNow()` 的判决**写在采样那一 tick**,而不是读的时候重算 |
+| 跨夜账本重置 | `NightEnclosure` 的 `nightCycle` 字段 | 单位是**一夜**不是"连上以来所有夜"。重置等**下一个黄昏**而不是在黎明触发,因为一夜的判决在黎明就定了 |
+| `world_view` 的 `env` 段 | `EnvView`、`WorldViewCapture.SECTION_ENV` | 第六个 section。`unknownSections()` 让拼错的段名**报错而不是静默少一段** |
+| `act_set interact{kind:"craft"}` | `InteractIntent.Kind.CRAFT`、`CraftWire` | 一个完整、测过的 controller 曾经**零个生产者** —— 那正是 `failure-shapes.md` 第八条。`CraftWire` 写下的是"为什么是 kind 而不是独立工具"的论证 |
+| 接缝守卫读加载位置 | `WorldBlockView.skyClosedAt()` 里的 `isBlockLoaded` 前置 | 客户端上 `World.isBlockLoaded` 对任何界内坐标都短路成 true;真正区分"这里没有区块"的是 `EmptyChunk.canSeeSky` 恒为 false。**少了这道守卫,未加载的列会被报成"有顶"** —— 而这正是这个类存在的唯一理由 |
+| 边界可达性测试 | `ACraftIsReachableThroughTheRealToolBoundaryTest` | 验证同一个 map **先过工具发布的 JSON schema,再过解析器**。只调解析器的测试在一个拒绝调用的边界前也会通过 |
+
+**前几轮落地、原文完全没有的:**
+
+- **移动状态读访问器**(`ActActuator` 七个)—— 见上。
+  `position`/`onGround`/`collidedHorizontally` 来自 `fc7ebe8`,**2026-08-03**,
+  与本文件初稿(`42e0c0b`,同一天)是同一次工作里的两个产物。
+  `onClimbable`/`inWater`/`air`/`fallDistance` 来自 `1ba0a3d`,**2026-10-02**。
+- **自有邻居生成器**(`NeighborGen`/`Planner`/`RouteExecutor`/`Move`/`Stance`)——
+  `c090fcc`,**2026-08-05**。Fork B 的第二选项已经建好,不是待选。
+- **`NeighborGen` 的四向无对角**:刻意的省略,不是遗漏,理由写在类 javadoc 里
+  (斜向会切角;而对角线正是历史上最难的一次落地,先证明正交路径)。
+- **`STEP_UP` 现在会跳了**:`NavController.jump()` 在 stance 模式下、只在从地面、
+  只在目标恰好高一格、且身体已到台阶(`STEP_UP_RANGE`)时才为 true。
+  §2 顶部那条"NavController 不跳,那是另一条债"**今天已经还了**。
+  另有一条容易被读反的:`move.go_to` 的 **point 模式下 `jump()` 恒为 false,
+  那是契约不是遗漏** —— point walk 既不爬也不跳;只有 route 的 stance 模式才跳。
+- **`move.route` 改名 `move.go_to`,旧名按名拒绝**(`ActIntentParser.RENAMED_MOVE_KEYS`)。
+  文档里到处写着的 `move.route` 是一个**今天会被拒绝**的键。
+
+#### (c) 这张表应该以什么形式存在
+
+**判定:选 (c),并用 (b) 那一族里已经存在的形状给它装牙 —— 但守卫本轮不落盘,理由在下面。**
+
+先把四个候选否掉或收窄:
+
+- **(a) 散文 + 每次改动手工更新** = 今天。**已被这份重扫证伪**:九行里五行完全失效、
+  两行部分失效,§1.1 四个锚点全失效,两处声称作废。
+- **(b) "断言表里每条声称的对象今天仍存在"** —— 单做这个**不够**,而且**会误导**。
+  §1 表里位置失效的那些行,**符号几乎全部仍然存在**,只是行号漂了。
+  所以"断言对象存在"这条守卫对这批腐烂**基本一条都抓不到**;
+  它只会抓住更罕见的那一类(对象被删 / 被改名)。
+  **抓不到主要病因的守卫不是守卫,是安慰剂。**
+- **(d) 别的** —— 就是下面这个收窄:把表拆成两半,各自换一种形式。
+
+**真正要做的是把表拆成两半,各自用各自的形式:**
+
+> **上半:「不能重建」缩到只剩骨架与契约 —— 保持散文,但位置一列只准写符号。**
+>
+> 这一半的判据是**重建它要改一个已经定过的决定**,不是"重建它很贵"。
+> 按这个判据,今天表里够格的是**六条**:三通道正交、`ActActuator` seam、
+> `MovementInput` 楔子、列式 RLE(扩展 column,别退回实心立方)、
+> 一次快照一 tick、三张侧表。
+> **"结构化 token 预算"这一行是混合的,所以它不进上半**:它的**机制**(预算结构性地
+> 由 caps 与 profile 决定,不做事后截断)是一个决定,但它的**强制点**已经是一条测试了 ——
+> 也就是说这一行的下半已经在做它该做的事。
+> `LiveIT` 那一行也不在上半,因为它是**第三类**:不是骨架,也不是清单,而是一条
+> **反模式警告**。它该留在文档里,但它的形态是"这个写法被废除过,照它写出来的
+> `HoldLiveIT` 一字不差地重造了缺陷",与另外两类都不同。
+> **位置一列一律不写行号**,因为 `guarantees.md` §6.14 已经把这条定成硬规则:
+> **一个指向正在被编辑的文件的行号是半衰期,不是引用。**
+> 符号熬得过重构;行号是一个自信的错答案,而读者除了真去打开文件的人以外
+> 分不出它和正确答案的区别。
+
+> **下半:「已经建好什么」从表里搬走,变成可从代码生成的东西。**
+>
+> 这一半的读者是**接手的人**,而他真正需要的不是一张清单,是**一次查询**。
+> 今天表里新增的三行(移动读访问器 / 导航执行器 / 隔夜账本与 craft)就是证据:
+> 它们是这一轮交付的东西,而一份一个月没动的文档当然不会知道它们。
+> **一张需要作者记得更新才不腐烂的表,腐烂是默认行为,不是意外。**
+>
+> 「已经建好什么」的权威形状应该是**测试**,不是散文:
+> `RegisteredBuiltinGateCoverageTest` 已经在断言每个注册工具都进了 `Ring`
+> —— 这就是"注册了什么"的可查询形状,而且它读的是生产的注册点本身。
+
+> **守卫的形状照抄本仓已有的两个先例,不要自己发明:**
+>
+> - `TheHandshakeSentenceNamesNoKernelVerbTest` —— **不要手列禁用词**。
+>   它从句子里**提取**每一个 tool-shaped 的名字,然后向**单一权威**
+>   (`ToolRegistry.layerOf`)逐个提问。本表对应的形状是:
+>   **从这张表里提取每一个符号,向源码树逐个提问** —— 而不是测试里手抄一份符号表,
+>   那会把这份文档变成它自己的第二份副本,而第二份副本正是本文件 §1 横幅里
+>   `LiveIT` 那一行记录过的失败形状。
+> - `DescriptionsNameToolsThatExistTest` —— **词汇从代码派生,不从清单派生**。
+>   它扫描述里提到的工具名并断言每个都注册了。本表对应的形状是反向的:
+>   **扫表格里的符号并断言每个都能在树里找到**。
+> - 两条都遵守同一条非空性纪律:**必须同时断言表格确实提取到了符号**,
+>   否则一个空表格会让"没有失效的符号"这个断言永远为真。
+>
+> **为什么本轮不落这个守卫:** 它要住在 `core/src/test/java/...`,
+> 而本轮的写域只有这一个 `.md` 文件。**这不是设计上的取舍,是写域限制。**
+> 落地时它应当是 `core/src/test/java/net/marcloud/mcp/core/docs/AgencyTableNamesOnlyLiveSymbolsTest.java`,
+> 断言两件事:
+>
+> 1. **正向** —— 表里每个符号都能在树里解析(抓被删/被改名的引用);
+> 2. **反向** —— 表里**不再出现** `File.java:N` 形式的行号(抓半衰期本身)。
+>
+> **第 2 条才是真正治本的那条**,因为它是唯一一条在**腐烂发生之前**就发红的断言:
+> 一旦表格允许写行号,行号就会回来,而正向断言对行号漂移完全无感。
+>
+> **守卫的作用域必须是 §1 那张表本身,不是整个文件。**
+> §1.2 的漂移表**故意**保留旧行号 —— 它们是"曾经错在哪"的证据,删掉它们这份重扫
+> 就失去了意义,而一条不区分作用域的"文件里不许有行号"断言会把这份证据本身判成违规。
+> **所以断言的对象是「§1 表的『位置』那一列」,不是「全文」。**
+> 这不是为了让守卫好写,是因为两者的寿命不同:漂移表记录的是**已经发生的事**,
+> 它不会再变;§1 表的每一行都在被今天的树回答。
+
+**一句话总结:「不要重建」是散文(它讲的是决定,决定不会因为文件变长而变错),
+而「已经建好什么」是测试(它讲的是事实,事实每天都在变)。今天这张表把两半混在一张表里,
+所以它只能靠人记得更新 —— 而人不会记得。**
 
 ---
 
 ## 2. MOVE 闭环已进树(历史诊断:没有反馈回路)
 
-> **订正(装配已进树,Windows live 已验 2026-08-21):** `act_set` `move.route`
-> (`RouteIntent` / `RouteExecutor` / `AModelCanAskForARouteThroughActSetTest`) 在 HEAD。
-> headless 有。Windows 真机 `scripts/live-route-probe.py` 5/5,含一次生产突变(第一 tick
-> 假 COMPLETE,探针打红)再还原 5/5。缺的不是 MOVE 闭环。不要把本节标题读成「还没写」。
-> 一格高墙会被规划成 STEP_UP,而 `NavController` 不跳,那是另一条债,不是 route 没接线。
+> **订正(装配已进树,Windows live 已验 2026-08-21;键名 2026-10-03 再订正):**
+> `act_set` `move.route`(`RouteIntent` / `RouteExecutor` / `AModelCanAskForARouteThroughActSetTest`)
+> 在 HEAD。headless 有。Windows 真机 `scripts/live-route-probe.py` 5/5,含一次生产突变
+> (第一 tick 假 COMPLETE,探针打红)再还原 5/5。缺的不是 MOVE 闭环。
+> 不要把本节标题读成「还没写」。
+>
+> **今天这个键叫 `move.go_to`,而 `route` 按名被拒绝。**
+> `ActIntentParser.RENAMED_MOVE_KEYS` 把旧名映射到新名并**拒绝**而不是别名:
+> 一个仍然管用的旧名是一个会继续被选中的旧名,而静默别名让调用者无从知道工具改过。
+> 本文件里其它地方写着的 `move.route` 是一个**今天会被拒绝**的键。
+>
+> **STEP_UP 的债也还了(2026-10-03):** 一格高墙今天会被跳。
+> `NavController.jump()` 在 stance 模式下、只在从地面、只在目标恰好高一格、
+> 且身体已到台阶(`STEP_UP_RANGE`)时为 true —— 而 point 模式下它恒为 false,
+> **那是契约不是遗漏**,因为 point walk 既不爬也不跳。
+
 >
 > 下面到 §2.1 是 2026-08-03 的开环诊断原文。保留误诊形状;不要跳过横幅把它当缺口清单。
 
@@ -128,12 +331,32 @@ RESOLVING(校验目标+距离,startDig) -> DIGGING(每 tick pumpDig,轮询 block
 执行 duration 预算、收尾 cancel。它报的是 `"moving (tick N/M)"` —— **"按住了键"**,
 从不是 **"走到了哪"**。
 
-**`ActRuntime.moveForward()`(`:191-193`)返回 `moveIntent().forward()`** ——
+**`ActRuntime.moveForward()` 过去返回 `moveIntent().forward()`** ——
 提交时的轴,永远保持。冻结的 record 字段。
 
-**`ActActuator` 的 9 个读访问器里没有一个是移动状态**(`:23-47`):
+> **2026-10-03 订正:这一条也已经变了,而且变的正是本节要修的那个洞。**
+> 今天 `moveForward()` 走 `effective()`,而 `effective()` 分两路:
+> `MoveIntent` 仍返回冻结字段,**其余一律返回 applier 在这一 tick 发布的
+> `LocomotionAxes`**(`ActRuntime.publishAxes`)。
+> 理由写在 `LocomotionAxes` 自己的 javadoc 里:`NavIntent` **没有轴可读**,
+> 所以把两种意图都走同一个已发布的值,既保住通往 `ActMovementInput` 的单一路径,
+> 也让**没有任何东西需要每 tick 改写 slot 的意图** ——
+> 而 `LookApplier` 靠意图**同一性**判"是否新提交",每 tick 换一次意图会让每一 tick
+> 都像一次新提交。
+
+**`ActActuator` 的 9 个读访问器里没有一个是移动状态**:
 `inWorld` / `eyePos` / `yaw` / `pitch` / `reachDistance` / `mouseOver` / `blockPresent` /
 `heldSlot` / `entityEyePos`。**没有 position、没有 `onGround`、没有碰撞。**
+
+> **2026-10-03 订正:这一条不成立了,而且是本文件最贵的一条错。**
+> 今天 `ActActuator` 上有 `position()`、`onGround()`、`collidedHorizontally()`、
+> `onClimbable()`、`inWater()`、`air()`、`fallDistance()` —— **七个,全都在。**
+> 照着这句话的下一步("加 3-4 个读访问器")做事的人会**重复添加已存在的方法**,
+> 而更贵的是他不会知道:这七个访问器**本身就是** Fork B/Fork C 的实现,
+> 它们存在是因为 `NavController`、`ClimbSteering`、`SwimSteering` 已经在读它们。
+> 最后两个各有不默认的理由:`air()` 返回 `-1` 而非 `0`,因为 `0` 读作"正在溺水",
+> 会驱动调用方取消一次本来没问题的游泳;`fallDistance()` 返回 `0.0` 读作"从不坠落",
+> 那是一个硬编码的"暴击不可能",每个实现都会静默继承。
 
 后果:一个 MOVE 意图提交后就是开环。撞墙了不知道,走偏了不纠,到了不停,
 1 格台阶、3 格落差、水、栅栏各自会发生什么都得模型自己推。
@@ -235,20 +458,49 @@ RESOLVING(校验目标+距离,startDig) -> DIGGING(每 tick pumpDig,轮询 block
 模型今天已经能靠扫 289 列找到矿。第 1 步加的是**在任何 token 价格下都无法用现有 83 个工具组合出来的东西**:
 一个比 LLM 往返更快的循环。而且不做第 1 步,第 2、3 步的输出形状就只能靠猜。
 
-第 1 步的具体三件事:
-1. `ActActuator.java:20-47` 加 3-4 个读访问器(position、`onGround`、`isCollidedHorizontally`)
-   加上对应的 `FakeActuator` 条目 —— 接口自己的 javadoc(`:3-17`)就写着
-   "controller 需要的每个游戏接触点都是这里的一个方法",所以这在既有设计**之内**。
-2. `NavController`/`NavApplier`,每 tick 从当前位置与目标重算 forward/strafe/jump。
-3. 一个真的 seam 决策:`ActRuntime.java:187` 用 `instanceof MoveIntent` 把关,
-   而 `LookApplier.java:32-34` 用**意图对象同一性**判断"是否新提交" ——
-   一个每 tick 改写 record 意图的 nav applier 不能破坏这两个约定。
+第 1 步的具体三件事 —— **今天三件都做完了,下面每条都注了今天兑现它的符号:**
+
+1. ~~`ActActuator` 加 3-4 个读访问器(position、`onGround`、`isCollidedHorizontally`)~~
+   **2026-10-03: 已做,而且做了七个。** `position()` / `onGround()` /
+   `collidedHorizontally()` / `onClimbable()` / `inWater()` / `air()` / `fallDistance()`
+   —— 后四个是 `ClimbSteering` 与 `SwimSteering` 加进来之后才需要读的,而它们各自的
+   javadoc 都写着**为什么不设默认值**:一个 `false` 默认值是一个硬编码的
+   "永远不在爬/永远不在水里",每个实现都会静默继承,而它造出的失败是一个
+   永远完不成却报得出合理理由的 controller。
+   接口自己的 javadoc 确实写着"controller 需要的每个游戏接触点都是这里的一个方法",
+   所以这在既有设计**之内** —— 这条判断今天依然成立。
+2. ~~`NavController`/`NavApplier`,每 tick 从当前位置与目标重算 forward/strafe/jump~~
+   **2026-10-03: 已做,而且 seam 的解法与原文预想的不同。** `NavController` 在;
+   **没有 `NavApplier`** —— 重算出来的轴由 `MoveApplier` 通过
+   `ActRuntime.publishAxes(...)` 发布,`ActRuntime.effective()` 分两路读:
+   `MoveIntent` 读冻结字段,其余读已发布的 `LocomotionAxes`。
+   **这样做的理由原文没猜到:每 tick 改写 record 意图会让每一 tick 都像一次新提交。**
+3. ~~`ActRuntime` 用 `instanceof MoveIntent` 把关,而 `LookApplier` 用意图对象同一性~~
+   **2026-10-03: 这个 seam 决策已经以另一个形式落地了。**
+   今天 `sameIntent` 的判据是:**`RouteIntent` 比目标、预算与 creep 三个字段,
+   其余意图仍比同一性。** 理由写在它自己的 javadoc 里,而且是实测出来的:
+   MOVE applier **每一 tick 都重新盖章 slot 的意图**,所以身份判据会把 plan 自己的
+   行走误报成"被 act_set 取代",于是一个什么都没取代它的 plan 会中止自己的步骤。
+   `LookApplier` 那边仍然靠同一性,而第 2 条的 `LocomotionAxes` 正是为了让它可以继续这么做。
 
 ---
 
 ## 5. 必须 owner 定的岔路
 
 按 CLAUDE.md,命名与架构取舍不由 agent 发明。这里只摆两边的理由。
+
+### 5.0 六条岔路今天各自在哪儿(2026-10-03 重扫)
+
+| 岔路 | 今天 | 依据(符号,不是行号) |
+|---|---|---|
+| **A** 多 tick 行为住在哪 | **已定,且已实现第三条路。** `act_plan` 是 sidecar 解释器(`ActPlanInterpreter`),不是第四个 `ActSlot`,也不是 `create_tool`/`eval_java` 玩法。**技能库仍未建** —— `ActPlanStep` 明确把 `skill` 列为"不是 plan 动词",所以 Voyager 那条"词汇应该增长"还没有对应物 | `ActPlanInterpreter`、`ActRuntime.interpreter`/`PLAN_OWNER` |
+| **B** 导航引擎 | **已定,且已实现。** 排除 vanilla A*(理由见 §5.5 顶部),第二个选项在树里:`NeighborGen` 六个 move kind(walk / stepUp / drop / **bridge** / climb / swim),`Planner` + `RouteExecutor` 串起来。**四向无对角是刻意的省略**,理由在 `NeighborGen` 的类 javadoc 里。**缺口**:vanilla A\* 作可达性预言机那条"真实用途"至今没有被调用 | `NeighborGen`、`Move.Kind`、`RouteExecutor`、`Stance.STEP_UP_MAX` |
+| **C** nav 意图的形状 | **已定,且已实现第二个选项。** `NavIntent` 住在 MOVE slot 内(`NavIntent` 的 javadoc 自答"为什么不是第四个 slot":两个 slot 可以同时 ACTIVE 而都想驱动同一个 view,那样模型就需要一条优先级规则)。seam 决策的实际形态与 §4 第 1 步第 3 条预想的不同 —— 见那一段的订正 | `NavIntent`、`RouteIntent`、`ActRuntime.sameIntent` |
+| **D** 谁持有循环 | **已定(2026-08-05):代码持环 20Hz,模型下目标。** 见本节后面的横幅 | — |
+| **E** 门控粒度 | **仍然未决,而且仍然整面。** `act_set` 今天把 move + look + interact 作为**一个整体**门控在 R1 / `SE_WORLD_WRITE` / `CAP_WORLD_WRITE`,三张侧表里各一行,`SupervisedGateL4L5DenyTest` 钉着。**没有按 slot 拆分的迹象** —— 参数级策略(`SeProtectedObjects.isProtected` 有 14 处 in-handler 先例)仍然没有框架 | `Ring.BUILTIN_RINGS`、`SeToolRequirement`、`CapabilityCatalog` |
+| **F** 感知面 | **部分落地。** 第一个选项(过滤查询)已经赢:`find_block` + `inspect_block`;第三个选项(推送)**没有** —— `GET /v1/stream` 的 SSE 侧通道仍然只存在于 HTTP facade,不在 MCP socket 上,对 MCP 客户端是带外的 | `ToolRegistry` 里 `find_block` / `inspect_block` 的注册、`HttpFacade` 的 `/v1/stream` |
+
+**这一轮唯一真正还开着的是 E 与 F 的推送那一半。** A/B/C 都已由实现落地而非由文档声明。
 
 ### Fork D — 谁持有循环,以什么频率(~~最关键,吞掉其余几个~~ **已定:代码持环**)
 

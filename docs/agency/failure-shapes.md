@@ -2,19 +2,64 @@
 
 2026-10-02. Thirteen instances of one shape were found in a single day across seven parallel
 work streams, plus three caught by a worker rather than by the integrator. **This document
-catalogues fourteen worked instances: the thirteen, plus one found while writing it** — §2.3, a
-stale line count sitting in the javadoc of the very file that fixed instance §2.1. That is not
-padding; it is the argument for §3.3, and it is why the header count was written last.
+catalogues sixteen worked instances: the thirteen, plus one found while writing it** — §2.3, a
+stale line count sitting in the javadoc of the very file that fixed instance §2.1 — **plus one
+found after it was finished, which is §2.15 and is the only one here that no test could have
+caught in advance** — **plus one more, §2.16, merged in on 2026-10-03 from four audits that were
+gitignored and would otherwise not have travelled.** Those clauses are not padding: they are the
+argument for §3.3, they are why the header count was written last, and they are why the count is
+stated as a number rather than left to a reader: this file was written by the same process it
+describes, and the process produced a new instance while the catalogue was open, twice.
+
+**What the four 2026-10-03 audits contributed, and the one structural decision in this file.**
+Four new shapes were found that day, and **none of them is an instance of §1**: each is a
+claim about **a test instrument**, not about a documented capability, so numbering them §2.16
+onward would have put a second shape inside a directory that has exactly one, and a reader
+scanning §2 for "what goes red when a producer is absent" would have found a guard defect
+instead. They are catalogued where this document's own admission criterion puts them — **two
+instances or more is a catalogue entry, one is a rule** — which gives **one shape with two
+instances (§7.1, and one of those two is still live in the tree right now)**, **two shapes with
+one instance each, promoted to §3.12 and §3.13 and flagged as invented, because §3's preamble
+promises nothing in that section is invented and the promise has to be amended rather than
+broken**, and **one that is about the discipline of the reader rather than about the code, which
+is §4.4**. The reasoning and the instance counts it rests on are in
+`.ai-notes/docs/audits/2026-10-03-shape-merge-arbitration.md`. **The gap at §2.16 is the
+argument, not an oversight.**
 
 **This is the catalogue for people who have never been in this repository.** It is not a
 narrative and it is not a guarantee list. Read §2.1 if you write a test-only helper. Read §3 if
 you write anything at all.
 
 **What this document is not.** It does not tell you what the kernel guarantees — that is
-`guarantees.md`, 47 rows each carrying a `file:line` and the test class that goes red. It does
+`guarantees.md`, **53** rows each carrying a `file:line` and the test class that goes red (row 53
+is the highest number in that document; this file said 47 until 2026-10-03, which is §2.3's shape
+in a file whose own §3.3 forbids it). It does
 not tell you what is in the vendored Minecraft tree — that is `vendored-tree.md`. Where an
 instance below is also a guarantee row, the row is linked, not repeated. **Link, do not
 restate:** a second copy of either document is a second copy that goes stale.
+
+**The count was re-verified on 2026-10-03, after `guarantees.md` grew a column, and it still
+holds — but what was checked is the number, not the words.** Counting the guarantee tables' own
+first column rather than trusting either document's prose: **53** rows numbered `1` through `53`,
+**no gap and no duplicate**, which is exactly what makes "53 rows" and "row 53 is the highest" two
+claims that agree rather than two numbers that happen to match. The new `tests` column took every
+guarantee row from 4 fields to 5 and **renumbered nothing**, which is why a change that touched
+all 53 rows left the count standing.
+
+**Two figures come out of the same sweep and neither is part of the 53.** The measurement table is
+at `guarantees.md:1115` (it was at `:952` earlier the same day) and is a **separate five-row table
+with its own `1`-`5` numbering**. And sweeping every `| N |` row in the file yields a number that
+is **not 53 and not stable either** — it was **58** on the first pass and **64** on the last, while
+the guarantee count stayed at 53 through both. **Anyone re-checking must count the first column of
+the guarantee tables and stop there; the whole-file sweep is the trap, and it is a moving trap.**
+
+**This paragraph is itself the strongest evidence for §3.3 in the document, and it is worth
+leaving in rather than tidying.** Between the two passes above, `guarantees.md` grew from **1480
+lines to 1643**, its §6 rules were renumbered, and one of its entries deleted the `1317` line count
+this document cites at §2.3 — **and the guarantee row count did not move by one.** A number that
+tracks a *set of rows* survives edits that renumber *positions*; a number that tracks *positions*
+does not. **That is the whole difference between the 53 and the 58, and the 58 is what a
+careless re-check produces while looking like diligence.**
 
 **Why it exists at all.** These thirteen were recorded only in audit reports under
 `.ai-notes/docs/audits/`, which is gitignored (`.gitignore:56`, the `.ai-notes/` line). Those
@@ -24,20 +69,37 @@ part that will.
 
 **This document originally carried a count, and I had to take it out.** The first draft said the
 directory holds "68 reports, 38 of them dated the day". Re-measuring later the same evening,
-with three workers still writing: **70 and 47**. `guarantees.md:39-41` carries the same kind of
-count at **61 and 38**, and it is stale in the same way. Neither number is wrong about anything;
-each is a claim about a directory being written to while it is read. **§3.3 is not a rule about
-someone else's document.** It is the reason this one quotes no count — read the directory.
+with three workers still writing: **70 and 47**. `guarantees.md` carried the same kind of
+count at **61 and 38** on the day this was written, and it is stale in the same way. Neither
+number is wrong about anything; each is a claim about a directory being written to while it is
+read. **§3.3 is not a rule about someone else's document.** It is the reason this one quotes no
+directory count — read the directory. **The anchor this paragraph used to carry,
+`guarantees.md:39-41`, no longer resolves to a count at all**: those three lines are now the
+*"Why this file exists at all"* paragraph, so the count is gone from there. The sentence was
+true when written and the sentence outlived it — **§2.3 and §2.15 at once**, which is why the
+citation is now the symbol (`guarantees.md`) and not the line range.
 
 **A citation in this document is a promise.** Every `file:line` below was opened on the day it
 was written. That sentence is doing more work than it looks: §1g of `guarantees.md` records a
-single sweep over a 905-line document that corrected **16 wrong anchors** across nine rows, and
+single sweep over what was then a **905-line** `guarantees.md` (it is **1643 lines** as of
+2026-10-03 — measured during the count re-verification above) that corrected **16 wrong anchors**
+across nine rows, and
 an earlier sweep corrected **30-plus**. Two of those groups were wrong **as a block**, every
 member off by exactly one line, which is the signature of a number copied out of a diff hunk
 header rather than counted off an open file. They were spread across the document rather than
 concentrated in one stale corner, which says the anchors were being written **by inference**. If
 you find an anchor here that does not resolve, it is a defect in this file, not a curiosity:
 that is what the rules section is for, and it is the same rule the wrong anchors were caught by.
+
+**And this file's own promise was tested on 2026-10-03, when §7 was merged in.** Every
+`guarantees.md` anchor in §3 was re-opened rather than trusted, and **seven had moved** — §6.4,
+§6.9, §6.10, §6.11, §6.12, §6.16 and the §5.5 range — because that file's §6 was renumbered by
+another worker while this one was being written; §2.3's `1317` citation had gone stale for a
+different reason, the number having been deleted outright. **Every one is now annotated in place
+with the line it used to carry**, so the rot is legible rather than papered over. **A `file:line`
+into a file somebody else is editing is a half-life, not a citation** — which is now
+`guarantees.md` §6.14's own rule, written *after* most of these anchors were first used, so the
+rule existed and this file did not apply it to itself until something forced the check.
 
 ---
 
@@ -48,8 +110,9 @@ executed, or unreachable.**
 
 The interesting part is not that each instance was wrong. It is that **almost none of them
 could be caught by the machinery the project already had** — not the compiler, not the test
-suite, not grep. Four separate escape routes are documented below, and a reader who has only
-learned "my tests are green, therefore I am fine" has learned the wrong lesson:
+suite, not grep. **Five** separate escape routes are documented below, and a reader who has only
+learned "my tests are green, therefore I am fine" has learned the wrong lesson — worse in the
+fifth case, where the green suite is not a passive bystander but the mechanism:
 
 | escape route | how the claim survived | where |
 |---|---|---|
@@ -57,6 +120,7 @@ learned "my tests are green, therefore I am fine" has learned the wrong lesson:
 | **It was a number read from a diff.** | A hunk header shows a line number; it does not show that the line is the thing. | §2.2, and all 46-plus wrong anchors in `guarantees.md` |
 | **It was true when written, and the file moved.** | The claim was correct. Then somebody fixed the code, or edited the file it described, and the sentence did not. | §2.3, §2.13, and three of the integrator's own claims |
 | **It was a decision, not an implementation, and nobody asked.** | The design says the model decides; the enforcement half was never measured against it. | §2.1 |
+| **A correct fix made the sentence false, and every gate stayed green.** | The wiring landed, was tested, and worked. The document describing its absence was in the same repo the whole time, and the diff that broke it reads like a feature. | §2.15 |
 
 **§2.2 is the sharpest, and it was the newest.** It is not a defect in the code at all — the
 claim underneath it was **true**. Only the name was wrong, and it was wrong in a report about a
@@ -115,7 +179,7 @@ This is instance 13 and the one to read first if you only read one.
 **What was claimed.** A worker reported a test named
 `TheSeamIsInTheShippedTreeNotTheTestTree`.
 
-**What was on disk.**
+**What was on disk, on 2026-10-02.**
 `core/src/test/java/net/marcloud/mcp/core/eval/TheSuiteGoesRedThroughTheSeamTest.java:216`:
 
 ```java
@@ -124,8 +188,30 @@ public void theSeamIsInTheShippedTreeNotTheTestTree() {
 
 **Lower case on the leading `t`.** Not a different test, not a missing test — the right method in
 the right file, with the first letter wrong. The claim underneath was **entirely true**: the
-method asserts the seam's package is `net.marcloud.mcp.core.eval` for all three shipped classes,
+method asserted the seam's package was `net.marcloud.mcp.core.eval` for all three shipped classes,
 which is exactly what instance 2.1 needed.
+
+**This entry's own anchor has since aged, which is worth printing rather than quietly repairing.**
+As of 2026-10-03 **that method no longer exists in that class**: it was **renamed**, not deleted,
+and `:216` now holds a javadoc line. The live method is
+`theSeamClassesAreLoadedFromTheShippedArtifactNotTheTestTree` at **`:247`**, and its criterion is
+no longer the package name at all — see **§7.1**, where the same repair is the worked example of a
+second shape. **So §2.2's `file:line` and its quoted name are both now wrong, in this file, about
+the cheapest rule in the document** — a stale line number (§2.3) *and* a name that no longer
+resolves (§2.13), stacked on the one entry whose rule is *"open the file and copy the name."*
+Nothing forced it: the rename was correct, §7.1's fix was correct, and the sentence describing
+them stayed put. **§3.3 and §3.2, both, on one line.**
+
+**One precision that matters, because getting it wrong is how this entry nearly got a false
+all-clear.** A tree-wide `grep` for `theSeamIsInTheShippedTreeNotTheTestTree` **does return a
+hit** — `TheShippedShelterCounterIsReachableAndNotATestTreeClassTest.java:60` — so the *string*
+still exists. **What does not exist is the method**: a declaration search
+(`grep -rnE '(public|private|protected)[^;{]*\btheSeamIsInTheShippedTreeNotTheTestTree\s*\('`)
+returns **zero across the tree**, and the one surviving occurrence is a `{@code}` **mention**
+inside another class's javadoc, not a signature. **A `{@code}` javadoc tag is not a link, so the
+javadoc tool never resolves it and never warns** — which is precisely why §2.13's criterion, taken
+as *"does this name appear in the tree"*, reports this entry as healthy. §2.13 carries the full
+argument and the two checks that do work.
 
 **Why the claim survived.** Nothing checks the name of a test the way a compiler checks a type.
 A `file:line` is checkable by opening the file; a *test method name quoted in prose* is only
@@ -174,8 +260,13 @@ one edit later. That is the fourth escape route in its purest form, and it is wh
 accumulates numbers will accumulate stale numbers") both exist.
 
 **What catches it now.** Re-opening. Nothing else. The sentence is a comment: no compiler, no
-test, and no grep for `1317` outside this paragraph and `guarantees.md:940` — which carries the
-same number, and is the same defect once more.
+test, and no grep for `1317` outside this paragraph — **`guarantees.md` no longer prints it at
+all**, having replaced it with *"its line count is deliberately not given: this entry once said
+1317, and it was already wrong when written"* (`:1339-1340`; this entry used to cite `:940`, which
+carried the number before that edit). **So the number now appears in exactly one place in the
+tree, and the other document has answered §6.15 by deleting its copy** — which makes this the
+second instance in this document of a stale anchor that got fixed by somebody else, without
+this sentence being told.
 
 **What does not catch it.** The suite. The file compiles. `GoalPolicy`'s behaviour is unaffected
 by its own length.
@@ -558,6 +649,44 @@ consolidated form.
 
 **What does not catch it.** Everything automated. The compiler cannot see a comment.
 
+**The blind spot in §2.13's own detection method, found by hitting it on 2026-10-03.**
+This entry's stated criterion is **"the name does not exist in the tree"**, and that is the test a
+reader applies — `grep` the name, find nothing, conclude the citation is broken. **The criterion
+fails when the name exists somewhere other than where the citation says it does**, because then
+the search returns a hit and the check passes. **This is not theoretical: it happened in this
+repository on the day this section was extended, and it nearly produced a wrong entry here.**
+
+The concrete case. §2.2 quotes the method name `theSeamIsInTheShippedTreeNotTheTestTree`. That
+method was **renamed** — it is now `theSeamClassesAreLoadedFromTheShippedArtifactNotTheTestTree`
+at `TheSuiteGoesRedThroughTheSeamTest.java:247`, and §7.1 is that repair. **So §2.2's `file:line`
+is stale and its quoted name no longer names a method of that class.** The first sweep of this
+entry got that right. **The second sweep got it wrong, in the opposite direction**, and the
+reason is instructive: a tree-wide `grep` for the old name **does return a hit** — at
+`TheShippedShelterCounterIsReachableAndNotATestTreeClassTest.java:60` — **so the name "exists",
+and a checker reading §2.13's criterion concludes the citation is fine.** It is not fine: that
+line is a `{@code}` **prose reference** inside a class javadoc, not a declaration, and the method
+it names lives in a different class. **A `{@code}` citation is not resolvable by javadoc, so
+nothing in the toolchain distinguishes "this names a method" from "this spells a method's name."**
+
+**The two checks that do work, and both were needed here.** `grep -rnE '(public|private|protected)
+[^;{]*\btheSeamIsInTheShippedTreeNotTheTestTree\s*\('` over the tree returns **zero** — a
+declaration search, not a string search. And reading the hit's context shows it is a comment, not
+a signature. **A name lookup that does not distinguish a declaration from a mention will report
+§2.13's defect as absent, and the report will look like a clean bill of health.**
+
+**So the amended rule is two-part.** *§2.13's defect is a name that does not resolve **where the
+citation says it does** — not a name that does not appear anywhere in the tree.* And the reason
+this matters beyond §2.13: a cross-file name collision is **more** likely than a unique name, not
+less, because the methods being cited are all named after the same concept. **Three guards in
+this repository cite a "seam" and two of them cite a method called
+`theSeamIsInTheShippedTreeNotTheTestTree`** — the shape is not hypothetical here, it is a
+property of how this codebase names things.
+
+**And the instance this produced is §2.15 again.** The rename was correct, the repair was correct,
+and the sentence describing them (§2.2) did not move. Nobody created that rot: **a correct fix
+invalidated a neighbouring sentence and every gate stayed green through it** — which is the whole
+of §2.15, arriving one entry away from where §2.15 is written.
+
 **The rule.** *A javadoc citing a test is a receipt, and an unreceipted receipt is worse than no
 citation.* If you name a test in prose, the name must be one you copied out of a file you
 opened, and the sentence must still be true — because the class it names can be renamed, and the
@@ -595,15 +724,118 @@ its name suggests.
 
 ---
 
+### 2.15 The sentence a SUCCESSFUL fix falsified, read by whoever writes the prompt
+
+*(Placed last, and it is **not** the least severe — it is the most expensive one in the list by the
+measure §2.7 uses, since a wrong description costs more here than anywhere else. It goes last
+because it was found last: on 2026-10-03, after this document was finished, which is itself part of
+the finding. §5 says the list cannot be closed; this ordering is the evidence.)*
+
+**What was claimed.** `core/src/main/java/net/marcloud/mcp/core/drivers/craft/Craft.java`, the
+craft package's public face, said of itself at `:26-28` before this was repaired:
+
+> What this deliberately does NOT do is craft anything. Executing a craft needs a live `CraftWindow`
+> over the open container, and **no implementation of that interface exists outside the tests yet**.
+
+**What was on disk when it was written.** True, and it was true about the *whole tree*. The craft
+controller existed and was tested; **every** `CraftWindow` implementation was under `core/src/test`
+— `FakeCraftWindow` in the craft package and `SimCraftWindow` in `eval` — so "outside the tests"
+was not an overstatement, it was the situation. Then four things shipped, in this order, and none
+of them was in `Craft.java`:
+`act_set` grew `interact kind='craft'` into its published enum
+(`ActTools.java:308`, and named in the same tool's own description at `:300-302`);
+`LiveCraftWindow implements CraftWindow` (`LiveCraftWindow.java:61`);
+`McpCore.java:365` builds one and hands it to `InteractApplier`, whose CRAFT branch ticks it
+(`InteractApplier.java:150`); and `CraftWire.bind` resolves an item name to a controller over it.
+**Every one of those is real and none of them is a comment.** The javadoc was not updated, so a
+sentence that had been accurate became a lie **without one byte of it changing**.
+
+**Why this is not a fifteenth copy of §2.6.** The other fourteen are *"the capability is finished
+and nobody wired it"* — the producer is absent, and the document is an innocent bystander that
+merely failed to notice. Here the wiring was **successful**, and its success is the entire cause of
+the defect. Nothing goes red when a correct fix lands. **The green suite is the mechanism, not an
+obstacle to it** — which is why no test written before the fix could have caught this, and why the
+usual "drive the real seam" recipe (§3.8) does not reach it either: the seam is fine. It was the
+sentence *about* the seam that was wrong.
+
+**Why the consumer makes it the most expensive entry in this list.** Every other instance is read by
+a maintainer, who can open the next file and find out. This one was read by **whoever writes the
+prompt**, and a prompt author who concludes the surface cannot craft **will not write the three lines
+that make crafting happen**. This is not hypothetical: the same absence was shipped verbatim inside
+`craft_plan`'s own model-facing description, and a model round
+(`.ai-notes/docs/audits/2026-10-03-model-round-model-round.md:316`, and again at `:361`) quoted it
+back as *"NOTE (verbatim from the shipped tool's own description)"*. The consequence was recorded in
+the same report at `:780`: crafting treated as unreachable in a substrate where a chest needs it.
+**§2.7 says a description's consumer is a language model and it cannot ask. This is that, one level
+up: the lie reached the model through a chain of four correct fixes.**
+
+**What catches it now.** `core/src/test/java/net/marcloud/mcp/core/drivers/craft/TheCraftJavadocNamesTheVerbThatPerformsACraftTest.java`,
+three tests, in the shape `TheHandshakeSentenceNamesNoKernelVerbTest` established: **the ruling is
+asked of the driven registry, not of a list of forbidden phrases.** A phrase list copied into the
+test would be a second copy of the sentence, and the second copy is the thing that rots — so the test
+extracts every tool-shaped name from `Craft.java`'s class javadoc and asks the real, driven model
+surface whether *that tool's published schema* accepts `kind='craft'`.
+
+**Both mutation directions were run, and they are disjoint.**
+
+| mutation | red | green |
+|---|---|---|
+| restore the original sentence at `:26-28` | **2 of 3** — `theJavadocNamesAVerbTheRealBoundaryCanPerformACraftWith` (no named tool accepts a craft) and `theJavadocNamesTheShippedWindowImplementationWhenOneExists` | `theRealBoundaryStillPerformsACraft` |
+| keep the tool names, drop only the `LiveCraftWindow` mention | **1 of 3** — `theJavadocNamesTheShippedWindowImplementationWhenOneExists` only | the other two |
+
+The premise test is asserted **first** and is what makes the other two mean something: it asserts the
+boundary still accepts `kind='craft'` and that a shipped `CraftWindow` exists. Without it, the file
+would be ruling about a world that might no longer exist, and a stale document would pass as honest.
+
+**What does not catch it.** Every mechanism in §3, and the reason is structural: **a fix that lands
+correctly is indistinguishable from a fix that was never made**, at every layer that exists. The
+compiler sees no comment. The suite sees no behaviour change. Grep for the *wiring* finds it; grep for
+the *sentence* does not, because nothing ever asks whether the two still agree.
+
+**This instance is what `guarantees.md` §6.16 was already written about**
+(`docs/agency/guarantees.md:1628-1634`, re-opened 2026-10-03; this entry used to cite
+`:1465-1471`, correct on 2026-10-02 and no longer resolving because that file is under active
+edit — **§3.2 applied to this file one entry below the entry that states §3.2**). In its words:
+*"A claim of absence is the hardest kind of rot to notice, because the fix is
+invisible from the document and the sentence still reads fluently — there is no diff to review and
+nothing to contradict it. When a wave closes something, grep this file for the absence as hard as
+you grep the tree for the presence."* That rule existed. §2.15 is the instance showing it **was
+applied to rows in a markdown table and not to a javadoc in the same repository.** §3.2's principle
+generalises further than §3.2 says: **a citation rule that only governs citations does not govern
+the claims.** That sentence had a working `file:line` and was still the defect.
+
+**The rule.** *A successful fix invalidates every sentence that described the absence it just filled —
+and the fix is the only event in the system guaranteed to make all the gates stay green.* When a
+capability goes from unreachable to reachable, the sentence saying it is unreachable is not a stale
+comment, it is a **lie with a working citation**, and the reader who cannot audit it is the prompt
+author. So: **when a fix lands, grep for the ABSENCE claims about what it connected, not only for the
+code it added.** The absence claims are the only part of the change nobody reviews, because the diff
+looks like a feature.
+
+**Corollary, and it is the uncomfortable half.** Every other rule in §3 asks you to *write a test*.
+This one cannot be discharged that way alone — the test written today guards the sentence found
+today. The durable half is the practice: **a fix that makes a capability reachable must re-read the
+files that documented its absence, in the same commit.** That is a review step, not a test, and no
+amount of green proves it was done.
+
+---
+
 ## 3. The rules
 
-These are **not new**. Each one consolidates a rule that already exists in this repository; the
-line cited is one opened on the day this was written. Invented rules are marked as such, and
-there are none — the one rule below with no existing anchor is flagged.
+Each one consolidates a rule that already exists in this repository; the line cited is one opened
+on the day this was written. Invented rules are marked as such. **As of 2026-10-03 there are
+three: §3.11, which no existing anchor covered, and §3.12-§3.13, which arrived with the four
+shapes merged on that date.** §3.12 and §3.13 each have **one** instance, and this section is
+where a one-instance shape belongs — §7 is the catalogue and its admission criterion is two or
+more, so promoting either of these to §7 would mean inventing a second instance to justify the
+promotion. Their reasoning, including why they are rules rather than shapes, is in
+`.ai-notes/docs/audits/2026-10-03-shape-merge-arbitration.md`.
 
 ### 3.1 Cite a line you opened
 
-`guarantees.md` §6.10 (`docs/agency/guarantees.md:1143`), and `vendored-tree.md` R1
+`guarantees.md` §6.10 (`docs/agency/guarantees.md:1565`, re-opened 2026-10-03; this entry cited
+`:1143`, correct when written and moved when that file's §6 was renumbered — **§3.3, in the entry
+that states §3.3**), and `vendored-tree.md` R1
 (`docs/agency/vendored-tree.md:374`). Sixteen anchors corrected in one pass, two groups wrong as
 a block, off by exactly one line each. **Open the file and count.** Do not carry a number
 forward from a previous version of a document, a brief, or a stack trace.
@@ -618,23 +850,28 @@ from a right one to every reader except the person who opens the file.
 
 ### 3.3 A document that accumulates numbers will accumulate stale numbers
 
-`vendored-tree.md` R3 (`docs/agency/vendored-tree.md:384`) and `guarantees.md` §6.9
-(`docs/agency/guarantees.md:1136`). **Re-open anchors rather than adding new ones.** Two sweeps
-of a 905-line document found 46-plus wrong anchors, essentially all off by a few lines, and a
+`vendored-tree.md` R3 (`docs/agency/vendored-tree.md:384`, re-verified 2026-10-03) and
+`guarantees.md` §6.9 (`docs/agency/guarantees.md:1555`; this entry cited `:1136` and moved with
+§6's renumbering). **Re-open anchors rather than adding new ones.** Two sweeps
+of a then-905-line document found 46-plus wrong anchors, essentially all off by a few lines, and a
 later pass caught **three of the integrator's own claims** that had aged into false. §2.3 above is
-a fourth, found while writing this file, in the file the shape's own fix produced.
+a fourth, found while writing this file, in the file the shape's own fix produced. **And this
+entry is now the fifth: on 2026-10-03 a single re-read of this file found four of its own anchors
+into `guarantees.md` stale at once**, because that file was being edited concurrently.
 
 ### 3.4 Absent is not zero
 
-`guarantees.md` §1e row 38 (`docs/agency/guarantees.md:327`), and in the source at
-`ActTools.java:1012-1015`: *"Absent, not zero, when there is no count: null says this line is not
+`guarantees.md` §1e row 38 (`docs/agency/guarantees.md:427`; this entry cited `:327` and moved),
+and in the source at `ActTools.java:1158-1160` (this entry cited `:1012-1015`, which is now
+`slotNameList()`): *"Absent, not zero, when there is no count: null says this line is not
 a statement about a searched area, and 0 would claim a search ran and found nothing unread — a
 stronger claim about the world than any site made."* The same shape at a different layer is
 **2.10**: a field that was true and is now stale.
 
 ### 3.5 A control whose negative half cannot be made to pass is not a control
 
-`guarantees.md` §6.11 (`docs/agency/guarantees.md:1157`). `held == sheltered && floorHeld` is
+`guarantees.md` §6.11 (`docs/agency/guarantees.md:1583`; this entry cited `:1157` and moved with
+§6's renumbering). `held == sheltered && floorHeld` is
 false in three of four combinations, so a test asserting only `held` cannot tell *"sheltered and
 hurt"* from *"exposed and untouched"*. The criterion is **invisible the moment the test exists** —
 a green join test looks exactly like a real one. The stated reason it is a rule: *"A test that has
@@ -650,7 +887,9 @@ each of the gate's two terms is pinned with a counterweight *"so a blanket refus
 
 ### 3.6 A printed command that silently returns nothing is worse than no command
 
-`guarantees.md` §0 (`docs/agency/guarantees.md:59-83`), the trap: run the suite **serially**, and
+`guarantees.md` §0 (`docs/agency/guarantees.md:69` — the section now *starts* at `:69`; this entry
+cited `:59-83`, correct when written and wrong now, since `:59` is above the section heading),
+the trap: run the suite **serially**, and
 read the result from `core/target/surefire-reports/*.xml`, not the console line. The console
 total and the on-disk reports disagreed until the directory was cleared, because probe runs
 leave stale entries in it. Two reports there belong to classes that **do not exist in the tree**,
@@ -660,11 +899,13 @@ indistinguishable from a command that ran and found nothing.
 
 ### 3.7 Do not cite a test that does not read the thing the row is about
 
-`guarantees.md` §6.12 (`docs/agency/guarantees.md:1172`). **§2.14 above.**
+`guarantees.md` §6.12 (`docs/agency/guarantees.md:1598`; this entry cited `:1172` and moved with
+§6's renumbering). **§2.14 above.**
 
 ### 3.8 Ask "and who reads this?"
 
-`guarantees.md` §5.5 (`docs/agency/guarantees.md:1037-1058`) states the generalisable form: *a
+`guarantees.md` §5.5 (`docs/agency/guarantees.md:1433`; this entry cited `:1037-1058` and moved)
+states the generalisable form: *a
 test that asserts a property of a component is silent about the property of the seam between
 components.* Each of those defects was caught by asking that question, or by driving the real
 thing — which is why that section is a list rather than a green suite. **§2.1, §2.6, §2.7 and
@@ -672,7 +913,8 @@ thing — which is why that section is a list rather than a green suite. **§2.1
 
 ### 3.9 Do not relay a conclusion without the reasoning that produced it
 
-`guarantees.md` §6.4 (`docs/agency/guarantees.md:1107`). This mistake corrupted three separate
+`guarantees.md` §6.4 (`docs/agency/guarantees.md:1526`; this entry cited `:1107` and moved with
+§6's renumbering). This mistake corrupted three separate
 briefs in one session. **A wrong conclusion handed over as an anchor is more dangerous than no
 anchor at all**, because a worker given a "verified anchor" stops verifying. One brief shipped a
 wrong method descriptor (`File.<init>:(Ljava/lang/String;)V` where the real signature is
@@ -684,6 +926,88 @@ wrong method descriptor (`File.<init>:(Ljava/lang/String;)V` where the real sign
 receipt, and **"unenforced" is the only honest entry when no such test exists**. §2.8, §2.11 and
 §2.13 are what the alternative looks like — a capability with no enforcement described as though
 it had some.
+
+### 3.11 A fix that fills an absence must re-read the sentences that described it
+
+**The one rule here with no existing anchor in `guarantees.md`, and it is flagged as invented —
+because the fourteen instances before §2.15 are all defects of omission, and nothing in this
+repository yet guards against a fix creating one.** §2.15 is the whole argument: a successful,
+correct, fully-tested fix left a sentence asserting the absence it had just filled, and **every gate
+in the system stayed green through it.**
+
+Two halves, and only the first is mechanical. The **test** half is
+`TheCraftJavadocNamesTheVerbThatPerformsACraftTest`, and its shape matters more than its content:
+the ruling is asked of the **driven registry** — extract the names the document spells, ask the real
+surface whether that tool's published schema accepts the call — rather than of a forbidden-phrase
+list, because a phrase list is a second copy of the sentence and the second copy is what rots. The
+**review** half is the part no test discharges: when a fix makes a capability reachable, the diff
+looks like a feature, so the sentences about its absence are the only lines in it nobody re-reads.
+Grep for the absence claims in the same commit as the wiring.
+
+### 3.12 Two claims about one number, and an interval that forgives both
+
+**Invented, 2026-10-03, and it has one instance — which is why it is a rule and not a §7 entry.**
+
+**The instance.** `core/src/main/java/net/marcloud/mcp/core/drivers/act/MoveApplier.java:125`
+states that the chosen tail *"puts the mean at **5.54** ticks (277 ms) and leaves the SD at
+1.18"*. `core/src/test/java/net/marcloud/mcp/core/drivers/act/TheWalkDelayIsSkewedLikeALatencyTest.java:32`
+states that *"the mean moves 6.00 -> **5.55** ticks (300 -> 277 ms)"*. **Both describe the same
+quantity, both are inside the assertion at `:119` — `mean > 5.2 && mean < 5.9` — and therefore
+neither one can make any test red.** `5.54` and `5.55` are both correct to the precision each was
+written at; they disagree, and the disagreement is invisible to every gate in the system.
+
+**Why the existing rules do not reach it.** `guarantees.md` §6.15 says do not print line counts,
+because a line count has no symbol to degrade into. **This instance shows that rule is not
+sufficient**, and the gap is specific: a count is either right or obviously wrong, while a
+**measured physical quantity is legitimately quoted to two decimals**, so two measurements of the
+same quantity will differ slightly forever, and **an interval assertion wide enough to tolerate
+the sampling noise is also wide enough to hide the disagreement.** §2.3 is a stale number; this
+is two fresh numbers that never agreed, and no amount of re-counting finds it — both are true.
+
+**Why it is dangerous rather than merely untidy.** It will not surface as a failure. It surfaces as
+two citations that each read correctly, quoted by two different people, and **the report that
+depends on which one you happened to open is the defect** — writing `5.54` from the production
+comment and `5.55` from the test comment produces two documents that disagree about the same
+measurement, with nothing in the tree to arbitrate.
+
+**The rule.** **When one measured quantity is quoted in two places, the two must be pinned to each
+other, or one of them must go.** Pin the *equality of the two claims*, not the value: asserting
+`assertEquals(5.54, mean, 0.01)` would be worse, because sampling is random and a flaky assertion
+gets deleted, which is a higher price than a wrong comment. And the guard **must carry a premise
+assertion that both numbers exist** — otherwise deleting both comments satisfies the consistency
+check vacuously, and a guard that passes on absence is §2.11 wearing a comparison operator.
+
+### 3.13 A window is part of a test's claim, and a window nobody stated is a claim nobody made
+
+**Invented, 2026-10-03, and it has one instance — §7.2 carries the worked case, and this is the
+generalisation that outlives it.**
+
+**The instance in one line:** a cost test swept `worldTime` over `0 .. 23999` — exactly one
+24,000-tick day — against a **cross-night** ledger, so cross-night behaviour was outside the
+experiment by construction. Full evidence, and the second candidate instance that was checked and
+deliberately not counted, are in **§7.2**.
+
+**The rule.** **A test's time window is part of what it claims, so state it, and check it against
+the component's period before assuming the file is silent.** Three cases, and the third is the one
+that bites: a window **wider** than the component's period tests accumulation without saying so; a
+window **equal** to the period excludes the boundary and looks complete while doing it; and a
+window **narrower** than the period is fine **only if the component has no behaviour at the
+boundary** — which is a claim about the component and has to be made somewhere.
+
+**Why this is a rule about disclosure rather than about doubling the window.** The direct fix —
+every cross-period component drives two periods — is correct and expensive, and this project has
+already been hurt by slow suites often enough that a blanket doubling is not affordable as a
+default. The zero-cost half is the one to make mandatory: **write in the test what window it drives
+and what that window cannot see.** `guarantees.md` §2 already does this for every instrument in
+that document (*"it is structurally blind to…"*), so the precedent exists and the cost is a
+sentence. **A blind spot that is written down is a decision; the same blind spot left implicit is
+a defect that reports itself as coverage.**
+
+**And the general form, because it is not about time.** *A test's window, its fixture, its driver,
+and its mock are all part of its claim, and whatever they exclude is excluded silently.* That is
+§2.1's shape with the test rather than the class confined to the test tree, and it is why the
+criterion for catching it is always the same: **name what the instrument cannot see, in the
+instrument.**
 
 ---
 
@@ -741,28 +1065,288 @@ sibling is mid-write in the same module is told to expect its full-suite number 
 **The lesson.** The observation survives; the diagnosis does not. And the real cause was a
 *design* property, not a person's mistake — which is what a real cause usually is.
 
+**4.4 A diagnosis that was right when written and was never revised.** This one is here, and not
+in §2, because it is not a defect in the code at all — it is a defect in a reader, and the three
+above are the same kind of thing for the same reason. **§2 catalogues what a repository gets
+wrong; this section catalogues what a diagnosis gets wrong, and both are read by the next
+person.**
+
+**What happened.** `.ai-notes/docs/audits/2026-10-03-env-blocks-subprocess.md` was written to
+explain a 30-minute silent hang: clearing `JAVA_HOME` in the parent process deprived an `omp`
+subprocess of its environment, so the first model call never returned. That diagnosis was
+**reasonable on the evidence then in hand**, and it was **wrong**. Four counter-evidences
+accumulated over the following hours, and the file was corrected — but the correction is a §2
+heading at the top of a document whose §0 and §1 still state the original claim, so **the file
+now opens by asserting the thing it spent its length disproving.**
+
+**Why it is a shape rather than a slip.** Nothing about it is unusual. The observation was real
+(`grep -c TURN` returned 0; the process really did hang for 30 minutes), the mechanism was
+plausible, and the first three counter-evidences were each individually inconclusive. The failure
+is the ordinary one: **a document written at time T is read at time T+n as a statement about
+now**, and nothing in a document's format says which time it was true at. §2.3 is this shape with
+a line count; this is §2.3 with a root cause, and it is more expensive because a wrong root cause
+gets acted on — a reader who trusts it patches the wrong component, which is exactly the "another
+patch in the wrong place" outcome §4.3 warns about.
+
+**The rule, and it is the only one in this document that is about your own writing.** **Write
+the confidence and the falsifier down at the moment you write the conclusion** — not "this is
+the cause" but "this is the cause *unless* X, and X is what I would check next" — and **go back
+and edit the original file when the evidence moves, rather than appending a correction to it.**
+An appended correction is a second copy, and §3's "link, do not restate" applies to your own
+diagnosis as much as to `guarantees.md`.
+
+**The structural half, which is the part that generalises.** `guarantees.md` §6.16 already says
+this about documents — *"a claim of absence is the hardest kind of rot to notice"* — and this
+instance is the same rule pointed at a **diagnosis** instead of a claim. The gap is real and it is
+in this repository's own coverage: §6.16's remedy is "grep for the absence in the same commit as
+the fix", which has no mechanical analogue for *"you are wrong about a hang you already
+explained"*. A conclusion has no diff to review, so the review that catches it has to be scheduled
+by the author, while the diagnosis is still fresh enough to be cheap to revise.
+
 ---
 
 ## 5. What this document does not claim
 
 - **It is not a postmortem.** The instances are catalogued so they can be recognised, not
   relitigated.
-- **It does not assert that these thirteen are all of them.** They are the ones found in one day.
+- **It does not assert that these fifteen are all of them.** Thirteen were found in one day;
+  §2.3 was found while writing this file, and **§2.15 was found on 2026-10-03, after the catalogue
+  was finished** — which is the strongest evidence in the document that the list cannot be closed.
   §1 of `guarantees.md` counts **ten** occurrences in one session and its own author counts more
   as the session continued; the two counts disagree because the second was written later. Both
   are honest at the time they were written, and that is **§3.3** in miniature.
+- **§7 is a different shape from §2, and the fifteen above are all of §1's.** A reader who takes
+  the sixteen-instance total in the header to mean sixteen instances of §1's shape is wrong: it is
+  **fifteen instances of the documented-capability shape (§2.1-§2.15), two of a second shape about
+  the detector rather than the detected (§7.1-§7.2), four diagnoses (§4.1-§4.4) and thirteen
+  rules (§3.1-§3.13)**. **One shape per section is the property that makes this file navigable**,
+  and merging §7 into §2 to make the numbering run would have been the first instance of the
+  confusion it prevents.
+- **§7.1's second instance is unrepaired.** `TheShippedShelterCounterIsReachableAndNotATestTreeClassTest`
+  still asserts `getPackageName()` at `:80`, `:83` and `:86`, and its javadoc at `:73-74` still
+  claims a `git mv` turns it red. **This document records the defect; it does not fix it**, and the
+  fix belongs to whoever owns that test — the criterion is `getCodeSource()`, exactly as §7.1
+  names.
 - **It makes no claim about test counts or suite numbers.** Those move under concurrent workers,
   are read from `surefire-reports/*.xml`, and belong to `guarantees.md` §0 — which says so
   explicitly and marks which legs are measured and which are carried history.
-- **Every `file:line` here was opened on 2026-10-02**, in a tree with three live workers in it.
+- **Every `file:line` here was opened on the day it was written** — 2026-10-02 for §2.1 through
+  §2.14, in a tree with three live workers in it, 2026-10-03 for §2.15, and 2026-10-03 for §7, §4.4
+  and §3.12-§3.13, re-opened from disk rather than carried forward from the audits they came from.
   If one does not resolve, that is a defect in this file and §3.2 is what to do about it.
+- **§7.1 is measured, not argued — and the measurement lives in another document.** The claim that
+  the two trees are distinguishable by *load location* was executed, not inferred: a one-shot probe
+  printed `main-tree Policy -> file:/D:/Project/MCPClient/core/target/classes/` and
+  `test-tree GoalPolicy -> file:/D:/Project/MCPClient/core/target/test-classes/`, recorded in
+  `.ai-notes/docs/audits/2026-10-03-seam-guard-wired-vs-shelved.md:127-130` (the probe class was
+  deleted afterwards; the audit records the removal and that `target` holds no residue). **So
+  §7.1's positive half — the new criterion *can* tell the two trees apart — is a runtime
+  measurement.**
+  **The negative half — that the old package-name guard stays green under the move — is stated as
+  a deduction, not as a recorded red/green run for that specific mutation**: the audit says the old
+  guard *"must stay green (the package name does not change)"* at `:132-133`, and its executed
+  red/green table at `:213-217` covers the **caller-count** guard's three states, not a moved file.
+  **Both halves are therefore recorded, and they are recorded as different kinds of evidence.**
+  This document does not upgrade the second half to a measurement, and a reader who needs it should
+  move `Policy.java` and run it rather than trust the arithmetic.
+- **What §7.1 does rest on, read from disk:** the criterion at
+  `TheSuiteGoesRedThroughTheSeamTest.java:339` and the three live `getPackageName()` assertions at
+  `TheShippedShelterCounterIsReachableAndNotATestTreeClassTest.java:80`, `:83` and `:86`, plus the
+  false javadoc claim at `:73-74`. **No file was moved by the author of this section**, and the
+  package-declaration argument is stated independently in the seam test's own javadoc at
+  `:220-227`.
 
 ## 6. Related
 
-- `guarantees.md` — the 47 guarantees, each with a `file:line` and the test class that goes red.
+- `guarantees.md` — the **53** guarantees, each with a `file:line` and the test class that goes
+  red. (This line said 47 until 2026-10-03; the same wrong number stood at `:14`, in a file whose
+  own §3.3 is the rule against it. A stale count in a document about stale counts is still a stale
+  count — **§2.3, found twice in one file by the person fixing §2.15.**)
   §5 is the short form of this document; §6 is the rules it consolidates.
 - `vendored-tree.md` — the vendored Minecraft tree's reference manual. §4.1 R1-R3 are the same
   citation rules, written for a tree where "the file exists" and "the game has it" are different
   facts.
 - `.ai-notes/docs/audits/` — where all of this was found. **Gitignored** (`.gitignore:56`), so
   it does not travel with the repository, and this file is the part that does.
+- **§7 and §2.1-§2.15 are different shapes** and are kept in separate sections on purpose: §2 is
+  about a documented capability whose producer is absent, §7 is about a detector that cannot
+  distinguish the state it exists to detect. A §2 reader scanning for "what goes red when a
+  producer is missing" finds nothing in §7, and that is the correct outcome.
+- `.ai-notes/docs/audits/2026-10-03-shape-merge-arbitration.md` — **why §7 exists and why §2 stops
+  at §2.15**: the instance count behind each of the four 2026-10-03 shapes, the admission
+  criterion, and the candidate instance of §7.2 that was checked and deliberately **not** counted.
+  Gitignored like the rest of that directory, which is why its conclusions are restated here.
+
+---
+
+## 7. A second shape: a guard whose criterion cannot tell the states apart
+
+**Read §7 if you write a test that is supposed to catch something.** Everything above §2 is about
+a **capability** being absent from the shipped artifact. This is about the **detector**: an
+assertion that is green, is collected, runs on every build, and is structurally unable to
+distinguish the state it exists to detect from the state where the defect is present. The defect
+is not in the code under test and not in the document — **it is in the instrument**, which is why
+none of §2's escape routes reach it: there is no missing producer to grep for, no stale anchor to
+re-open, and no prose to contradict.
+
+### 7.1 A name that does not change when the thing moves
+
+**The shape.** A guard asserts an identifier — a package name, a class name, a path — in order to
+prove a class lives in one tree rather than another, **and the identifier it asserts is invariant
+under the move it is supposed to detect.** The assertion is true, the test is green, and the guard
+is immune to precisely the event it was written for.
+
+**Instance 1, repaired: the seam guard.**
+`core/src/test/java/net/marcloud/mcp/core/eval/TheSuiteGoesRedThroughTheSeamTest.java` carried a
+method named `theSeamIsInTheShippedTreeNotTheTestTree` whose three assertions were all
+`assertEquals(getPackageName())`. Moving `Policy.java` from
+`core/src/main/java/net/marcloud/mcp/core/eval/` to
+`core/src/test/java/net/marcloud/mcp/core/eval/` **does not change its package declaration by one
+character** — both sides read `package net.marcloud.mcp.core.eval;` — so the exact move the guard
+was named for left it green. The repair is at `:247`
+(`theSeamClassesAreLoadedFromTheShippedArtifactNotTheTestTree`), which reads where the bytes were
+actually loaded from: `type.getProtectionDomain().getCodeSource()` at `:339`. It carries an
+anti-vacuity clause at `:256-259` — the location must contain `/classes/`, so a classloader that
+publishes no code source fails the assertion instead of satisfying it. **A move changes where the
+class is loaded from, and that is the property the guard now reads.**
+
+**Instance 2, LIVE, and this is why the shape is catalogued rather than filed as history.**
+`core/src/test/java/net/marcloud/mcp/core/eval/TheShippedShelterCounterIsReachableAndNotATestTreeClassTest.java:77`
+(`theAccumulatorAndItsToolAreShippedNotTestTreeClasses`) asserts `getPackageName()` three times,
+at `:80`, `:83` and `:86`, for `NightShelter`, `ShelterTools` and `ClientBody`. **The same three
+`assertEquals(getPackageName())` calls, in the same tree, on the same day.** Its own javadoc at
+`:73-74` states the property it believes it has: *"Moving any of the three down into `src/test`
+turns this red even if every other test in the repo stayed green."* **That sentence is false, and
+falsified by the mechanism described above.** Moving `NightShelter.java` to
+`core/src/test/java/net/marcloud/mcp/core/eval/` leaves its package name untouched and the
+assertion green.
+
+**The second instance is the stronger half, because it is the documented-limit case.** The class
+javadoc at `:57-62` already knows: the package assertion *"could not have caught a tool declared in
+three tables and built in none"* — it cites instance 1 by name, as *"the shape
+`theSeamIsInTheShippedTreeNotTheTestTree` settled on"*, and calls the package assertion *"the
+honest form"*. **The limit was written down, named, cited, and inherited by a second guard that
+kept the criterion anyway.** A known weakness in a criterion is not a defect until somebody relies
+on the criterion for the property the weakness removes, and `:73-74` is exactly that reliance.
+Note also what the file gets right: `:105` (`theModelSurfaceCarriesTheShelterCounter`) drives
+`McpCore.registerBuiltins` and is a genuinely different kind of check — *two guards over one
+property, and either can go red with the other still green*, which is the right structure. **It is
+the package guard that is the weak one, and the strength of its sibling is what makes it easy not
+to notice.**
+
+#### 7.1.1 Why this is one entry and not two, stated so the decision can be argued with
+
+Instance 2 is arguably a **different shape** from instance 1, and the argument for splitting is
+real: instance 1 is *an unaware guard with a criterion that cannot see*, while instance 2 is
+**a guard whose criterion cannot see, described in prose as though it could** — a claim about a
+judge's power, sitting next to the judge. **That is §6.16's neighbourhood** (a claim of absence,
+or of capability, rotting quietly), and §2.15's mechanism.
+
+**It stays one entry, for two reasons, and the first is a count.** Splitting would make
+7.1.1 a shape with **one** instance, and this document's admission criterion — stated in §3's
+preamble and applied to B and C on the same day, for the same reason — is two or more. The
+alternative is to invent a second instance of the split shape, and **§7.2 exists precisely to
+explain why that is not a neutral act**: a known-and-mitigated deviation and an undetected blind
+spot look identical in a search, and counting the first as the second is how a catalogue starts
+lying.
+
+**The second reason is that the two halves are not separable in the defect, only in the
+description.** Ask what fixing instance 2 requires: not more prose, and not a second criterion —
+**it requires changing the criterion**, because the false sentence at `:73-74` is *entailed* by
+the blind one at `:80`. Repair the criterion and the sentence becomes false and gets fixed with
+it; leave the criterion and no amount of javadoc care prevents a reader from trusting it. **A
+second entry would imply the false sentence is an independent defect that a careful writer could
+have avoided on its own, and it is not: careful writing is exactly what this file already does.**
+
+**What is recorded instead of a split is the aggravating factor, and it is named.** The severity
+of instance 2 is not "a guard was blind" — it is **"the blindness was documented, cited to the
+file that discovered it, and inherited anyway."** That is a different *cost*, not a different
+*shape*, and §3.13 states the rule it implies. **If a second instance of the documented-limit case
+appears, it becomes §7.3, and this paragraph is the argument that it should.**
+
+**How both escaped.** Nothing, at any layer. A `git mv` between source roots is not a refactor the
+compiler flags, not a behaviour a test observes, and not a fact any document records. The class's
+own name is the strongest possible signal that the guard works — a reader auditing it would check
+that the method exists, that it is `@Test`, and that it asserts something about packages. **Every
+one of those checks passes while the guard is blind**, which is §2.14's shape pointed at the
+guard rather than at the row citing it.
+
+**The rule.** **A guard that claims to detect a *change of state* must assert something the change
+alters.** Ask what a `git mv` does to your criterion: if the answer is "nothing", the criterion is
+incapable of detecting the move. In this repository the criteria that survive that question are
+**where the bytes were loaded from** (`getProtectionDomain().getCodeSource()`) and **how many
+callers exist after comments are stripped** — the two the seam test uses at `:299`
+(`theShippedTreeMustNotClaimACallerThatItDoesNotHave`) and `:247`. A path string is not enough:
+`new File(path).exists()` is invariant under `git mv` for the same reason the package name is.
+
+**The corollary, and it is the part that generalises past this repository.** *A criterion's
+documented limitation is not a mitigation.* Instance 2 is not sloppy work — it is careful work with
+a known weakness, cited to the file that discovered it — and it is still wrong, because the
+sentence at `:73-74` claims a property the criterion does not have. **If you know your criterion is
+blind to a case, the obligation is to add the second criterion, not to describe the first one
+honestly.** Honesty about a limit is worth having; it is worth exactly nothing at the moment
+somebody reads the method name instead of the javadoc.
+
+### 7.2 A window exactly one period long, on a component that spans periods
+
+**The shape.** A component's time semantics are **periodic or cumulative**; its test's time window
+is **exactly one period**; and every behaviour that exists only *across* a period boundary is
+therefore outside the experiment by construction. The test is not wrong about what it asks, the
+shape is not an oversight, and the suite is green — **it is green in a way that reads as coverage
+of a property it never touched.**
+
+**Instance 1, and it is not hypothetical: this one shipped a defect.**
+`core/src/test/java/net/marcloud/mcp/core/eval/TheShippedShelterCounterCostsEightReadsASampleAndNothingADayTickTest.java`
+drives `worldTime` over `0 .. 23999` — at `:191` and again at `:226`, both loops the full day.
+`worldTime` cycles every **24,000** ticks, so **the experiment contains exactly one night and can
+never contain two.** The component under test, `NightEnclosure`, is a **cross-night ledger**: it
+holds samples, and the thing worth testing about a ledger is what happens between entries. The
+defect that shipped is in
+`.ai-notes/docs/audits/2026-10-03-night-ledger-reset.md` — the ledger reset only when the `World`
+**object identity** changed, so in one world it folded every night since the client connected into
+one window; `samples` passed 8,386 on the second night and the budget the tool description names,
+*`(nightTicksTotal - samples)`*, **went negative**, which is the arithmetic the shipped
+`night_shelter` description teaches the model to perform. The repair and its guard are in
+`NightEnclosure.java` (the `nightCycle` reset trigger at `:87`, documented at `:33-42`) and
+`core/src/test/java/net/marcloud/mcp/core/eval/TheShelterLedgerIsTheCurrentNightAndNotTheSumOfEveryNightTest.java`,
+which drives **two** nights on purpose.
+
+**The second candidate instance was checked and deliberately not counted, and the reason is the
+useful part.** `WorldViewCapture.timeBucket` (`core/src/main/java/net/marcloud/mcp/core/drivers/world/WorldViewCapture.java:544`)
+labels `night` from `13000` and `sunrise` from `23000`, while the measured curve is `13807 .. 22193`
+(`core/src/main/java/net/marcloud/mcp/core/drivers/world/Daylight.java:95-96`) — a skew of 807 ticks
+at one end and 806 at the other, in **opposite directions**, so it is not a constant offset that
+one correction would remove. That looks like instance 2 and is not: **the deviation was found,
+measured, and routed around rather than left blind**, at
+`core/src/test/java/net/marcloud/mcp/core/drivers/world/TheDiffCarriesTheClockTest.java` — `DUSK`
+and `DAWN` are the *measured* constants at `:31-32`, the test asserts the two ticks either side of
+dusk at `:60-63`, and the fix was to carry the raw clock and a `daytime` flag beside the bucket
+(`:23-26`) so a consumer no longer has to infer night from a label that is 807 ticks early.
+**A known-and-mitigated deviation is a decision with a receipt; a window that cannot see the
+boundary is a blind spot with a green suite.** They look alike in a grep and are opposites, and
+counting the first as the second would have manufactured the two instances this entry needs in
+order to exist.
+
+**How it escaped.** The cost test answers a real and correctly-posed question — *how many block
+reads does one sample cost, and is it zero in daylight* — and its chosen shape is **optimal for
+that question**: a full day sweep is what lets one test see both the 8-reads-per-sample night half
+and the zero-read daylight half. The blind spot is a **by-product of a good choice for a different
+question**, which is the reason it survived review: nobody is going to argue that a one-day loop
+is the wrong instrument for measuring the cost of a day. The class javadoc at `:13` even says
+*"What one night of the shipped shelter counter ACTUALLY costs"* — **accurate, and the accuracy is
+the problem**: the file documents a one-night scope and is therefore honest, while the component
+whose cost it measures is a multi-night instrument and nothing in the file says the ledger's
+cross-night behaviour is untested here.
+
+**The rule.** **When a component's time semantics are periodic or cumulative, a test window of
+exactly one period has declared the boundary out of scope — say so in the test, or cross it.**
+The cheap half costs nothing and this repository already has the precedent for it: `guarantees.md`
+§2 writes, for every instrument, what it is structurally blind to. The expensive half is *"drive
+at least two periods"*, and it is expensive precisely because this project has already been hurt by
+slow suites, so **the default should be the disclosure and the doubling should be a deliberate
+per-component decision** — not a blanket rule nobody can afford.
+
+**The general form, one level up.** *A test's window is part of its claim, and a window chosen to
+answer question Q silently answers "no" about every question it was not asked.* That is §2.1's
+shape — a capability reachable only from the test tree — with the test rather than the class as the
+thing confined to its own tree.
