@@ -31,9 +31,11 @@ import net.marcloud.mcp.core.drivers.gui.GuiTools;
 import net.marcloud.mcp.core.drivers.narrative.GoalStack;
 import net.marcloud.mcp.core.drivers.narrative.NarrativeTools;
 import net.marcloud.mcp.core.drivers.observe.ObserveTools;
+import net.marcloud.mcp.core.drivers.observe.ShelterTools;
 import net.marcloud.mcp.core.drivers.store.MemoryStore;
 import net.marcloud.mcp.core.drivers.store.MemoryTools;
 import net.marcloud.mcp.core.drivers.video.DevTools;
+import net.marcloud.mcp.core.eval.NightShelter;
 import net.marcloud.mcp.core.flt.HookTools;
 import net.marcloud.mcp.core.flt.seam.SeamTools;
 import net.marcloud.mcp.core.io.Capability;
@@ -158,6 +160,10 @@ public class DescriptionsNameToolsThatExistTest {
             new DebugTools(gate).registerAll(reg);
             new CompatTools(Compat.database(), Compat.engine()).registerAll(reg);
             new DevTools(null).registerAll(reg);
+            // An unattached accumulator is a real object in its real un-armed state: it has
+            // never ticked, so every field reads zero and the tool reports NOT MEASURED, which
+            // is exactly the truth about a NightShelter nobody attached.
+            new ShelterTools(new NightShelter()).registerAll(reg);
             HELD = reg.capabilities();
         }
         return HELD;

@@ -8,6 +8,14 @@ import net.marcloud.mcp.core.drivers.act.NavIntent;
 import net.marcloud.mcp.core.eval.EvalSuite.Result;
 import net.marcloud.mcp.core.eval.EvalSuite.T20TheDirectLineIsLava;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.security.CodeSource;
+import java.util.List;
+import java.util.SortedSet;
+import java.util.TreeSet;
 import org.junit.Test;
 
 /**
@@ -206,26 +214,254 @@ public final class TheSuiteGoesRedThroughTheSeamTest {
     }
 
     /**
-     * The seam is main-tree, so {@code core/src/main} has a reference to it.
+     * The seam's classes are LOADED FROM the shipped artifact -- which is a stronger claim than
+     * the package name they carry, and the only one that can fail.
      *
-     * <p>This is the check that stops the slice reproducing its own subject. {@code GoalPolicy}
-     * was test-only with zero references from {@code core/src/main}, which is precisely the
-     * failure shape this work exists to dismantle; a seam defined beside it would inherit that
-     * and the control above would prove nothing about shipped code. Asserting the seam's own
-     * package -- rather than that some main file happens to import it -- is the honest form: it
-     * says the capability is in the shipped artifact, and it fails the moment someone moves the
-     * interface down into the test tree.
+     * <p><b>Why the assertion this replaces was unable to fail.</b> It asserted
+     * {@code Policy.class.getPackageName()} equals {@code net.marcloud.mcp.core.eval}, and its
+     * own javadoc said it "fails the moment someone moves the interface down into the test
+     * tree". Moving {@code Policy.java} from
+     * {@code core/src/main/java/net/marcloud/mcp/core/eval/} to
+     * {@code core/src/test/java/net/marcloud/mcp/core/eval/} <b>does not change its package name
+     * by a single character</b>, so the exact move it was written to catch left it green. A name
+     * cannot distinguish a file's TREE. That is the same blind spot the shelter guard reached
+     * from the other side, and {@code TheShippedShelterCounterIsReachableAndNotATestTreeClassTest}
+     * names it: the package assertion "could not have caught a tool declared in three tables and
+     * built in none".
+     *
+     * <p><b>What can distinguish it, and why it is read off the class rather than the
+     * directory.</b> A {@code Policy} in the test tree is loaded out of
+     * {@code target/test-classes} and one in the main tree out of {@code target/classes}. Asking
+     * the classloader where the bytes came from describes the artifact a caller would link
+     * against, and it is the loaded class that answers -- so this cannot be satisfied by a file
+     * that merely sits in the right directory.
+     *
+     * <p><b>And the limit, stated here so nobody has to guess at it.</b> Being in the shipped
+     * artifact is not being CALLED from it. All three of {@link Policy}, {@link PolicyRun} and
+     * {@link BrokenPolicies} load out of {@code target/classes} today and all three are called
+     * by nothing -- that second half is the sibling assertion below, and it is the half
+     * {@link Policy}'s javadoc used to get wrong. A guard that could only see the first half is
+     * what let that sentence stand unchallenged.
      */
     @Test
-    public void theSeamIsInTheShippedTreeNotTheTestTree() {
-        assertEquals("Policy must be shipped, or a capability only tests can reach is exactly the"
-                + " defect this slice exists to close", "net.marcloud.mcp.core.eval",
-                Policy.class.getPackageName());
-        assertEquals("and BrokenPolicies with it: the broken decisions are shipped capabilities, so"
-                + " they survive a test refactor", "net.marcloud.mcp.core.eval",
-                BrokenPolicies.class.getPackageName());
-        assertEquals("and the runner that binds and scores them", "net.marcloud.mcp.core.eval",
-                PolicyRun.class.getPackageName());
+    public void theSeamClassesAreLoadedFromTheShippedArtifactNotTheTestTree() {
+        for (Class<?> seam : new Class<?>[] {Policy.class, PolicyRun.class, BrokenPolicies.class}) {
+            String where = loadedFrom(seam).replace('\\', '/');
+
+            assertFalse(seam.getSimpleName() + " was loaded out of the TEST tree (" + where + "):"
+                    + " a seam only tests can reach is the defect this file exists to close, and"
+                    + " its package name would not have changed by one character if it had been"
+                    + " moved there",
+                    where.endsWith("test-classes") || where.contains("/test-classes/"));
+            assertTrue(seam.getSimpleName() + " must be loaded out of a build output directory, or"
+                    + " the line above is measuring an absence of information rather than a"
+                    + " location. The classloader reported: " + where,
+                    where.contains("/classes/"));
+            assertEquals("and the package stays the one the shipped eval surface is addressed by,"
+                    + " so this is a stronger check on the same file rather than a different one",
+                    "net.marcloud.mcp.core.eval", seam.getPackageName());
+        }
+    }
+
+    /**
+     * The shipped tree's own prose must not claim a caller the shipped tree does not have.
+     *
+     * <p><b>What was claimed, in the shipped tree, in a file whose whole subject is honesty
+     * about claims.</b> {@link Policy}'s javadoc said: "This file is main-tree, so
+     * {@code core/src/main} has a reference to it". Measured, with comments stripped so that
+     * {@code @link} mentions do not count as callers the way
+     * {@code docs/agency/failure-shapes.md} §2.1 declined to count them, the answer is zero --
+     * the three files that DECLARE the seam name each other and nothing else in
+     * {@code core/src/main} names them at all.
+     *
+     * <p><b>Why a caller claim with no caller is the shape, not a typo.</b> §2.1 is titled "A
+     * policy only tests could reach" and its rule is that reachability is a property you have to
+     * MEASURE. The slice that answered it moved three files up a tree and the move was recorded
+     * as the fix. Moving a file is not a caller: the shipped artifact gained three class files it
+     * cannot invoke, so the rule is satisfied on disk and violated in fact. That is why this
+     * assertion exists rather than a correction to the prose alone -- the prose can rot back.
+     *
+     * <p><b>What this does and does not claim about the seam's design.</b> It claims the shipped
+     * tree makes no use of {@link Policy}, and it is correct that none is required: the only
+     * caller that could exist is {@code EvalSuite}, and that is test-tree by construction, so
+     * there is no honest main-tree consumer to add. What the interface's main-tree placement
+     * DOES buy is that the seam type is in the artifact for any future shipped caller to name --
+     * which is a weaker claim than the one the javadoc made, and the one it now makes.
+     *
+     * <p><b>And the non-vacuity assertion is the load-bearing part.</b> A scanner pointed at a
+     * directory that does not exist returns nothing, and "no callers" would then be a fact about
+     * the scanner rather than about the tree. So the scan must be shown to SEE the seam's own
+     * in-cluster references first: {@code PolicyRun} names {@code Policy} in code, in its binder
+     * and in both of its run methods. If that stops being true, this fails before it can pass for
+     * the wrong reason.
+     */
+    @Test
+    public void theShippedTreeMustNotClaimACallerThatItDoesNotHave() {
+        Path root = mainSourceRoot();
+        assertTrue("the shipped source root must exist or the measurement below is a fact about"
+                + " the scanner rather than about the tree: " + root, Files.isDirectory(root));
+
+        SortedSet<String> hits = mainTreeFilesWithACodeReferenceToTheSeam(root);
+
+        assertTrue("the scan must see the seam's own in-cluster code references -- PolicyRun names"
+                + " Policy in its binder and in both run methods -- or an empty caller set below"
+                + " proves nothing at all. Hits: " + hits,
+                hits.contains(EVAL + "PolicyRun.java"));
+
+        SortedSet<String> callers = new TreeSet<>(hits);
+        callers.removeAll(SEAM_FILES);
+
+        String claim = "has a reference to it";
+        String policySource = sourceText(root.resolve(EVAL + "Policy.java"));
+
+        assertFalse("Policy.java asserts that core/src/main \"" + claim + "\" the seam, and the"
+                + " shipped tree has no code reference to it outside the three files that declare"
+                + " it. A caller claim with no caller is failure-shapes.md 2.1 -- a capability"
+                + " documented as doing something whose producer is absent -- and it survived"
+                + " because the guard that should have caught it asserted a package name. Either"
+                + " wire the seam or say what it is. Measured callers in core/src/main: " + callers,
+                callers.isEmpty() && policySource.contains(claim));
+    }
+
+    /** The three files that DECLARE the seam. A declaration is not a caller. */
+    private static final List<String> SEAM_FILES = List.of(
+            "net/marcloud/mcp/core/eval/Policy.java",
+            "net/marcloud/mcp/core/eval/PolicyRun.java",
+            "net/marcloud/mcp/core/eval/BrokenPolicies.java");
+
+    private static final String EVAL = "net/marcloud/mcp/core/eval/";
+
+    private static final java.util.regex.Pattern SEAM_NAME =
+            java.util.regex.Pattern.compile("\\b(Policy|PolicyRun|BrokenPolicies)\\b");
+
+    /** Where the classloader actually got this class's bytes. */
+    private static String loadedFrom(Class<?> type) {
+        CodeSource cs = type.getProtectionDomain().getCodeSource();
+        if (cs == null || cs.getLocation() == null) {
+            return "<no code source: the classloader published none, so this guard cannot tell"
+                    + " which tree it came from and must not be read as having proved it>";
+        }
+        return cs.getLocation().toString();
+    }
+
+    /**
+     * The shipped source root, found by walking up from the module the suite runs in.
+     *
+     * <p>Throws rather than returning null: a guard that cannot find the tree it is measuring
+     * has to fail, because the alternative is a silent pass on an empty scan.
+     */
+    private static Path mainSourceRoot() {
+        Path dir = Path.of(System.getProperty("user.dir", ".")).toAbsolutePath();
+        for (Path p = dir; p != null; p = p.getParent()) {
+            Path candidate = p.resolve("src/main/java");
+            if (Files.isDirectory(candidate)) {
+                return candidate;
+            }
+        }
+        throw new AssertionError("no src/main/java above " + dir + ": this guard measures the"
+                + " shipped tree, so a run that cannot find it must fail rather than pass on an"
+                + " empty scan");
+    }
+
+    /** Source text with comments intact -- used for reading a CLAIM out of a javadoc. */
+    private static String sourceText(Path file) {
+        return read(file, false);
+    }
+
+    /**
+     * Source text with comments stripped, which is what makes a caller a caller.
+     *
+     * <p>The distinction is §2.1's: five grep hits for {@code GoalPolicy} in
+     * {@code core/src/main}, every one inside a javadoc, and the document calls that zero code
+     * references. A {@code @link Policy} in a comment is not a caller and must not satisfy this.
+     */
+    private static String codeText(Path file) {
+        return read(file, true);
+    }
+
+    private static String read(Path file, boolean strip) {
+        String raw;
+        try {
+            raw = Files.readString(file, StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new AssertionError("could not read " + file + ": this guard measures the shipped"
+                    + " tree's sources, so an unreadable source is a failure and not an absence",
+                    e);
+        }
+        return strip ? stripComments(raw) : raw;
+    }
+
+    /** Block and line comments removed; string and char literals are kept and honoured. */
+    private static String stripComments(String src) {
+        StringBuilder out = new StringBuilder(src.length());
+        boolean inBlock = false;
+        boolean inLine = false;
+        boolean inText = false;
+        boolean inChar = false;
+        for (int i = 0; i < src.length(); i++) {
+            char c = src.charAt(i);
+            char next = i + 1 < src.length() ? src.charAt(i + 1) : '\0';
+            if (inLine) {
+                if (c == '\n') {
+                    inLine = false;
+                    out.append(c);
+                }
+            } else if (inBlock) {
+                if (c == '*' && next == '/') {
+                    inBlock = false;
+                    i++;
+                } else if (c == '\n') {
+                    out.append(c);
+                }
+            } else if (inText) {
+                out.append(c);
+                if (c == '\\' && next != '\0') {
+                    out.append(next);
+                    i++;
+                } else if (c == '"') {
+                    inText = false;
+                }
+            } else if (inChar) {
+                out.append(c);
+                if (c == '\\' && next != '\0') {
+                    out.append(next);
+                    i++;
+                } else if (c == '\'') {
+                    inChar = false;
+                }
+            } else if (c == '/' && next == '*') {
+                inBlock = true;
+                i++;
+            } else if (c == '/' && next == '/') {
+                inLine = true;
+                i++;
+            } else {
+                if (c == '"') {
+                    inText = true;
+                } else if (c == '\'') {
+                    inChar = true;
+                }
+                out.append(c);
+            }
+        }
+        return out.toString();
+    }
+
+    /** Main-tree files whose CODE, comments stripped, names any of the seam's three types. */
+    private static SortedSet<String> mainTreeFilesWithACodeReferenceToTheSeam(Path root) {
+        SortedSet<String> hits = new TreeSet<>();
+        List<Path> files;
+        try (java.util.stream.Stream<Path> walk = Files.walk(root)) {
+            files = walk.filter(p -> p.toString().endsWith(".java")).sorted().toList();
+        } catch (IOException e) {
+            throw new AssertionError("could not walk the shipped source tree at " + root, e);
+        }
+        for (Path f : files) {
+            if (SEAM_NAME.matcher(codeText(f)).find()) {
+                hits.add(root.relativize(f).toString().replace('\\', '/'));
+            }
+        }
+        return hits;
     }
 
     /**

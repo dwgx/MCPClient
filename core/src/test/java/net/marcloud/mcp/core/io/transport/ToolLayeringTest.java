@@ -118,7 +118,7 @@ public final class ToolLayeringTest {
                 Set<String> registered = auditedNames(d);
                 assertEquals("the " + (l6 ? "L6-wired" : "L6-off")
                                 + " audited registry must be the complete surface: " + registered,
-                        l6 ? 85 : 84, registered.size());
+                        l6 ? 88 : 87, registered.size());
                 for (String name : registered) {
                     assertTrue("'" + name + "' is registered but has no row in ToolRegistry.LAYERS, "
                                     + "so the rule would classify it by the deny-by-default "
@@ -352,7 +352,7 @@ public final class ToolLayeringTest {
      * <p>This is the test that makes the instructions sentence defensible. It invokes the real
      * handler through the real surface and compares its output against the surface's own
      * membership, so it fails if the tool is ever handed the audited registry instead — which
-     * would silently make the one "what can I do" verb answer with 84 tools when only some are
+     * would silently make the one "what can I do" verb answer with 85 tools when only some are
      * callable. It also fails if a kernel name ever shows up in the listing, which is the leak
      * the name filter exists to prevent.
      */

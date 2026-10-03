@@ -327,9 +327,12 @@ public class WorldViewDescriptionBudgetTest {
     @Test
     public void everyFetchableSectionTheHeaderPromisesStillResolves() {
         assertEquals("the section inventory IS the contract between the header's promise and the "
-                + "fetch's delivery — dropping one from both sides is a silent capability loss, "
-                + "not a saving",
-                List.of("grid", "entities", "inventory", "target", "diff"),
+                        + "fetch's delivery — dropping one from both sides is a silent capability "
+                        + "loss, not a saving. 'env' is here because the environment section is the "
+                        + "only one that used to ship with NO legend at all, and an unlegended "
+                        + "section is invisible: the model cannot look for a key it was never told "
+                        + "exists",
+                List.of("grid", "entities", "inventory", "target", "env", "diff"),
                 WorldViewLegend.sectionNames());
         for (String section : WorldViewLegend.sectionNames()) {
             assertNotNull("explain='" + section + "' is advertised, so it must resolve to text",

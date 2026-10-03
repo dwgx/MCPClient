@@ -81,8 +81,8 @@ public final class RegisteredBuiltinGateCoverageTest {
      * this is drivable headless.
      *
      * <p><b>Both real production states are driven, not a merge of them.</b> Production is in
-     * exactly one of two: L6 off (the shipped default, {@code objects == null}) registers 84
-     * tools, L6 on registers 85 because {@code debug_handle} joins. This file used to register
+     * exactly one of two: L6 off (the shipped default, {@code objects == null}) registers 85
+     * tools, L6 on registers 86 because {@code debug_handle} joins. This file used to register
      * BOTH {@link DebugTools} variants into ONE registry, which is a state production never
      * occupies — so it could not tell a conditionally-registered tool from a missing one. Now
      * each audit runs against a state that genuinely exists.
@@ -258,7 +258,7 @@ public final class RegisteredBuiltinGateCoverageTest {
                 assertTrue("the " + state + " inventory must be real — a near-empty registry "
                                 + "would satisfy every assertion vacuously. Registered ("
                                 + names.size() + "): " + names,
-                        names.size() == (l6Wired ? 85 : 84) && names.containsAll(Set.of(
+                        names.size() == (l6Wired ? 88 : 87) && names.containsAll(Set.of(
                                 // One VERIFIED sentinel per provider family registerBuiltins
                                 // wires. Losing any single provider fails HERE rather than
                                 // quietly shrinking the audited surface. The count is pinned to
@@ -274,6 +274,9 @@ public final class RegisteredBuiltinGateCoverageTest {
                                 "dev_probe",            // DevTools
                                 "chat_read",            // ChatTools — the tool this file exists for
                                 "packet_view",          // ObserveTools
+                                "night_shelter",        // ShelterTools (tick-driven night ledger)
+                                "night_health",        // NightRulerTools (tick-driven health ledger)
+                                "night_box",           // NightRulerTools (region chest ledger)
                                 "world_view",           // ObserveTools
                                 "scan_surroundings",    // ObserveTools
                                 "gui_snapshot",         // GuiTools

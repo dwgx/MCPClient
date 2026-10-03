@@ -1,6 +1,7 @@
 package net.marcloud.mcp.core.io.transport;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
@@ -82,18 +83,31 @@ public class CraftPlanIsRegisteredAndGatedTest {
     }
 
     /**
-     * The description must admit that nothing here crafts.
+     * The description must admit that THIS tool does not craft, and must name the one that does.
      *
-     * <p>A model reading a tool called craft_plan can reasonably assume a sibling exists that
-     * performs the craft. None does: the multi-tick controller is written and tested but nothing
-     * drives it, because that needs a live handle on the open container window. Leaving that unsaid
-     * would have the model plan a craft and then hunt for the tool that executes it.
+     * <p><b>This assertion used to require the opposite</b> -- that the description say "there is no
+     * tool that performs a craft yet". That sentence was true when written and is the eighth entry in
+     * {@code failure-shapes.md}: a description asserting an ABSENCE the repository was about to
+     * remove. Leaving it after the craft path was wired would make the tool lie in the other
+     * direction, telling a model that nothing can craft when something now can.
+     *
+     * <p>What replaces it is the stronger claim in both halves. This tool still says it is
+     * read-only, because it is; and it now names {@code act_set interact kind='craft'}, because a
+     * model that plans a craft and is never told what executes it goes hunting.
+     * {@code ACraftIsReachableThroughTheRealToolBoundaryTest} carries the mirror assertion, that
+     * neither description claims the other's job.
      */
     @Test
-    public void theDescriptionSaysNoToolPerformsACraftYet() {
+    public void theDescriptionSeparatesPlanningFromActingAndNamesTheActingVerb() {
         String desc = tool("craft_plan").tool().description();
-        assertTrue("must state that planning is not acting: " + desc,
+        assertFalse("craft_plan must not still claim nothing can perform a craft -- that sentence "
+                        + "is what this slice exists to remove: " + desc,
                 desc.contains("no tool that performs a craft"));
+        assertTrue("it must still say planning is not acting: " + desc,
+                desc.contains("crafts nothing"));
+        assertTrue("and it must name the verb that DOES craft, or a model reads this, plans, and "
+                        + "then goes hunting for the tool it was never told about: " + desc,
+                desc.contains("kind='craft'"));
         assertTrue("must say cells are not slot indices, since the slot depends on the open window",
                 desc.contains("NOT a slot index"));
         assertTrue("must say the shortfall names the ingredient, which is the actionable part",
