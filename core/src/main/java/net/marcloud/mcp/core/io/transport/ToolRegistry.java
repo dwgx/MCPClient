@@ -161,6 +161,17 @@ public final class ToolRegistry {
         // ---- MODEL-FACING: reading the session's own observed traffic and chat ----
         game(m, "chat_read", "clock_now", "timeline_tail", "packets_tail", "packet_get",
                 "packet_view");
+        // ---- MODEL-FACING: the running night, as a count rather than a verdict ----
+        // The one verb that answers "how is the night going" WHILE it is happening. Not a
+        // world_view section on purpose: that surface samples the world at call time, and this
+        // is a ledger the tick seam has already been filling — so putting it there would have
+        // charged a poll for a number that costs a field read, and mode=diff would have reported
+        // the counter as changed on every single call.
+        game(m, "night_shelter");
+
+        // The other two north-star rulers, GAME for the same reason as night_shelter above: each
+        // is a read of a ledger the kernel maintains, not an in-process capability.
+        game(m, "night_health", "night_box");
 
         // ---- MODEL-FACING: the agent's notes about the session ----
         // Not the Kernel: a JSON file of what the model learned, and its own goal stack.
@@ -1579,9 +1590,15 @@ public final class ToolRegistry {
                         + "dyeing, map and book cloning, repair, banners, fireworks): if 'unsupported' "
                         + "is non-empty while no recipes are listed, the game CAN make the item and "
                         + "this tool cannot tell you how — a different answer from there being no "
-                        + "recipe. NOTE there is no tool that performs a craft yet: the multi-tick "
-                        + "controller exists and is tested, but driving it needs a live handle on the "
-                        + "open container window, which is not built. This tool plans; it does not act.")
+                        + "recipe. TO ACTUALLY MAKE IT, hand the same name to act_set interact "
+                        + "kind='craft' with item set to it: this tool is the read-only half (the "
+                        + "grid, the bill of what you are short, whether a recipe exists) and that "
+                        + "one is the half that spends ingredients and puts the output in your bag. "
+                        + "It needs a crafting window already open — right-click a bench with "
+                        + "act_set interact kind='place', or use your own 2x2 grid — and it runs "
+                        + "over several ticks, finishing after that call returns, so read act_status "
+                        + "for how it went. Between them the two verbs cover planning and doing; "
+                        + "neither one silently does the other's job.")
                 .annotations(ToolAnnotations.builder()
                         .title("How to craft an item, and what is missing")
                         .readOnlyHint(true)

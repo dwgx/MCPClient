@@ -15,7 +15,8 @@ import net.minecraft.item.crafting.IRecipe;
  * CraftFeasibility} answers what an inventory is short -- but the reader is package-private and takes
  * an already-chosen recipe, so the caller had to hold vanilla's recipe list and index into it. Tests
  * did exactly that through their own helper. Nothing outside this package could, which is why the
- * whole capability was unreachable from the tool layer despite being finished and tested.
+ * whole capability was unreachable from the tool layer despite being finished and tested. <b>That was
+ * the before.</b> {@code craft_plan} calls {@link #plan} on the model surface today.
  *
  * <p>Pure and headless: no game thread, no world, no window. Vanilla's recipe table is a static list
  * built during the client's own startup ({@code CraftingManager}'s static instance, forced via
@@ -23,9 +24,14 @@ import net.minecraft.item.crafting.IRecipe;
  * under a second. That is worth stating because the first attempt at this work assumed the opposite
  * and stopped without running the experiment.
  *
- * <p>What this deliberately does NOT do is craft anything. Executing a craft needs a live {@link
- * CraftWindow} over the open container, and no implementation of that interface exists outside the
- * tests yet.
+ * <p>What this deliberately does NOT do is craft anything <em>itself</em>. Crafting is the act layer's
+ * job: {@code act_set} with {@code interact kind='craft'} and an {@code item} names an output, and
+ * {@code CraftWire} binds it to a {@link CraftController} that is ticked against a live {@link
+ * CraftWindow} -- {@link LiveCraftWindow} is that implementation, over the open container, and
+ * {@code InteractApplier} is the applier that ticks it. What this class holds is the PLAN half: {@link
+ * #recipesFor} and {@link #plan} are pure functions over vanilla's static recipe table and a {@link
+ * CraftInventory}, they are what {@code craft_plan} hands a model, and {@code CraftWire} resolves the
+ * same {@link #recipesFor} result before it spends anything.
  */
 public final class Craft {
 

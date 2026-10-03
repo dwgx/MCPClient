@@ -6,8 +6,10 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * The {@code world_view} tool's documentation, split into an always-on {@link #HEADER} and five
- * on-demand sections reachable through {@code world_view{explain:...}}.
+ * The {@code world_view} tool's documentation, split into an always-on {@link #HEADER} and the
+ * on-demand sections reachable through {@code world_view{explain:...}} -- one per payload
+ * section, plus the diff encoding. The inventory of those names is {@link #sectionNames()}, and
+ * {@link #SECTIONS_TEXT} is the single copy of it.
  *
  * <p><b>Why this exists.</b> {@code world_view} shipped a single 10,233-character description
  * re-sent to the model on every turn — 31.6% of this registry's per-turn description tax, paid
@@ -45,7 +47,8 @@ public final class WorldViewLegend {
             "[requires: in-world] Structured world snapshot: self (pos/vel/look/hp/food/xp/"
             + "xpProgress/armor/air/effects/gamemode/flags), a columnar grid of nearby blocks, "
             + "nearby entities (sorted, capped), per-slot inventory (registry names), the "
-            + "crosshair target (raytrace) and env (dimension/biome/time). "
+            + "crosshair target (raytrace) and env ('dimension'/'biome'/'timeOfDay'/'worldTime'/"
+            + "'raining'/'thundering'/'daytime'/'lightAtPlayer'). "
             + "'profile'=sparse|explore|combat trades breadth for cost, 'mode'=diff returns only "
             + "what changed since your last call, 'radius' overrides grid size, and 'sections' "
             + "takes a subset of " + String.join(",", WorldViewCapture.SECTIONS) + " -- the only "
@@ -98,6 +101,8 @@ public final class WorldViewLegend {
             + "reach: the number is your margin, not permission to dig. 'side' is the face you "
             + "look at and the face a placement goes against, and 'pos' is ABSOLUTE, not "
             + "grid-relative dx/dz. "
+            + "ENV. 'daytime' is the game's OWN day/night, 'timeOfDay' only a coarse label that goes "
+            + "stale near dawn and dusk, and a null there is a FAILED read, not a false value or a 0. "
             + "DIFF. An absent key means UNCHANGED, and a section your 'sections' list left out "
             + "answers 'unsampled':true rather than going quiet. 'entities.left' does NOT mean the "
             + "entity is gone: it is a statement about SAMPLING. If 'sections' left entities out "
@@ -117,10 +122,10 @@ public final class WorldViewLegend {
             + "an explicit null means it just became unreadable where an absent key means "
             + "unchanged. After an unsampled or unread poll the next successful one sends the whole "
             + "set as '<section>':{'now':[...]}. "
-            + "Call world_view{explain:'grid'|'entities'|'inventory'|'target'|'diff'} for the rest "
-            + "of the legend instead of a world sample: the column run-length 'profile', the damage "
-            + "and distance derivations, and the whole diff encoding. Fetch one before acting on a "
-            + "value you have not read.";
+            + "Call world_view{explain:'grid'|'entities'|'inventory'|'target'|'env'|'diff'} for the "
+            + "rest of the legend instead of a world sample: the column run-length 'profile', the "
+            + "damage and distance derivations, what the weather and light keys decide, and the "
+            + "whole diff encoding. Fetch one before acting on a value you have not read.";
 
     /** Section name -> legend text, in the order {@code explain} accepts and reports them. */
     private static final Map<String, String> SECTIONS_TEXT = sections();
@@ -131,6 +136,7 @@ public final class WorldViewLegend {
         m.put("entities", ENTITIES);
         m.put("inventory", INVENTORY);
         m.put("target", TARGET);
+        m.put("env", ENV);
         m.put("diff", DIFF);
         return m;
     }
@@ -198,6 +204,54 @@ public final class WorldViewLegend {
             + "eye-to-hit-point, so it can run over a block off for a mob above or below you, and "
             + "vanilla's own entity cut-off (3.0 eye-to-hit outside creative) is a different "
             + "measure that cannot be recovered from this one.";
+
+    // ---- ENV -------------------------------------------------------------------------------
+
+    /**
+     * The one filter every sentence below was put through, and it is the header's own: a line
+     * belongs here only if a model that never fetched it would DO something different.
+     *
+     * <p><b>Kept, and the action each one changes.</b> {@code lightAtPlayer} -- without it the model
+     * cannot answer "can a hostile spawn where I am standing", so it either walks into a dark cell
+     * at night or refuses to move. {@code raining} against {@code thundering} -- one does not imply
+     * the other, and only thunder moves the spawn gate, so a rainy afternoon read as a dangerous
+     * one is wrong in whichever direction the model guessed. {@code timeOfDay} against
+     * {@code daytime} -- the payload contradicts itself near the two edges and the model has no way
+     * to pick, so it picks arbitrarily. {@code "unknown"} on a name -- a model reading it as a
+     * place concludes it has lost track of where it is. And an {@code "unknown"}
+     * {@code timeOfDay} is on that list now, for the reason the sentence about {@code worldTime}
+     * below used to deny.
+     *
+     * <p><b>Written down and then deleted, because the answer was no.</b> The 0.2 and 0.9
+     * thresholds behind rain and thunder (both transcribed in {@code
+     * AnEnvironmentReportsTheWeatherThatMovesTheSpawnGateTest}): they justify the separation, but
+     * the model is handed booleans and cannot act on a threshold it never sees a fraction against.
+     * The spawn gate's own light threshold, for the same reason -- the model is handed the light,
+     * not the verdict.
+     *
+     * <p><b>{@code worldTime} WAS on that list, and the denial was wrong.</b> It said the counter
+     * "changes no action a reader of the label beside it could not already take", which is true in a
+     * full view and false in a diff: {@code WorldViewDiff.envDiff} reports this key precisely
+     * because it moves every tick, so a clock read that FAILED and defaulted to {@code 0} shipped
+     * a movement of the counter -- backwards, by however far the real clock had run -- on a poll
+     * where nothing had happened at all. The key is on the wire to make movement visible, so it
+     * was the one key a silent default had no business moving. {@code worldTime} is boxed now, and
+     * a null there is a failed read like every other one; that sentence below is what makes the
+     * {@code "unknown"} {@code timeOfDay} worth its chars.
+     */
+    private static final String ENV =
+            "ENV, continued. What this section is FOR is one question: can a hostile spawn where you "
+            + "are standing. 'lightAtPlayer' answers it: the light at your own feet, already NET of "
+            + "the storm, so a noon reading of 5 under thunder needs no weather arithmetic on top. "
+            + "'raining' and 'thundering' are separate facts on separate thresholds and neither "
+            + "implies the other; only THUNDER moves that gate, taking ten of the fifteen where rain "
+            + "takes nothing. "
+            + "'timeOfDay' is a LABEL with round edges and 'daytime' is the game's own curve, whose "
+            + "night is the WIDER at both ends — vanilla turns at worldTime 13807 and 22193, so for "
+            + "about 800 ticks at each end of it the sun is still up. An 'unknown' dimension or "
+            + "biome name means the READ FAILED, not that the world has none — 'unknown' on "
+            + "'timeOfDay' says the same about the clock. Every key here is always present, so "
+            + "there is no absent case to decode. ";
 
     // ---- DIFF ----------------------------------------------------------------------------
 

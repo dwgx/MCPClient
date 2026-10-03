@@ -412,6 +412,30 @@ public final class ActIntentParser {
                 }
                 return InteractIntent.dropStack(slot);
             }
+            case "craft": {
+                // Same refusal as 'drop' for the same reason, plus the ones that name something
+                // else entirely. A craft targets the OPEN CRAFTING WINDOW and an item name; it
+                // names no block, no entity and no slot of the player's own. Accepting any of
+                // those silently would be the defect refuseUnusableTarget exists to prevent: the
+                // caller would be told a craft ran while the thing it actually pointed at was
+                // discarded unread.
+                refuseUnusableTarget(m, "craft",
+                        "a craft names an OUTPUT item and uses whichever crafting window is already "
+                                + "open; it has no block target, no entity and no inventory slot",
+                        "Name the output with 'item'. To OPEN a crafting window first, right-click "
+                                + "a bench with kind='place' (or use the player's own 2x2 grid, which "
+                                + "is always open) -- a craft never walks anywhere on its own",
+                        "block", "face", "hitX", "hitY", "hitZ", "entityId", "hotbarSlot", "slot",
+                        "holdTicks", "attack");
+                String item = strArg(m, "item");
+                if (item == null || item.isBlank()) {
+                    throw new IllegalArgumentException("act_set interact 'craft' needs 'item' -- "
+                            + "the registry name of what to make, e.g. \"stick\" or "
+                            + "\"minecraft:crafting_table\". Run craft_plan on it first to see the "
+                            + "grid and what you are short");
+                }
+                return InteractIntent.craftItem(item.trim());
+            }
             case "hold": {
                 // Same shape as 'use' one case up: HOLD drives the held item's own use (vanilla's use
                 // key, the target resolved by the server from what the player is looking at), so a
@@ -456,7 +480,7 @@ public final class ActIntentParser {
             default:
                 throw new IllegalArgumentException(
                         "act_set interact 'kind' must be one of "
-                                + "dig|use|place|attack|hotbar|drop|hold|block|release, "
+                                + "dig|use|place|attack|hotbar|drop|craft|hold|block|release, "
                                 + "got '" + kindStr + "'");
         }
     }

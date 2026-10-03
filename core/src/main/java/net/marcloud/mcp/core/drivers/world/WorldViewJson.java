@@ -114,12 +114,22 @@ public final class WorldViewJson {
         // skylightSubtracted forced to 10 under thunder, turning a midday 15 into 5. An agent told
         // "noon" and not this plans against the wrong afternoon. lightAtPlayer is the same
         // quantity inspect_block reports for any cell, so the two are comparable.
-        if (e.raining() || e.thundering() || e.daytime() || e.lightAtPlayer() >= 0) {
-            m.put("raining", e.raining());
-            m.put("thundering", e.thundering());
-            m.put("daytime", e.daytime());
-            m.put("lightAtPlayer", e.lightAtPlayer());
-        }
+        //
+        // ALL FOUR, ALWAYS, null for a failed read -- where this used to omit the whole group
+        // unless one of them was readable. The gate below could not say what it meant, because
+        // "all four absent" and "all four false with no light" are the same map, and the first is
+        // a real state a night produces: a world whose light and weather reads throw loses
+        // `daytime:false` too, so the one key that would have said "it is night" went with them.
+        // A caller reading the omission as "no rain" was told a fact nobody had read.
+        //
+        // null rather than a sentinel, following self.effects and the air rule: absence is the
+        // payload's word for "nothing changed"/"nothing there", and there is no absent case left
+        // here to spend it on. It costs four keys on a night poll -- less than the wrong night poll
+        // it replaces.
+        m.put("raining", e.raining());
+        m.put("thundering", e.thundering());
+        m.put("daytime", e.daytime());
+        m.put("lightAtPlayer", e.lightAtPlayer());
         return m;
     }
 

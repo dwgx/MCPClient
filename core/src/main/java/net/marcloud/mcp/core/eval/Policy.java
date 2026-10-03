@@ -36,11 +36,31 @@ package net.marcloud.mcp.core.eval;
  * papered over: see {@code TheSuiteGoesRedThroughTheSeamTest} for the control this interface
  * makes possible and {@code .ai-notes/docs/audits/} for the standing gap.
  *
- * <p><b>Why it lives in {@code core/src/main} rather than beside {@code GoalPolicy}.</b> A seam
- * defined in the test tree can only be reached from the test tree, which would reproduce in
- * this slice the exact failure the slice exists to close -- a capability whose producer only
- * tests can reach. This file is main-tree, so {@code core/src/main} has a reference to it and
- * {@code EvalSuite} does not own the decision.
+ * <p><b>Why it lives in {@code core/src/main} rather than beside {@code GoalPolicy}, stated as
+ * what that does and does not buy.</b> A seam defined in the test tree could only ever be
+ * substituted from the test tree, which would have reproduced in this slice the exact failure the
+ * slice exists to close -- a capability whose producer only tests can reach. So this file is
+ * main-tree, and {@code EvalSuite} does not own the decision.
+ *
+ * <p><b>An earlier draft of this paragraph said "so {@code core/src/main} has a reference to
+ * it", and that was false.</b> Measured on the tree this file shipped in, with javadoc mentions
+ * excluded the way {@code docs/agency/failure-shapes.md} §2.1 excludes them, {@code
+ * core/src/main} names {@link Policy} in code ZERO times outside this file's own cluster --
+ * {@link PolicyRun} and {@link BrokenPolicies}, which declare and implement it. There is no
+ * caller. The sentence asserted a reachability that moving a file does not create, which is §2.1
+ * under a new name: reachability is a property you have to measure.
+ *
+ * <p><b>So the honest version of the claim is narrower, and it is the one worth having.</b> The
+ * interface TYPE is in the shipped artifact, so any future main-tree caller can name it and
+ * substitute a decision without this seam being moved first. That is what main-tree placement
+ * buys. What it does not buy is a caller, and today there is no honest way to add one: the only
+ * code that runs a policy is {@code EvalSuite}, which is test-tree by construction, so a
+ * main-tree consumer would have to be invented rather than found. The test
+ * {@code TheSuiteGoesRedThroughTheSeamTest} asserts both halves separately -- that these classes
+ * load out of the shipped artifact, and that no main-tree file claims a caller it does not have.
+ * (Named in {@code @code} and not {@link}: this file is main-tree and that class is test-tree,
+ * and a javadoc link between them would be the very dependency this placement keeps
+ * one-directional.)
  *
  * <p><b>Why there is no {@code trace()} here.</b> The decision's own words are how a reader
  * judges whether the policy reasoned or flailed, and the reference implementation has them.

@@ -192,6 +192,16 @@ public enum Ring {
             Map.entry("timeline_tail", R3),
             Map.entry("packets_tail", R3),
             Map.entry("packet_get", R3),
+            // The shelter counter: a read of integers the tick seam already published. It takes
+            // no world read and makes no game-thread marshal at call time, so R3 like the other
+            // ledger readers rather than R2 like the tools that sample live state.
+            Map.entry("night_shelter", R3),
+            // The other two north-star rulers, on the same reasoning as night_shelter above:
+            // both are LEDGER readers over integers and floats the tick seam already published.
+            // Neither marshals onto the game thread at call time, neither reads the world at
+            // call time, and both are read-only, so R3 rather than R2.
+            Map.entry("night_health", R3),
+            Map.entry("night_box", R3),
             Map.entry("packet_view", R3),
             // Inbound chat reader over the SAME Netty-tap feed as packet_view: it
             // re-reads the tap's typed S02PacketChat projection out of the ChatLog

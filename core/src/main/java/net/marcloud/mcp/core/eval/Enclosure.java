@@ -110,6 +110,41 @@ public final class Enclosure {
             Block b = at(bx, by, bz);
             return b != null && b.getMaterial().blocksMovement() && b.isFullCube();
         }
+
+        /**
+         * Whether this grid knows the column above {@code headY} is closed, asked without
+         * reading the column when the substrate can answer it from a cache it already maintains.
+         *
+         * <p><b>The default IS the column walk</b>, byte for byte what {@link
+         * Enclosure#skyClosed(CellGrid, int, int, int)} used to do inline, so every grid that
+         * existed before this method answers exactly as it did. {@code SimWorld} has no chunk
+         * and therefore no height map to read, and its javadoc already says so; recomputing is
+         * the honest answer THERE and is why this is a default rather than a removal.
+         *
+         * <p><b>What a live client overrides it with, and why that is not a second rule.</b>
+         * {@code Chunk.canSeeSky(pos)} is {@code pos.getY() >= heightMap[z << 4 | x]} and
+         * {@code heightMap} is built by {@code Chunk.generateHeightMap:210-241} walking down
+         * from the top and stopping at the first cell whose {@code getLightOpacity() != 0} --
+         * the same predicate this walk evaluates, cached, and {@code Chunk.relightBlock} is
+         * called from {@code Chunk.setBlockState:738,743} on every opacity change so a roof the
+         * body just built under updates it. The question is one question; only the cost differs,
+         * and {@link WorldBlockView} names the substitution rather than hiding it inside a
+         * predicate.
+         *
+         * @param bx   the body's column X
+         * @param headY the head cell Y -- the scan starts here, never at the feet cell, because
+         *              the body occupies both and neither can be its own roof
+         * @param bz   the body's column Z
+         */
+        default boolean skyClosedAt(int bx, int headY, int bz) {
+            for (int y = headY; y <= Enclosure.SKY_TOP; y++) {
+                Block b = at(bx, y, bz);
+                if (b != null && b.getLightOpacity() != 0) {
+                    return true;
+                }
+            }
+            return false;
+        }
     }
 
     /**
@@ -157,22 +192,21 @@ public final class Enclosure {
      * Whether the cell cannot see the sky, asked the way {@code Chunk.canSeeSky} answers it.
      *
      * <p>The scan starts at the head cell rather than the feet cell because the body occupies
-     * both and neither can be its own roof, and it stops at the first light-blocking cell rather
-     * than reading a height map, because {@code SimWorld} has no chunk and therefore no
-     * height map to read: {@code heightMap[z << 4 | x]} is a cache over exactly this scan
-     * ({@code Chunk.generateHeightMap:221-236}) and recomputing it is the honest answer rather
-     * than the cheap one. An enclosed body costs one or two cells of scan; an exposed body on an
+     * both and neither can be its own roof.
+     *
+     * <p><b>Delegated since 2026-10-02, and the default is unchanged.</b> This used to walk the
+     * column itself, and {@link CellGrid#skyClosedAt} still does exactly that walk -- because
+     * {@code SimWorld} has no chunk and therefore no height map to read:
+     * {@code heightMap[z << 4 | x]} is a cache over exactly this scan
+     * ({@code Chunk.generateHeightMap:210-241}) and recomputing it is the honest answer rather
+     * than the cheap one. A LIVE client does have the cache, so
+     * {@link WorldBlockView} overrides the seam and answers the same question for one array read.
+     * An enclosed body costs one or two cells of scan under the default; an exposed body on an
      * open plain costs the whole column, which is stated here because it is the reason
-     * {@link NightEnclosure} exposes a sampling period.
+     * {@link NightEnclosure} exposes a sampling period and the reason the live override exists.
      */
     public static boolean skyClosed(CellGrid grid, int feetX, int feetY, int feetZ) {
-        for (int y = feetY + BODY_CELLS - 1; y <= SKY_TOP; y++) {
-            Block b = grid.at(feetX, y, feetZ);
-            if (b != null && b.getLightOpacity() != 0) {
-                return true;
-            }
-        }
-        return false;
+        return grid.skyClosedAt(feetX, feetY + BODY_CELLS - 1, feetZ);
     }
 
     /** How many of the eight horizontal neighbour cells a body could walk into. */

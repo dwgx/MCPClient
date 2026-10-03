@@ -72,8 +72,14 @@ public final class SocketTransportServer {
      * {@code ToolLayeringTest.listCapabilitiesReportsExactlyTheModelFacingSet}, which fails if
      * the tool is ever handed the audited registry instead.
      *
-     * <p>The wording is "every tool you can call", not "all tools": 84 built-ins are registered
-     * and 51 are callable, and the subject of this sentence is what the model can do.
+     * <p>The wording is "every tool you can call", not "all tools": tools are registered on more
+     * than one layer and a kernel-layered one is not callable, and the subject of this sentence is
+     * what the model can do. **No count is written here on purpose.** The measured split moved
+     * (this line once said 84 registered / 51 callable, and said it for months) because nothing
+     * checked it: the gate above pins the SET, which is the claim that matters, and a number
+     * beside it is prose nothing can check — the same stale-gate-row shape the next paragraph
+     * exists to avoid. Read the split off {@link ToolRegistry#modelFacingNames()} against
+     * {@link ToolRegistry#declaredNames()}, not off this comment.
      *
      * <p><b>Why a constant and not a literal in the builder chain.</b> A string buried in a call
      * chain is prose nothing can check. {@code TheHandshakeSentenceNamesNoKernelVerbTest} reads

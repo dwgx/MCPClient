@@ -48,6 +48,11 @@ public final class CapabilityCatalog {
             // tap must shut it off too. Declared, not inferred: an unlisted builtin
             // requires nothing.
             Map.entry("chat_read", Set.of(CAP_NETWORK_RECV_TAP)),
+            // The night-shelter ledger. The call itself reads no world -- it reads integers the
+            // tick seam published -- but the CONTENT is a world measurement, and the whole reason
+            // CAP_WORLD_READ exists is that revoking it must shut off the model's view of the
+            // world, not merely its direct reads. Same reasoning as chat_read over the packet tap.
+            Map.entry("night_shelter", Set.of(CAP_WORLD_READ)),
             // outward network effects
             Map.entry("send_chat", Set.of(CAP_NETWORK_SEND)),
             // send_raw_packet compiles + runs caller Java (eval-class) → CAP_TOOL_CREATE

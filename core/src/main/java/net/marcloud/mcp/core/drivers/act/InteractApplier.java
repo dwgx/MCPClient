@@ -1,5 +1,9 @@
 package net.marcloud.mcp.core.drivers.act;
 
+import net.marcloud.mcp.core.drivers.craft.CraftController;
+import net.marcloud.mcp.core.drivers.craft.CraftWire;
+import net.marcloud.mcp.core.drivers.craft.CraftWindow;
+
 /**
  * The {@link ActSlot#INTERACT} applier: routes an {@link InteractIntent} to the
  * right pure controller ({@link DigController} for multi-tick digging,
@@ -20,6 +24,16 @@ package net.marcloud.mcp.core.drivers.act;
  * needs a real teardown on the game thread: a {@link DigController} to abort a break,
  * and a {@link HoldController} to release vanilla's use key -- a hold left asserted
  * would keep the player eating or blocking with nothing driving it.
+ *
+ * <p><b>The craft seam is separate and deliberately optional.</b> A craft runs over container
+ * slots, not over a player's body, so it cannot go through {@link ActActuator} -- the craft
+ * package states this itself ({@code CraftWindow} is "deliberately NOT that interface", because
+ * the act package owns the actuator and its methods are about a body rather than about slots whose
+ * contents change as a consequence of the calls being made). So {@link InteractIntent.Kind#CRAFT}
+ * is driven over a {@code CraftWindow} supplied at construction, and an applier built without one
+ * refuses a craft with a message naming the fact rather than throwing or silently doing nothing.
+ * That is also what keeps every existing headless test constructing this applier with one
+ * argument unchanged.
  */
 public final class InteractApplier implements ActApplier {
 
@@ -31,10 +45,28 @@ public final class InteractApplier implements ActApplier {
     private InteractController interact;
     private HotbarController hotbar;
     private DropController drop;
+    private CraftController craft;
+    /** The bound craft's live window, kept so cancel can tick the controller against it. */
+    private CraftWindow craftWindow;
+    /** Why the current bind refused, or null when it did not. A value, not a throw. */
+    private String craftRefusal;
 
     public InteractApplier(ActActuator actuator) {
-        this.actuator = actuator;
+        this(actuator, null);
     }
+
+    /**
+     * As the one-argument form, with a crafting window for {@link InteractIntent.Kind#CRAFT}.
+     *
+     * <p>The live implementation is {@code LiveCraftWindow}; a headless test passes a fake whose
+     * slots mutate on click. Null is legal and means "no craft can be driven here", which is
+     * reported rather than guessed at.
+     */
+    public InteractApplier(ActActuator actuator, CraftWindow craftWindow) {
+        this.actuator = actuator;
+        this.craftWindow = craftWindow;
+    }
+
 
     @Override
     public SlotRecord apply(SlotRecord current) {
@@ -94,6 +126,16 @@ public final class InteractApplier implements ActApplier {
             hold.requestCancel();
             return hold.tick(actuator);
         }
+        // A craft holds ITEMS, so it joins dig and hold here rather than being treated as a
+        // single-shot: requestCancel drives it into finish(), whose sweep returns whatever is in
+        // the matrix to the inventory. Without this branch a cancel would null the controller with
+        // a partly-filled grid still in the window, and vanilla DROPS those stacks on close
+        // (ContainerPlayer:83-98, ContainerWorkbench:62-78) -- invisible to world_view, so the model
+        // would learn about it only as items missing from its pockets.
+        if (craft != null && craftWindow != null) {
+            craft.requestCancel();
+            return CraftWire.toActOutcome(craft.tick(craftWindow));
+        }
         return null;
     }
 
@@ -103,6 +145,24 @@ public final class InteractApplier implements ActApplier {
             case HOLD -> hold.tick(actuator);
             case HOTBAR -> hotbar.tick(actuator);
             case DROP -> drop.tick(actuator);
+            // A refused bind has no controller, so it is reported as the terminal failure it is
+            // rather than dereferenced. See CraftWire.Bound#terminal for why it does not retry.
+            case CRAFT -> craftRefusal != null
+                    // Graded OBSERVED: the refusal was reached by reading the recipe table and
+                    // the live inventory on the game thread, so it is a statement about what the
+                    // player is actually holding -- not a guess and not an absence.
+                    ? ActOutcome.failed(craftRefusal, ActOutcome.READ_DIRECTLY)
+                    : craftWindow == null
+                    // Graded UNKNOWN, and deliberately: there is no window object to read, so the
+                    // answer is not about the world at all. A caller must not read this as "the
+                    // world says no" -- it says nothing was asked of the world.
+                    ? ActOutcome.failed("this client was built without a crafting window, so "
+                            + "kind='craft' cannot be driven here. Nothing was crafted",
+                            ActOutcome.READ_CAME_BACK_EMPTY)
+                    : CraftWire.toActOutcome(craft.tick(craftWindow));
+            // USE / PLACE / ATTACK all route to InteractController. Kept as a default rather than
+            // spelled out, because adding a kind must not silently reroute an existing one: a new
+            // entry point lands here and has to be classified deliberately.
             default -> interact.tick(actuator);
         };
     }
@@ -120,13 +180,38 @@ public final class InteractApplier implements ActApplier {
         // could not tell the difference.
         reset();
         boundTo = identity;
+        // CRAFT is bound BEFORE the switch rather than in it, and the reason is its own shape: every
+        // arm below is a single field assignment, while a craft has to resolve a recipe -- which can
+        // REFUSE, and the refusal has to be kept -- before it has a controller to assign. Spelled as
+        // a case it would be the one arm in this switch that is not an assignment.
+        if (ii.kind() == InteractIntent.Kind.CRAFT) {
+            bindCraft(ii);
+            return;
+        }
         switch (ii.kind()) {
             case DIG -> dig = new DigController(ii);
             case HOLD -> hold = new HoldController(ii);
             case HOTBAR -> hotbar = new HotbarController(ii);
             case DROP -> drop = new DropController(ii);
+            // The kinds with no dedicated controller share InteractController. A kind added later
+            // lands here rather than being routed by accident.
             default -> interact = new InteractController(ii);
         }
+    }
+
+    /**
+     * Resolve {@code ii}'s item name to a recipe and arm the controller.
+     *
+     * <p>Resolution happens HERE, on the game thread, rather than when the intent was parsed on a
+     * worker thread: it reads the recipe table and the live inventory, and both are state a worker
+     * must not touch. The refusal is kept as a FIELD rather than thrown because "you are short
+     * planks" is this path's most common answer, not an exceptional one, and {@code step} reports
+     * it on the next tick as the terminal failure it is.
+     */
+    private void bindCraft(InteractIntent ii) {
+        CraftWire.Bound bound = CraftWire.bind(ii.craftItem(), craftWindow);
+        craft = bound.controller();
+        craftRefusal = bound.craftable() ? null : bound.message();
     }
 
     /**
@@ -146,5 +231,7 @@ public final class InteractApplier implements ActApplier {
         interact = null;
         drop = null;
         hotbar = null;
+        craft = null;
+        craftRefusal = null;
     }
 }

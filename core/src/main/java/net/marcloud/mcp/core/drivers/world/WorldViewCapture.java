@@ -459,15 +459,22 @@ public final class WorldViewCapture {
     private static EnvView env(WorldClient w, BlockPos base) {
         String dim = "unknown";
         String biome = "unknown";
-        long time = 0L;
-        try {
-            dim = w.provider.getDimensionName();
-        } catch (Throwable ignored) {
-        }
-        try {
-            biome = w.getBiomeGenForCoords(base).biomeName;
-        } catch (Throwable ignored) {
-        }
+        // The clock is BOXED as well, and it is the reading that was MISSED when the four weather
+        // reads below it were boxed. `time` used to be a primitive `long` initialised to 0, so a
+        // world that threw on getWorldTime() left a 0 behind -- and 0 is not a free sentinel here.
+        // It is the value a client world genuinely holds: WorldInfo.populateFromWorldSettings
+        // assigns seed, game type, map features, hardcore, terrain type, generator options and
+        // allowCommands, and NOT worldTime, so the field keeps its default, and SimWorld.java:342-347
+        // records the same fact for the same reason. A world that has just been joined reads 0. So
+        // "the clock did not answer" and "it is sunrise" were the same wire text, which is the
+        // quiet-no shape one level up from the one the paragraph below is about.
+        //
+        // It was worse than a quiet no, because this reading is DERIVED FROM. The bucket below and
+        // the daylight flag further down are both computed from this one value, so the failed read
+        // did not stop here -- it went on to answer three questions, every one of them wrongly. The
+        // daylight one answered YES: Daylight.isDaytime(0L) is true, because
+        // skylightSubtracted(0, 1.0F) is 0 and the rule is `skylightSubtracted < 4`.
+        Long time = null;
         try {
             time = w.getWorldTime();
         } catch (Throwable ignored) {
@@ -475,10 +482,25 @@ public final class WorldViewCapture {
         // Weather and the light at the player's own cell. Each read is isolated: a world that
         // throws on one of them must still produce the others rather than an EnvView full of
         // zeroes, which would read as "clear noon" and be exactly the wrong answer in a storm.
-        boolean raining = false;
-        boolean thundering = false;
-        boolean daytime = false;
-        int lightAtPlayer = -1;
+        //
+        // BOXED, and initialised to null rather than to false. The isolation above is why a failed
+        // read must survive as "no answer"; a false or a -1 is an ANSWER, and it is the wrong one:
+        // a world that would not say whether it was raining was reported as not raining, which on
+        // the wire is the same text as a clear sky. Three of the four used to fail exactly this
+        // way, and the fourth failed as a light of -1, which is a number a caller will do
+        // arithmetic with.
+        //
+        // What this paragraph did NOT cover, and therefore what it let stand: `daytime` is not one
+        // of the four readings. It is arithmetic ON the clock above, so boxing four reads did
+        // nothing for it -- the sentence said the group was fixed while the one member of the
+        // group with no read of its own was still answering from a default, and answering YES,
+        // because the default is 0 and 0 is daylight. It took a fixture that fails the CLOCK to
+        // see it: every env fixture in this suite made the clock readable, so nothing ever put a
+        // world in front of this method that could not say what time it was.
+        Boolean raining = null;
+        Boolean thundering = null;
+        Boolean daytime = null;
+        Integer lightAtPlayer = null;
         try {
             raining = w.isRaining();
         } catch (Throwable ignored) {
@@ -499,7 +521,14 @@ public final class WorldViewCapture {
             // server-side. So a client world built at worldTime 0 holds skylightSubtracted 0 and
             // answers "day" at worldTime 18000, where vanilla's own curve says 11. This line was
             // the only production read of "is it night", and it said no, forever.
-            daytime = Daylight.isDaytime(time);
+            //
+            // GUARDED rather than merely wrapped, and the difference is the whole fix. The catch
+            // below cannot see a clock that never answered: there is no exception here to swallow,
+            // the absence is upstream. So the derivation tests the reading itself, and a world with
+            // no time gets no answer rather than the answer a time of 0 produces. `isDaytime(0L)`
+            // is TRUE, so the unwrapped line reported a confident daylight for a read that never
+            // happened -- and unlike a wrong `raining`, nothing else in the payload contradicts it.
+            daytime = time == null ? null : Daylight.isDaytime(time);
         } catch (Throwable ignored) {
         }
         try {
@@ -510,12 +539,21 @@ public final class WorldViewCapture {
                     Math.floor(base.getZ()));
             int storedSky = w.getLightFor(net.minecraft.world.EnumSkyBlock.SKY, feet);
             int storedBlock = w.getLightFromNeighbors(feet);
-            lightAtPlayer = BlockInspector.lightAtPosition(storedSky, storedBlock,
-                    BlockInspector.skylightAmountFor(w, thundering));
+            // The thunder factor is dereferenced explicitly rather than unboxed by the call: if the
+            // storm state itself could not be read, the storm-adjusted light is not knowable either,
+            // and null says exactly that. Assuming "not thundering" here would report the clear-sky
+            // light during a storm -- the precise inversion this whole encoding exists to stop.
+            lightAtPlayer = thundering == null ? null
+                    : BlockInspector.lightAtPosition(storedSky, storedBlock,
+                            BlockInspector.skylightAmountFor(w, thundering));
         } catch (Throwable ignored) {
         }
-        return new EnvView(dim, biome, timeBucket(time), time, raining, thundering, daytime,
-                lightAtPlayer);
+        // "unknown" is the token this method already uses for a dimension and a biome that could not
+        // be read, and the legend teaches it as exactly that; the five bucket names never spell it,
+        // so unlike a block name it cannot collide with a real answer. Sending "sunrise" here on a
+        // failed clock read is the same quiet no as a raining=false, one derived step further out.
+        return new EnvView(dim, biome, time == null ? "unknown" : timeBucket(time), time,
+                raining, thundering, daytime, lightAtPlayer);
     }
 
     /**

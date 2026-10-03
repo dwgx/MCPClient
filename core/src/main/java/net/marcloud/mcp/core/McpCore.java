@@ -354,8 +354,15 @@ public final class McpCore {
                                 game, ri.targetX(), ri.targetY(), ri.targetZ(), ri.blockBudget())));
         actRuntime.registerApplier(net.marcloud.mcp.core.drivers.act.ActSlot.LOOK,
                 new net.marcloud.mcp.core.drivers.act.LookApplier(actuator));
+        // The craft seam: LiveCraftWindow is handed to the INTERACT applier so
+        // `act_set interact kind='craft'` has a real window to click. It is built ONCE here
+        // rather than per craft: it holds only the GameAccess facade and reads
+        // player.openContainer on every call, so it is stateless with respect to the game and
+        // rebuilding it would allocate on the tick path for nothing. Built here, off the hot
+        // path, exactly as ClientBody is.
         actRuntime.registerApplier(net.marcloud.mcp.core.drivers.act.ActSlot.INTERACT,
-                new net.marcloud.mcp.core.drivers.act.InteractApplier(actuator));
+                new net.marcloud.mcp.core.drivers.act.InteractApplier(actuator,
+                        new net.marcloud.mcp.core.drivers.craft.LiveCraftWindow(game)));
         new net.marcloud.mcp.core.drivers.act.ActTickLoop(actRuntime).attach(bus);
         net.marcloud.mcp.core.drivers.act.MovementInputInstaller moveInstaller =
                 new net.marcloud.mcp.core.drivers.act.MovementInputInstaller(
@@ -651,6 +658,75 @@ public final class McpCore {
                         net.marcloud.mcp.core.ke.GameClock.INSTANCE, timeline, packetJournal,
                         seams);
         wireProvider(registry, surface, observe::registerAll, observe::registerAll);
+
+        // The night shelter counter: a LEDGER, not a sample. Tick-driven rather than
+        // poll-driven on purpose — a sample costs eight block reads, so a poll-driven
+        // accumulator would make the model's polling rate the sample rate, and that
+        // decision would be made silently. It samples at 20Hz because the game does.
+        //
+        // The opt-out is -Dmcp.core.shelter=false, the same shape as -Dmcp.core.tick
+        // above: the verb still registers either way (a tool that says NOT MEASURED is
+        // honest; a gate row naming a tool nothing registers is not), but with the
+        // accumulator un-armed the counter stays at zero and the tool reports exactly
+        // that rather than a verdict.
+        //
+        // ClientBody and its WorldBlockView are built ONCE here, not per tick: see
+        // ClientBody's javadoc for why the hot path allocates nothing.
+        net.marcloud.mcp.core.eval.NightShelter nightShelter =
+                new net.marcloud.mcp.core.eval.NightShelter();
+        if (!"false".equalsIgnoreCase(System.getProperty("mcp.core.shelter", "true"))) {
+            net.marcloud.mcp.core.eval.ClientBody nightBody =
+                    new net.marcloud.mcp.core.eval.ClientBody(game);
+            nightShelter.reading(() -> nightBody);
+            nightShelter.attach(bus);
+        }
+        net.marcloud.mcp.core.drivers.observe.ShelterTools shelter =
+                new net.marcloud.mcp.core.drivers.observe.ShelterTools(nightShelter);
+        wireProvider(registry, surface, shelter::registerAll, shelter::registerAll);
+
+        // The other two north-star rulers, wired in the same shape as the shelter above and for
+        // the same reasons: LEDGERS rather than samples, tick-driven rather than poll-driven, and
+        // an opt-out that leaves the verb REGISTERED so a disabled counter reports the truth
+        // instead of vanishing from the surface.
+        //
+        // night_health reads three production fields the SERVER has already written --
+        // Entity.getHealth(), EntityLivingBase.hurtTime and EntityLivingBase.lastDamage -- so it
+        // needs no Netty tap and no opt-in to see a damage edge: EntityPlayerSP.setPlayerSPHealth
+        // computes and stores the edge itself (:350, :363, :367). That is what unblocked it; the
+        // previous answer was that it waited on an opt-in tap nothing installs.
+        //
+        // night_box is a REGION reading. DawnChest takes one named cell and the north-star path
+        // has nothing that names one -- the placement path deliberately does not say "placed a
+        // block at X" (InteractController.java:132-137, and RouteExecutor.java:617-623 records
+        // what putting that wording back cost). So the census watches a cube around the player
+        // and judges every chest cell it finds. Cost, as a number: the census walks
+        // (2*8+1)^3 = 4913 cells once every 40 ticks, about 123 reads per tick amortised, and the
+        // per-tick re-verification costs one read per chest already in the ledger. It reads
+        // WorldBlockView and never ActActuator.blockAt, so it adds nothing to the controller
+        // seam's world-read bill.
+        //
+        // ClientVitals and ClientArea are built ONCE here, not per tick, for the reason
+        // ClientBody's javadoc gives: the hot path allocates nothing, and only the view's
+        // volatile target moves.
+        net.marcloud.mcp.core.eval.NightHealth nightHealth =
+                new net.marcloud.mcp.core.eval.NightHealth();
+        net.marcloud.mcp.core.eval.DawnChestRegion nightBox =
+                new net.marcloud.mcp.core.eval.DawnChestRegion();
+        if (!"false".equalsIgnoreCase(System.getProperty("mcp.core.health", "true"))) {
+            net.marcloud.mcp.core.eval.ClientVitals vitals =
+                    new net.marcloud.mcp.core.eval.ClientVitals(game);
+            nightHealth.reading(() -> vitals);
+            nightHealth.attach(bus);
+        }
+        if (!"false".equalsIgnoreCase(System.getProperty("mcp.core.box", "true"))) {
+            net.marcloud.mcp.core.eval.ClientArea area =
+                    new net.marcloud.mcp.core.eval.ClientArea(game);
+            nightBox.reading(() -> area);
+            nightBox.attach(bus);
+        }
+        net.marcloud.mcp.core.drivers.observe.NightRulerTools rulers =
+                new net.marcloud.mcp.core.drivers.observe.NightRulerTools(nightHealth, nightBox);
+        wireProvider(registry, surface, rulers::registerAll, rulers::registerAll);
 
         net.marcloud.mcp.core.drivers.action.ActTools act =
                 new net.marcloud.mcp.core.drivers.action.ActTools(actRuntime);

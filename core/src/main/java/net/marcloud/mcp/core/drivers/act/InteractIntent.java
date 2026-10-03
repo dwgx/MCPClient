@@ -42,6 +42,12 @@ package net.marcloud.mcp.core.drivers.act;
  * @param holdTicks  ticks to hold before releasing ({@link HoldMode#THEN_RELEASE}); ignored by
  *                   {@link HoldMode#UNTIL_DONE} and {@link HoldMode#WHILE_BLOCKING}
  * @param attackMode whether an ATTACK is a plain swing or is timed for a critical hit
+ * @param craftItem the OUTPUT registry name to craft ({@link Kind#CRAFT}), or null for every
+ *                  other kind. A NAME rather than a resolved recipe, so an intent stays plain
+ *                  data and is safe to build off-thread: the recipe table and the player's
+ *                  inventory are both live state, and {@code InteractApplier} reads them on the
+ *                  game thread when it binds. Namespace-optional like every other registry name
+ *                  in this surface.
  */
 public record InteractIntent(
         Kind kind,
@@ -58,7 +64,36 @@ public record InteractIntent(
         int playerSlot,
         HoldMode holdMode,
         int holdTicks,
-        AttackMode attackMode) implements ActIntent {
+        AttackMode attackMode,
+        String craftItem) implements ActIntent {
+
+    /**
+     * As the canonical constructor, for a kind that carries no {@code craftItem}.
+     *
+     * <p>Every factory below writes {@code null} here, and so does any caller written before
+     * CRAST existed. Without this overload, adding the component means editing every construction
+     * site in the tree for a field only one kind reads, and a mechanical edit to unrelated call
+     * sites is exactly the kind of change that hides a real one in its diff.
+     */
+    public InteractIntent(
+            Kind kind,
+            int blockX,
+            int blockY,
+            int blockZ,
+            boolean hasBlock,
+            int face,
+            double hitX,
+            double hitY,
+            double hitZ,
+            int entityId,
+            int hotbarSlot,
+            int playerSlot,
+            HoldMode holdMode,
+            int holdTicks,
+            AttackMode attackMode) {
+        this(kind, blockX, blockY, blockZ, hasBlock, face, hitX, hitY, hitZ, entityId, hotbarSlot,
+                playerSlot, holdMode, holdTicks, attackMode, null);
+    }
 
     /** The interaction family. */
     public enum Kind {
@@ -104,7 +139,27 @@ public record InteractIntent(
          * click. Note the QUEUE it empties: {@code mainInventory[0..35]}, all 36 stacks, not the
          * nine in hand -- a drop you cannot name is not a drop.
          */
-        DROP
+        DROP,
+        /**
+         * Craft the named item in whichever crafting window is open, over as many ticks as the
+         * server's verdict takes.
+         *
+         * <p><b>Why this is a kind and not a separate tool.</b> It has the same shape as every
+         * other kind here: a multi-tick state machine ({@code CraftController}, exactly as
+         * {@link Kind#DIG} is {@link DigController}) driven by {@code ActTickLoop} on the game
+         * thread, cancelable through {@code act_cancel}, observable through {@code act_status},
+         * and sequenceable through {@code act_plan}. Giving it its own tool would have meant a
+         * second place that has to be gated, a second status read, a second cancel, and a second
+         * sequencer -- none of which the act layer lacks. See {@code CraftWire} for the full
+         * argument, which is also why this is a kind rather than a flag on the read-only
+         * {@code craft_plan}.
+         *
+         * <p>It needs an OPEN crafting window, which the model opens with {@link Kind#PLACE} on
+         * a bench (or uses its own 2x2 grid). The controller says so by name when there is none,
+         * rather than opening one itself: a craft that quietly walked to a bench would be doing
+         * navigation nobody asked for.
+         */
+        CRAFT
     }
 
 
@@ -242,6 +297,26 @@ public record InteractIntent(
     public static InteractIntent dropStack(int playerSlot) {
         return new InteractIntent(Kind.DROP, 0, 0, 0, false, -1, 0, 0, 0, -1, -1, playerSlot, null, 0,
                 null);
+    }
+
+    /**
+     * Craft {@code item} in the open crafting window, over as many ticks as it takes.
+     *
+     * <p>The name is taken as given and NOT resolved here. Resolving means reading the recipe
+     * table and deciding which of an item's recipes to use, and both of those are the applier's
+     * job on the game thread: the same name can be craftable or not depending on what the player
+     * is carrying, so an intent that froze the choice at parse time would be a claim about the
+     * world made from a worker thread. What this carries is the QUESTION; the answer is read
+     * where it can be read honestly.
+     *
+     * <p>Blank is refused rather than defaulted. A craft of "" has no recipe, and the controller
+     * would spend a state machine discovering that; naming it at the boundary costs one line.
+     *
+     * @see Kind#CRAFT
+     */
+    public static InteractIntent craftItem(String item) {
+        return new InteractIntent(Kind.CRAFT, 0, 0, 0, false, -1, 0, 0, 0, -1, -1, -1, null, 0, null,
+                item);
     }
 
     /**
