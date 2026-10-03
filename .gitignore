@@ -113,3 +113,10 @@ core/cp.txt
 # A Windows artifact: a redirect to NUL written as a literal filename. It breaks `ls`, `cat` and
 # any directory listing that touches the repo root, and it is not a file anyone can open.
 /nul
+
+# --- Machine-local build/runtime artifacts (added 2026-10-03) ---
+# .cp.txt is a generated absolute-path classpath pointing at this machine's ~/.m2;
+# committing it would pin an absolute Windows path into shared history.
+.cp.txt
+# .omp/ is the per-machine harness control plane (mcp.json); never project content.
+.omp/
