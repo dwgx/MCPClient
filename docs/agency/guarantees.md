@@ -92,6 +92,12 @@ console total and the on-disk reports disagree, and **summing the directory is n
 either**: the directory has to be **joined against the source tree first**, because probe runs
 leave stale entries in it and a stale entry sums just as loudly as a real one.
 
+**And that join is now a command rather than a habit.** `python scripts/test-census.py --run`
+does it for every module, both report populations, and fails loudly on a ghost or an uncollected
+class. Its convention — which module list, which two populations, what "green" excludes — is
+`docs/agency/test-census.md`. **The number below this paragraph is the last one in this file that
+was produced by hand**, and it is stale for the reason every other number here went stale.
+
 **The number as of this writing: 323 classes / 2025 tests / 0 failures / 0 errors / 1 skipped.**
 The directory holds **326** XML files and a naive sum over all of them says `2028`. That sum is
 **wrong by three**, and all three are reports whose source does not exist anywhere under
@@ -1664,4 +1670,10 @@ source is a deletion, not a test.** "Clear the directory" is not a rule anybody 
 somebody else ran a probe. **And §0's command builds the pair** — `-pl core` alone resolves a
 stale `client` jar, because `core/pom.xml:55-60` declares it `provided`, and a `NoSuchMethodError`
 on a method that exists in the source is a stale artifact rather than a defect.
+
+**6.17 now has a command.** `scripts/test-census.py` performs this join, over every module and
+both report populations, and refuses to print a number when a ghost or an uncollected class is
+present. `docs/agency/test-census.md` is its convention, and §1 there is why the surefire and
+failsafe populations are never added into one figure. Read that instead of re-deriving the join
+by hand — hand-deriving it is how this file's own `2025` went stale three times.
 

@@ -123,11 +123,22 @@
 
     <build>
         <plugins>
-            <!-- The live GL integration test (QmlPipelineLiveIT) needs a display and native
-                 Skia, so it runs under failsafe and is skipped by default:
-                 ./mvnw -pl dwm -am verify -Ddwm.live=false to run it.
-                 It self-skips via Assume when there is no display, so enabling it on a
-                 headless runner is safe. -->
+            <!-- The live GL integration tests (the 14 `*IT` classes) need a display and native
+                 Skia, so they run under failsafe and are skipped by default.
+
+                 To run them:  ./mvnw.cmd -pl dwm verify -Ddwm.live.skip=false
+
+                 The property is `dwm.live.skip`, NOT `dwm.live`. It was `dwm.live` in an earlier
+                 version of this comment, and that name is read by nothing in this repository, so
+                 the documented command set an unknown property, left skipITs at its default
+                 `true`, and answered a live request with "Tests are skipped." and BUILD SUCCESS
+                 with all 14 classes unrun. Measured 2026-10-04; see docs/agency/test-census.md
+                 section 3. A comment that names a property the pom does not read is a false green
+                 of the same shape as a test that skips, and it costs the same to find.
+
+                 They self-skip via Assume when there is no display, so enabling them on a
+                 headless runner is safe: 45 tests, 0 skipped, 0 failed on Windows with a display;
+                 14 classes of Assume skip with none. -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-failsafe-plugin</artifactId>

@@ -6,7 +6,7 @@ import net.minecraft.world.WorldSettings;
 import net.minecraft.world.WorldType;
 
 /**
- * Headless smoke test / debug driver for the LWJGL3 + JDK25 port.
+ * Headless smoke driver for the LWJGL3 + JDK25 port.
  *
  * Boots the client on a background watchdog, waits until the main menu is up,
  * then programmatically launches a single-player integrated server (exercising
@@ -14,17 +14,23 @@ import net.minecraft.world.WorldType;
  * seconds, and reports whether anything threw. Used to verify "in-game" runtime
  * beyond the main menu in an environment with no interactive input.
  *
- * Run:  java @jvm-args-jdk25.txt -cp target/MCP-1.8.9.jar;<testclasses> SmokeTest
+ * Run:  java @jvm-args-jdk25.txt -cp target/MCP-1.8.9.jar;{@literal <}testclasses{@literal >} SmokeDriver
  *   (working dir = test_run).  Or via the mvn test-compile output.
+ *
+ * <p><b>Renamed from {@code SmokeTest} on 2026-10-04, and the name was the defect.</b> This
+ * class has no {@code @Test} method: surefire collects it by filename, finds nothing runnable
+ * and writes no report, so it appeared in every "collectable test class" count while never
+ * having been a test. {@code ServerJoinDriver} was the other one. {@link SmokeIT} forks this
+ * class by name, which is why the rename has to move both files together.
  */
-public class SmokeTest {
+public class SmokeDriver {
 
     // How long to wait for the main menu, and how long to run the world.
     private static final long MENU_TIMEOUT_MS = 60_000L;
     private static final long WORLD_RUN_MS = 15_000L;
 
     public static void main(String[] args) throws Exception {
-        Thread watchdog = new Thread(SmokeTest::drive, "SmokeTest-watchdog");
+        Thread watchdog = new Thread(SmokeDriver::drive, "SmokeDriver-watchdog");
         watchdog.setDaemon(true);
         watchdog.start();
 

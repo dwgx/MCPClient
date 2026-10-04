@@ -37,6 +37,22 @@ jobs:
       - name: Unit tests (reactor)
         run: ./mvnw -B -ntp test
 
+      # The unit-test step above proves that every test that RAN, passed. It cannot
+      # notice a test that was never asked anything, which is the failure this
+      # repository has actually shipped: a `*Test` file with no `@Test` in it, a
+      # stale report left by a probe run, a whole module dropped from the count.
+      # This step joins every report against the source tree and fails on any of
+      # those. It reads the reports the step above just wrote, so it must come
+      # before the `clean package` step that deletes them.
+      #
+      # It deliberately judges only the surefire population: `mvn test` stops at
+      # the test phase, and failsafe's goals are bound to integration-test and
+      # verify, so no `*IT` report can exist here. Judging them would report 22
+      # uncollected classes on every run forever. See docs/agency/test-census.md.
+      - name: Test census (no ghosts, no uncollected, nothing silently skipped)
+        run: python3 scripts/test-census.py
+
+
       # Reactor build: compiles every module and produces the shaded fat jars.
       # Tests were already run above, so skip them here to avoid double work.
       - name: Build (reactor package)

@@ -5,16 +5,20 @@ import net.minecraft.client.main.Main;
 import net.minecraft.client.multiplayer.GuiConnecting;
 
 /**
- * Headless multiplayer smoke test (Phase 6C): boot client, wait for main menu,
+ * Headless multiplayer smoke driver (Phase 6C): boot client, wait for main menu,
  * then programmatically connect to a local vanilla 1.8.9 server at 127.0.0.1:25565.
  * Exercises the full Netty network stack: handshake, login (encryption negotiation
  * — offline server skips actual encryption but runs the login flow), compression,
  * and play packets (join game, chunk data, player spawn).
  *
- * Prereq: a vanilla 1.8.9 server running offline on 127.0.0.1:25565.
- * Run:  java @jvm-args-jdk25.txt -cp <testclasses>;<jar> ServerJoinTest  (cwd = test_run)
+ * Prereq: a vanilla 1.8.9 server running offline at 127.0.0.1:25565.
+ * Run:  java @jvm-args-jdk25.txt -cp {@literal <}testclasses{@literal >};{@literal <}jar{@literal >} ServerJoinDriver  (cwd = test_run)
+ *
+ * <p><b>Renamed from {@code ServerJoinTest} on 2026-10-04.</b> Like {@link SmokeDriver} it is a
+ * {@code main()}-driven launcher with no {@code @Test} method, so the {@code *Test} name put it
+ * in every collectable-class count while it could never have been run by surefire.
  */
-public class ServerJoinTest {
+public class ServerJoinDriver {
 
     private static final long MENU_TIMEOUT_MS = 60_000L;
     private static final long JOIN_RUN_MS = 20_000L;
@@ -22,7 +26,7 @@ public class ServerJoinTest {
     private static final int PORT = 25565;
 
     public static void main(String[] args) throws Exception {
-        Thread watchdog = new Thread(ServerJoinTest::drive, "ServerJoin-watchdog");
+        Thread watchdog = new Thread(ServerJoinDriver::drive, "ServerJoin-watchdog");
         watchdog.setDaemon(true);
         watchdog.start();
         Main.main(new String[] {
