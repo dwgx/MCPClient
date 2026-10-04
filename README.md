@@ -2,6 +2,20 @@
 
 A live [Minecraft](https://www.minecraft.net/) 1.8.9 client (LWJGL3, JDK 25) exposed to an LLM over [MCP](https://modelcontextprotocol.io/). The model can observe, act on, hot-swap, and debug the running JVM. Every tool call goes through a 7-layer NT-style privilege kernel.
 
+> ### ARCHIVED — 2026-10-04
+>
+> **This project is closed and receives no further operations work.** The tree builds, the
+> suite is green and every number in it is reproducible with one command. The closing record —
+> what was finished, **what was not**, and **what will still be true after the archive** (the
+> trust chain expires 2027-09-30, and the root-rotation ceremony cannot currently be re-run) —
+> is [`docs/ARCHIVE.md`](docs/ARCHIVE.md).
+>
+> The code remains, and remains checkable:
+>
+> ```bash
+> python scripts/test-census.py --run    # the test count, and why it is that number
+> ```
+
 Site: <https://dwgx.github.io/MCPClient/>
 
 This is a research project. It is not affiliated with Mojang or Microsoft. Minecraft is a trademark of Mojang.
@@ -61,3 +75,5 @@ scripts\run-mcp-overlay.bat
 
 Tracked design notes live under [`docs/`](docs/). Start at [`docs/README.md`](docs/README.md).
 The agency path (one command to an in-game action) is [`docs/agency/command-to-action.md`](docs/agency/command-to-action.md).
+
+Project status and closing record: [`docs/ARCHIVE.md`](docs/ARCHIVE.md).
