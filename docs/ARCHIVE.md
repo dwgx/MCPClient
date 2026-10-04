@@ -41,6 +41,26 @@ other 22 are `*IT` integration classes that `mvn test` structurally cannot reach
 different population behind different flags and are never added to the number above. The
 convention is `docs/agency/test-census.md`; the command is `scripts/test-census.py`.
 
+### 2.1 The history is five eras, not a build log
+
+The shape of the first era decides how the rest reads:
+
+| era | when | commits | what it was for |
+|---|---|---|---|
+| **A** | 07-09 → 07-10 | 35 | The port itself. `5eec5b9` is **4,742 files, +318,361** — that single root commit is the vendored Minecraft 1.8.9 tree dropping in. Then the 7-layer reference monitor (`efa04a2`), the hot-redefine loader (`08aff5f`), and C1/C3/C5/C7/C8 behind the gate (`aff7597`, +4,933 across 47 files) |
+| **B** | 07-11 → 07-12 | 20 | Tool-surface discipline. Every tool annotated with its preconditions (`23dfc3b`), the L6 strict-handle posture closing a voluntary-gating bypass (`7226336`), and the `.gitmessage` template |
+| **C** | 07-13 → 07-14 | 35 | The trust chain. First real ASM patch (KI-4), the kernel Ed25519 key baked and rotated, then TUF L0→L3 in four steps — bind arming to transform behaviour, version chain, verify to root, snapshot/timestamp |
+| **D** | 07-15 | 35 | Observation and actuation. `world_view` structured observation (W1–W9), then `ActRuntime` + synthetic input + act tools (**+4,161 across 43 files**), the event/board convergence, and the W1–W6 packet-exposure ladder |
+| **E** | 07-16 → 10-03 | the rest | Adversarial review, macOS port, the qml4j product cutover, then the eval/north-star push: the seam into `core/src/main`, the rulers, the night as a place with an address |
+
+**Two erasures are worth naming**, because the record would otherwise look cleaner than it was.
+Six `reset` events on 2026-10-01 discarded `PROBE`-labelled work; two of them (`8de876f`,
+`c7e6a1f`) were re-committed in the same second with byte-identical subjects, so the content
+survived and only the SHA died. And `1dbf475` (2026-07-17) removed **−13,433** lines — the whole
+in-game UI backend set: `dwm-gl`, `dwm-skiko`, `dwm-imgui`, the MD3 component tree, the theme,
+the compositor — on an Owner decision, replaced by a single qml4j `GuiScreen`. The tree today
+has none of them and `CLAUDE.md` says so.
+
 | | |
 |---|---|
 | commits | **341**, first `5eec5b9` 2026-07-10 "Minecraft 1.8.9 on LWJGL 3 + JDK 25 — clean base (v1.0.0)" |
@@ -191,7 +211,7 @@ Also unfinished, and stated so rather than implied:
 
 ---
 
-## 7. Two things that will still be true after the archive
+## 7. Three things that will still be true after the archive
 
 **These outlive the project and are the reason this file exists beyond a changelog.**
 
