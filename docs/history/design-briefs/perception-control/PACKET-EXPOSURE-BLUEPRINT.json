@@ -1,0 +1,1498 @@
+{
+ "note": "full 108-packet blueprint (7 category agents + 2 entity agents); tools+security in PACKET-EXPOSURE-TOOLS.md",
+ "specCount": 107,
+ "specs": [
+  {
+   "packet": "S3BPacketScoreboardObjective",
+   "direction": "IN",
+   "tier": "A",
+   "batchGroup": "",
+   "category": "scoreboard/tablist",
+   "formatString": "scoreObjective name=%s mode=%s value=\"%s\" render=%s",
+   "getters": [
+    "func_149339_c()",
+    "func_149338_e()",
+    "func_149337_d()",
+    "func_179817_d()"
+   ],
+   "notes": "func_149339_c()=objectiveName (always on wire). func_149338_e()=mode int: 0=create,1=remove,2=update -> map to create|remove|update, fall back to raw int if other. func_149337_d()=displayName(objectiveValue) and func_179817_d()=EnumRenderType are ONLY on the wire when mode==0||mode==2 (see readPacketData guard); for mode==1(remove) both are null -> emit value=\"-\" render=- , do NOT invent them. EnumRenderType has no plain getName; use .name() (INTEGER|HEARTS) or its wire form func_178796_a() (\"integer\"|\"hearts\"); null-guard the enum. All reads are synchronous public getters, returns String only. Tier A: sidebar/scoreboard title is genuine server-state perception for an LLM."
+  },
+  {
+   "packet": "S3CPacketUpdateScore",
+   "direction": "IN",
+   "tier": "A",
+   "batchGroup": "",
+   "category": "scoreboard/tablist",
+   "formatString": "scoreUpdate action=%s player=%s obj=%s value=%d",
+   "getters": [
+    "getScoreAction()",
+    "getPlayerName()",
+    "getObjectiveName()",
+    "getScoreValue()"
+   ],
+   "notes": "getScoreAction()=Action enum CHANGE|REMOVE (null-guard -> ?). getPlayerName()=the scoreholder/entry name. getObjectiveName()=objective. getScoreValue()=int, but it is ONLY read off the wire when action!=REMOVE (readPacketData skips it for REMOVE, leaving default 0); for REMOVE do NOT print a real value -> emit value=- (or omit the value= token). So concretely: CHANGE -> full format with value=%d; REMOVE -> scoreUpdate action=remove player=%s obj=%s (no fabricated value). Tier A: these are the actual numbers shown in the sidebar/tab, high-value perception."
+  },
+  {
+   "packet": "S3DPacketDisplayScoreboard",
+   "direction": "IN",
+   "tier": "A",
+   "batchGroup": "",
+   "category": "scoreboard/tablist",
+   "formatString": "scoreDisplay slot=%s obj=%s",
+   "getters": [
+    "func_149371_c()",
+    "func_149370_d()"
+   ],
+   "notes": "func_149371_c()=position int: 0=list(playerlist),1=sidebar,2=belowName -> map to list|sidebar|belowName, fall back to raw int otherwise. func_149370_d()=scoreName (the objective bound to that display slot); an empty string \"\" means the slot is being CLEARED -> emit obj=- for empty, never invent a name. Small but honest: tells which objective occupies which display slot. Tier A (cheap dedicated one-liner); demote to C only if slot mapping is considered noise."
+  },
+  {
+   "packet": "S3EPacketTeams",
+   "direction": "IN",
+   "tier": "A",
+   "batchGroup": "",
+   "category": "scoreboard/tablist",
+   "formatString": "team name=%s action=%s display=\"%s\" prefix=\"%s\" suffix=\"%s\" color=%d vis=%s flags=%d players=%d",
+   "getters": [
+    "getName()",
+    "getAction()",
+    "getDisplayName()",
+    "getPrefix()",
+    "getSuffix()",
+    "getColor()",
+    "getNameTagVisibility()",
+    "getFriendlyFlags()",
+    "getPlayers()"
+   ],
+   "notes": "getName()=team registered name (always on wire). getAction()=int: 0=create,1=remove,2=update,3=addPlayers,4=removePlayers -> map to create|remove|update|addPlayers|removePlayers. HONESTY on conditional fields: getDisplayName/getPrefix/getSuffix/getFriendlyFlags/getNameTagVisibility/getColor are ONLY on the wire when action==0||action==2 (readPacketData guard); for actions 1/3/4 they hold ctor defaults (\"\", color=-1, vis=ALWAYS) NOT server data -> only append the display/prefix/suffix/color/vis/flags block when action==0||2. getPlayers() (Collection<String>) is ONLY populated when action==0||3||4 -> only append players= when in those actions; for action 1/2 it is empty. color is EnumChatFormatting index, -1 = none/reset -> print raw int (or 'none' for -1). Recommend emitting players=<count> only (optionally first few names) to keep the line short; full roster can be large. Suggested concrete build: base 'team name=<n> action=<a>'; + ' display=\"..\" prefix=\"..\" suffix=\"..\" color=N vis=<internalName> flags=N' when 0/2; + ' players=<size>' when 0/3/4. Tier A: team prefix/suffix/color drive nametag color and friend/foe state, useful perception."
+  },
+  {
+   "packet": "S38PacketPlayerListItem",
+   "direction": "IN",
+   "tier": "A",
+   "batchGroup": "",
+   "category": "scoreboard/tablist",
+   "formatString": "playerList action=%s count=%d names=%s",
+   "getters": [
+    "getAction()",
+    "getEntries()",
+    "AddPlayerData.getProfile()",
+    "GameProfile.getName()",
+    "AddPlayerData.getPing()",
+    "AddPlayerData.getGameMode()"
+   ],
+   "notes": "ALREADY IMPLEMENTED as HighValueSummarizers.PlayerList (registered by exact name) -> hasSummarizer=true. Current behavior is correct & honest: emits action + entry count, and for ADD_PLAYER joins GameProfile.getName(); for REMOVE_PLAYER the name is genuinely NOT on the wire (readPacketData decodes GameProfile(uuid, null)) so it emits only count -> keep that, do not invent names. OPTIONAL improvements only (not required): for ADD_PLAYER also surface ping/gamemode via AddPlayerData.getPing()/getGameMode() (both on wire for ADD); for UPDATE_LATENCY show ping (on wire), for UPDATE_GAME_MODE show gamemode (on wire) instead of only action+count. displayName (getDisplayName()) is optional on wire (boolean-gated) -> null-guard if used. No change strictly needed."
+  },
+  {
+   "packet": "S06PacketUpdateHealth",
+   "direction": "IN",
+   "category": "player-vitals",
+   "tier": "A",
+   "formatString": "health hp=%.2f food=%d sat=%.2f",
+   "getters": [
+    "getHealth()",
+    "getFoodLevel()",
+    "getSaturationLevel()"
+   ],
+   "batchGroup": "",
+   "notes": "hasSummarizer (Health, HighValueSummarizers.java:177). All three fields are on the wire and have public no-arg getters (health float, foodLevel varint, saturationLevel float). Existing summary is exact and complete — NO work needed, no improvement to make."
+  },
+  {
+   "packet": "S1FPacketSetExperience",
+   "direction": "IN",
+   "category": "player-vitals",
+   "tier": "A",
+   "formatString": "xp bar=%.2f level=%d total=%d",
+   "getters": [
+    "func_149397_c()",
+    "getLevel()",
+    "getTotalExperience()"
+   ],
+   "batchGroup": "",
+   "notes": "NEW. Perception-critical (xp bar fill + level gate crafting/enchant). func_149397_c() is the obfuscated getter for the bar-fill field (field_149401_a), a float in 0.0..1.0 — NOT experience points. getLevel() and getTotalExperience() are clear-named. All three on the wire (readFloat + 2 varints). Use f2 for bar fill."
+  },
+  {
+   "packet": "S42PacketCombatEvent",
+   "direction": "IN",
+   "category": "combat",
+   "tier": "A",
+   "formatString": "combat event=%s death=\"%s\"",
+   "getters": [
+    "eventType",
+    "deathMessage",
+    "field_179774_b",
+    "field_179775_c",
+    "field_179772_d"
+   ],
+   "batchGroup": "",
+   "notes": "hasSummarizer (Combat, HighValueSummarizers.java:194). eventType and deathMessage are PUBLIC fields (no getters) — accessed directly. deathMessage is only populated for ENTITY_DIED (server ctor already calls getUnformattedText); it is genuinely absent (null) for ENTER_COMBAT/END_COMBAT, and the existing code correctly emits no fake message. IMPROVEMENT (optional, honest): the eids are on the wire and are public int fields — for ENTITY_DIED add fighter=field_179774_b (dead entity) and killer=field_179775_c (attacker, -1 if none); for END_COMBAT field_179772_d is combat duration and field_179775_c the entity. ENTER_COMBAT carries nothing beyond the enum. Suggested enriched form: `combat event=ENTITY_DIED fighter=%d killer=%d death=\"%s\"`. Keep 120-char truncation on death msg."
+  },
+  {
+   "packet": "S00PacketKeepAlive",
+   "direction": "IN",
+   "category": "session-liveness",
+   "tier": "A",
+   "formatString": "keepAlive id=%d",
+   "getters": [
+    "func_149134_c()"
+   ],
+   "batchGroup": "",
+   "notes": "hasSummarizer (KeepAlive, HighValueSummarizers.java:104). Control-critical for liveness but thin BY NATURE: the wire carries a single varint id (field 'id', obfuscated getter func_149134_c()). Nothing to enrich — the existing one-field summary is already the whole packet. NO work."
+  },
+  {
+   "packet": "S01PacketJoinGame",
+   "direction": "IN",
+   "category": "session-context",
+   "tier": "A",
+   "formatString": "join eid=%d mode=%s dim=%d diff=%s hardcore=%b type=%s max=%d",
+   "getters": [
+    "getEntityId()",
+    "getGameType().getName()",
+    "getDimension()",
+    "getDifficulty().name()",
+    "isHardcoreMode()",
+    "getWorldType().getWorldTypeName()",
+    "getMaxPlayers()"
+   ],
+   "batchGroup": "",
+   "notes": "NEW. Fires once at world entry; establishes the session frame the LLM needs (own entityId, gamemode, dimension, difficulty). All fields on the wire with public getters. getGameType() returns WorldSettings.GameType enum -> getName() gives 'survival'/'creative'/'adventure'/'spectator' (WorldSettings.java:157); guard null (getByID can theoretically miss) -> use \"?\". getDifficulty() is EnumDifficulty enum -> name() (PEACEFUL/EASY/NORMAL/HARD); getWorldType() -> getWorldTypeName() (WorldType.java:55, e.g. 'default'/'flat'), guard null. hardcoreMode is decoded from a flag bit and exposed via isHardcoreMode(). isReducedDebugInfo() is also available but low-value; omit."
+  },
+  {
+   "packet": "S02PacketChat",
+   "direction": "IN",
+   "category": "chat",
+   "tier": "A",
+   "formatString": "chat type=%d text=\"%s\"",
+   "getters": [
+    "getType()",
+    "getChatComponent()",
+    "getChatComponent().getUnformattedText()"
+   ],
+   "batchGroup": "",
+   "notes": "hasSummarizer (Chat, HighValueSummarizers.java:131). type is a byte on the wire (2 = above action bar, else chat window); getType() returns it. chatComponent -> getUnformattedText() with try/catch and 120-char truncation, already done correctly. NO work needed."
+  },
+  {
+   "packet": "S45PacketTitle",
+   "direction": "IN",
+   "category": "chat",
+   "tier": "A",
+   "formatString": "title type=%s text=\"%s\"",
+   "getters": [
+    "getType()",
+    "getMessage()",
+    "getMessage().getUnformattedText()",
+    "getFadeInTime()",
+    "getDisplayTime()",
+    "getFadeOutTime()"
+   ],
+   "batchGroup": "",
+   "notes": "NEW. Server pushes on-screen title/subtitle text an LLM should perceive. getType() -> S45PacketTitle.Type enum {TITLE, SUBTITLE, TIMES, CLEAR, RESET}. HONESTY: message (IChatComponent) is ONLY on the wire for TITLE/SUBTITLE — for TIMES/CLEAR/RESET getMessage() returns null, so do NOT emit text there. The fade/stay/fadeOut ints are ONLY on the wire for TIMES (else they stay at the ctor default -1). Branch by type: TITLE/SUBTITLE -> `title type=%s text=\"%s\"` (getUnformattedText, 120-cap, null-guard); TIMES -> `title type=TIMES fadeIn=%d stay=%d fadeOut=%d`; CLEAR/RESET -> `title type=%s` (no payload). Wrap getUnformattedText in try/catch like Chat."
+  },
+  {
+   "packet": "S3APacketTabComplete",
+   "direction": "IN",
+   "category": "tab-complete",
+   "tier": "A",
+   "formatString": "tabMatches count=%d matches=%s",
+   "getters": [
+    "func_149630_c()"
+   ],
+   "batchGroup": "",
+   "notes": "NEW. Server's reply to a tab-complete request — the candidate completions, useful for command assistance. Single field 'matches' (String[]), obfuscated getter func_149630_c(). No count field on the wire; derive count from array length (null-guard the array). Join matches with ',' and cap the joined string (e.g. 120 chars + ellipsis) since it can be long. matches='-' when empty/null."
+  },
+  {
+   "packet": "C01PacketChatMessage",
+   "direction": "OUT",
+   "category": "chat",
+   "tier": "A",
+   "formatString": "chatOut text=\"%s\"",
+   "getters": [
+    "getMessage()"
+   ],
+   "batchGroup": "",
+   "notes": "NEW. The client's OWN outbound chat/command — control-confirmation of what the agent said. Single field 'message' (String), getMessage(). Server-clamped to 100 chars by the ctor already, so truncation is optional but keep a safety cap. This is the honest record of agent chat egress (pairs with the S02 inbound summary)."
+  },
+  {
+   "packet": "C02PacketUseEntity",
+   "direction": "OUT",
+   "category": "combat",
+   "tier": "A",
+   "formatString": "useEntity action=%s hit=%.2f,%.2f,%.2f",
+   "getters": [
+    "getAction()",
+    "getHitVec()",
+    "getHitVec().xCoord",
+    "getHitVec().yCoord",
+    "getHitVec().zCoord"
+   ],
+   "batchGroup": "",
+   "notes": "NEW. Control-critical: the agent's own attack/interact intent on an entity. getAction() -> C02PacketUseEntity.Action enum {INTERACT, ATTACK, INTERACT_AT}. HONESTY BOUNDARY: the target entityId IS on the wire but has NO public no-arg getter — the only accessor is getEntityFromWorld(World worldIn), which requires a World reference the summarizer must not take/retain. So the summary CANNOT honestly emit the target eid; emit action only (and hit vec for INTERACT_AT). hitVec is ONLY present for INTERACT_AT (getHitVec() null otherwise); Vec3 exposes public xCoord/yCoord/zCoord doubles. Branch: INTERACT_AT -> `useEntity action=INTERACT_AT hit=%.2f,%.2f,%.2f`; else -> `useEntity action=%s`. Null-guard hitVec."
+  },
+  {
+   "packet": "C0APacketAnimation",
+   "direction": "OUT",
+   "category": "combat",
+   "tier": "C",
+   "formatString": "",
+   "getters": [],
+   "batchGroup": "",
+   "notes": "NEW / generic fallback. The packet has ZERO payload — readPacketData/writePacketData are empty, no fields, no getters. The only honest signal is packet identity itself ('the client swung its arm', typically the attack/use animation). There is nothing to read, so no dedicated summarizer is warranted; the generic class-name fallback fully conveys the available information. formatString intentionally empty — no work."
+  },
+  {
+   "packet": "C14PacketTabComplete",
+   "direction": "OUT",
+   "category": "tab-complete",
+   "tier": "A",
+   "formatString": "tabComplete msg=\"%s\" target=%s",
+   "getters": [
+    "getMessage()",
+    "getTargetBlock()",
+    "getTargetBlock().getX()",
+    "getTargetBlock().getY()",
+    "getTargetBlock().getZ()"
+   ],
+   "batchGroup": "",
+   "notes": "NEW. The client's OUTBOUND tab-complete request (pairs with S3A inbound). Fields: message (String, getMessage()) and targetBlock (BlockPos, getTargetBlock(), NULLABLE — only sent when the client is pointing at a block). HONESTY: targetBlock is genuinely absent when null (a bool flag on the wire gates it) — emit target=none rather than fake coords; when present render x,y,z from BlockPos getX/getY/getZ. Cap message length. Note: distinct wire shape from S3A, so they do NOT share a parameterized summarizer (no batch group)."
+  },
+  {
+   "packet": "S2DPacketOpenWindow",
+   "direction": "IN",
+   "tier": "A",
+   "formatString": "openWindow id=%d type=%s slots=%d title=\"%s\"",
+   "getters": [
+    "getWindowId()",
+    "getGuiId()",
+    "getSlotCount()",
+    "getWindowTitle()",
+    "getEntityId()",
+    "hasSlots()"
+   ],
+   "batchGroup": "",
+   "category": "inventory/windows",
+   "notes": "Perception-critical: tells the LLM a container UI opened and its shape. title = getWindowTitle().getUnformattedText() with null-guard (IChatComponent, same pattern as S02 Chat). getEntityId() is ONLY populated when getGuiId().equals(\"EntityHorse\") (see readPacketData) — emit horse=<eid> only in that case, otherwise it is a meaningless 0 and must be omitted (honesty). Consider appending horse=%d conditionally."
+  },
+  {
+   "packet": "S2FPacketSetSlot",
+   "direction": "IN",
+   "tier": "A",
+   "formatString": "setSlot win=%d slot=%d item=%s",
+   "getters": [
+    "func_149175_c()",
+    "func_149173_d()",
+    "func_149174_e()"
+   ],
+   "batchGroup": "",
+   "category": "inventory/windows",
+   "notes": "All three accessors are obfuscated: func_149175_c()=windowId, func_149173_d()=slot, func_149174_e()=ItemStack. Core perception of a single-slot update. item via shared item(ItemStack) helper -> \"empty\" when func_149174_e() returns null."
+  },
+  {
+   "packet": "S30PacketWindowItems",
+   "direction": "IN",
+   "tier": "A",
+   "formatString": "windowItems win=%d slots=%d nonEmpty=%d",
+   "getters": [
+    "func_148911_c()",
+    "getItemStacks()"
+   ],
+   "batchGroup": "",
+   "category": "inventory/windows",
+   "notes": "func_148911_c() is the obfuscated windowId getter; getItemStacks() returns ItemStack[] (may contain nulls for empty slots). slots = array length, nonEmpty = count of non-null entries computed in one loop. Deliberately does NOT enumerate every item (a full inventory would blow the one-line budget); a rich per-slot dump belongs behind a dedicated tool, not the summarizer. Guard against a null array (defensive)."
+  },
+  {
+   "packet": "S31PacketWindowProperty",
+   "direction": "IN",
+   "tier": "A",
+   "formatString": "windowProperty win=%d prop=%d value=%d",
+   "getters": [
+    "getWindowId()",
+    "getVarIndex()",
+    "getVarValue()"
+   ],
+   "batchGroup": "",
+   "category": "inventory/windows",
+   "notes": "Clean public getters. Carries furnace burn/cook progress, enchant levels, brewing, beacon, etc. as (index,value) pairs — the meaning of prop depends on the open container type which this packet does not carry, so we honestly emit raw prop/value and do not label them (no invented semantics)."
+  },
+  {
+   "packet": "S32PacketConfirmTransaction",
+   "direction": "IN",
+   "tier": "B",
+   "formatString": "confirmTransaction win=%d action=%d accepted=%b",
+   "getters": [
+    "getWindowId()",
+    "getActionNumber()",
+    "func_148888_e()"
+   ],
+   "batchGroup": "ConfirmTransaction",
+   "category": "inventory/windows",
+   "notes": "func_148888_e() is the obfuscated accepted-flag getter (returns boolean field_148893_c). Shares batchGroup ConfirmTransaction with the outbound C0FPacketConfirmTransaction, but the shared summarizer must instanceof-branch: S32 exposes accepted via func_148888_e() while C0F does NOT expose its accepted flag at all. Low-richness handshake packet — B rather than A."
+  },
+  {
+   "packet": "S09PacketHeldItemChange",
+   "direction": "IN",
+   "tier": "A",
+   "formatString": "heldItemChange slot=%d",
+   "getters": [
+    "getHeldItemHotbarIndex()"
+   ],
+   "batchGroup": "",
+   "category": "inventory/windows",
+   "notes": "Server force-selects a hotbar index 0-8. Single clean getter. Control/perception relevant (LLM needs to know its selected slot changed), so A despite being one int. Distinguished from the client-side C09 by the IN/OUT direction tag, not by name."
+  },
+  {
+   "packet": "S2EPacketCloseWindow",
+   "direction": "IN",
+   "tier": "C",
+   "formatString": "",
+   "getters": [],
+   "batchGroup": "",
+   "category": "inventory/windows",
+   "notes": "HONESTY: the only wire field is windowId (private), and this class exposes NO public getter for it (verified: no accessor methods at all). Cannot be summarized beyond the generic class name without reflection, so generic fallback (GenericPacketSummarizer) — no summarizer work. Do not invent a windowId."
+  },
+  {
+   "packet": "C0EPacketClickWindow",
+   "direction": "OUT",
+   "tier": "A",
+   "formatString": "clickWindow win=%d slot=%d button=%d mode=%d action=%d item=%s",
+   "getters": [
+    "getWindowId()",
+    "getSlotId()",
+    "getUsedButton()",
+    "getMode()",
+    "getActionNumber()",
+    "getClickedItem()"
+   ],
+   "batchGroup": "",
+   "category": "inventory/windows",
+   "notes": "The primary control packet for inventory manipulation — the LLM's own clicks. All fields have clean public getters. item via shared item(ItemStack) helper on getClickedItem() (-> \"empty\" when null, which is normal for empty-slot clicks). mode = inventory operation mode (0 pickup,1 shift,2 hotbar-swap,3 middle,4 drop,5 drag,6 double) but this packet does not name modes, so emit raw mode (no invented labels)."
+  },
+  {
+   "packet": "C10PacketCreativeInventoryAction",
+   "direction": "OUT",
+   "tier": "A",
+   "formatString": "creativeSet slot=%d item=%s",
+   "getters": [
+    "getSlotId()",
+    "getStack()"
+   ],
+   "batchGroup": "",
+   "category": "inventory/windows",
+   "notes": "Creative-mode direct slot set. Clean getters. item via shared item(ItemStack) helper on getStack() (\"empty\" when null = clearing the slot). Perception/control relevant: reveals the LLM spawning/removing items in creative."
+  },
+  {
+   "packet": "C11PacketEnchantItem",
+   "direction": "OUT",
+   "tier": "A",
+   "formatString": "enchantItem win=%d button=%d",
+   "getters": [
+    "getWindowId()",
+    "getButton()"
+   ],
+   "batchGroup": "",
+   "category": "inventory/windows",
+   "notes": "Client selects one of the 3 enchantment-table offers (button 0-2). Both fields have clean public getters. Small but action-meaningful (the LLM committing an enchant), so A."
+  },
+  {
+   "packet": "C0FPacketConfirmTransaction",
+   "direction": "OUT",
+   "tier": "B",
+   "formatString": "confirmTransaction win=%d uid=%d",
+   "getters": [
+    "getWindowId()",
+    "getUid()"
+   ],
+   "batchGroup": "ConfirmTransaction",
+   "category": "inventory/windows",
+   "notes": "HONESTY: getWindowId() and getUid() (the action/transaction id) are public, but the boolean accepted field has NO public getter (verified — only windowId and uid have accessors), so accepted CANNOT appear in the summary without reflection and must be omitted. Shares batchGroup ConfirmTransaction with S32, but note the getter-name divergence (getUid() here vs getActionNumber() on S32) and the missing accepted getter mean the shared summarizer must type-switch. B tier (handshake)."
+  },
+  {
+   "packet": "C09PacketHeldItemChange",
+   "direction": "OUT",
+   "tier": "A",
+   "formatString": "heldItemChange slot=%d",
+   "getters": [
+    "getSlotId()"
+   ],
+   "batchGroup": "",
+   "category": "inventory/windows",
+   "notes": "Client selects a hotbar slot 0-8. Single clean getter getSlotId() (note: named differently from S09's getHeldItemHotbarIndex(), so no shared getter with the server variant — keep it its own summarizer). Distinguished from S09 by the OUT direction tag."
+  },
+  {
+   "packet": "C0DPacketCloseWindow",
+   "direction": "OUT",
+   "tier": "C",
+   "formatString": "",
+   "getters": [],
+   "batchGroup": "",
+   "category": "inventory/windows",
+   "notes": "HONESTY: only wire field is windowId (private) and there is NO public getter (verified: no accessor methods). Generic fallback — no summarizer work. Do not invent a windowId. Mirror of S2EPacketCloseWindow on the client side."
+  },
+  {
+   "packet": "S08PacketPlayerPosLook",
+   "direction": "IN",
+   "tier": "A",
+   "category": "movement",
+   "formatString": "posLook x=%.2f y=%.2f z=%.2f yaw=%.1f pitch=%.1f rel=%s",
+   "getters": [
+    "getX()",
+    "getY()",
+    "getZ()",
+    "getYaw()",
+    "getPitch()",
+    "func_179834_f()"
+   ],
+   "notes": "ALREADY IMPLEMENTED (HighValueSummarizers.PosLook, exact-name). No improvement needed. x/y/z are double, yaw/pitch float; func_179834_f() returns Set<EnumFlags> naming which axes are RELATIVE — empty set means absolute teleport (existing code prints rel=abs vs the flag set). This is the authoritative player-reposition, control-critical."
+  },
+  {
+   "packet": "S14PacketEntity",
+   "direction": "IN",
+   "tier": "B",
+   "batchGroup": "EntityRelMove",
+   "category": "movement",
+   "formatString": "entityMove dx=%.3f dy=%.3f dz=%.3f yaw=%.1f pitch=%.1f look=%b ground=%b",
+   "getters": [
+    "func_149062_c()",
+    "func_149061_d()",
+    "func_149064_e()",
+    "func_149066_f()",
+    "func_149063_g()",
+    "func_149060_h()",
+    "getOnGround()"
+   ],
+   "notes": "Base packet: entity is present but did not move/rotate this tick (deltas 0). Shared 'EntityRelMove' summarizer keyed by exact class handles S14/S15/S16/S17. Decode: dx=func_149062_c()/32.0 (byte, 1/32-block per-tick delta), same for dy=func_149061_d(), dz=func_149064_e(); yaw=func_149066_f()*360f/256f, pitch=func_149063_g()*360f/256f (byte-angle); look=func_149060_h() (field_149069_g, true when rotation is present); ground=getOnGround(). HONESTY: entityId has NO public no-arg getter (protected field; only getEntity(World) exists), so the summary CANNOT identify which entity moved — do not fabricate an eid."
+  },
+  {
+   "packet": "S14PacketEntity$S15PacketEntityRelMove",
+   "direction": "IN",
+   "tier": "B",
+   "batchGroup": "EntityRelMove",
+   "category": "movement",
+   "formatString": "entityMove dx=%.3f dy=%.3f dz=%.3f yaw=%.1f pitch=%.1f look=%b ground=%b",
+   "getters": [
+    "func_149062_c()",
+    "func_149061_d()",
+    "func_149064_e()",
+    "func_149066_f()",
+    "func_149063_g()",
+    "func_149060_h()",
+    "getOnGround()"
+   ],
+   "notes": "Relative position only (posX/posY/posZ + onGround; no rotation, so func_149060_h()=false and yaw/pitch read 0). Same shared summarizer as S14. dx=func_149062_c()/32.0 blocks. HONESTY: no public entityId getter (see S14). High-frequency packet — batch tier keeps it cheap."
+  },
+  {
+   "packet": "S14PacketEntity$S16PacketEntityLook",
+   "direction": "IN",
+   "tier": "B",
+   "batchGroup": "EntityRelMove",
+   "category": "movement",
+   "formatString": "entityMove dx=%.3f dy=%.3f dz=%.3f yaw=%.1f pitch=%.1f look=%b ground=%b",
+   "getters": [
+    "func_149066_f()",
+    "func_149063_g()",
+    "func_149060_h()",
+    "getOnGround()"
+   ],
+   "notes": "Rotation only (yaw/pitch + onGround; posX/Y/Z read 0 so dx/dy/dz=0.0). func_149060_h()=true. yaw=func_149066_f()*360f/256f, pitch=func_149063_g()*360f/256f. Same shared summarizer. HONESTY: no public entityId getter."
+  },
+  {
+   "packet": "S14PacketEntity$S17PacketEntityLookMove",
+   "direction": "IN",
+   "tier": "B",
+   "batchGroup": "EntityRelMove",
+   "category": "movement",
+   "formatString": "entityMove dx=%.3f dy=%.3f dz=%.3f yaw=%.1f pitch=%.1f look=%b ground=%b",
+   "getters": [
+    "func_149062_c()",
+    "func_149061_d()",
+    "func_149064_e()",
+    "func_149066_f()",
+    "func_149063_g()",
+    "func_149060_h()",
+    "getOnGround()"
+   ],
+   "notes": "Relative move + rotation (all fields meaningful). func_149060_h()=true. Same shared summarizer as S14/S15/S16. dx=func_149062_c()/32.0 blocks, yaw=func_149066_f()*360f/256f deg. HONESTY: no public entityId getter."
+  },
+  {
+   "packet": "S18PacketEntityTeleport",
+   "direction": "IN",
+   "tier": "A",
+   "category": "movement",
+   "formatString": "entityTeleport eid=%d x=%.2f y=%.2f z=%.2f yaw=%.1f pitch=%.1f ground=%b",
+   "getters": [
+    "getEntityId()",
+    "getX()",
+    "getY()",
+    "getZ()",
+    "getYaw()",
+    "getPitch()",
+    "getOnGround()"
+   ],
+   "notes": "Absolute entity reposition — the one entity-motion packet that DOES expose getEntityId() (public int), so it names the entity. Decode: x=getX()/32.0, y=getY()/32.0, z=getZ()/32.0 (int, 1/32-block fixed-point ABSOLUTE coords); yaw=getYaw()*360f/256f, pitch=getPitch()*360f/256f (byte-angle). Tier A because it carries eid + absolute world position (desync corrections, vehicle/large moves) — high perception value, unlike the anonymous relative S15/S17."
+  },
+  {
+   "packet": "S19PacketEntityHeadLook",
+   "direction": "IN",
+   "tier": "C",
+   "category": "movement",
+   "formatString": "",
+   "getters": [
+    "getYaw()"
+   ],
+   "notes": "Generic fallback — no rich summarizer. On the wire it carries only entityId + a single head-yaw byte. HONESTY: entityId has NO public no-arg getter (only getEntity(World)), and getYaw() alone (byte head-yaw, deg=getYaw()*360/256) is near-useless for an LLM without knowing which entity's head turned. Not worth a dedicated summarizer; falls through to the generic packet-name fallback."
+  },
+  {
+   "packet": "S39PacketPlayerAbilities",
+   "direction": "IN",
+   "tier": "A",
+   "category": "movement",
+   "formatString": "abilities inv=%b fly=%b allowFly=%b creative=%b flySpeed=%.3f walkSpeed=%.3f",
+   "getters": [
+    "isInvulnerable()",
+    "isFlying()",
+    "isAllowFlying()",
+    "isCreativeMode()",
+    "getFlySpeed()",
+    "getWalkSpeed()"
+   ],
+   "notes": "Server-authoritative player capabilities — control-critical: tells the AI whether it may fly (allowFly), whether it is currently flying, creative/invuln state, and its exact fly/walk speeds. All six values exposed via public getters (booleans decoded from a bitmask on the wire, speeds are floats). Tier A: directly gates what movement/control actions are legal."
+  },
+  {
+   "packet": "C03PacketPlayer",
+   "direction": "OUT",
+   "tier": "B",
+   "batchGroup": "C03Move",
+   "category": "movement",
+   "formatString": "move x=%.2f y=%.2f z=%.2f yaw=%.1f pitch=%.1f ground=%b flags=%s",
+   "getters": [
+    "getPositionX()",
+    "getPositionY()",
+    "getPositionZ()",
+    "getYaw()",
+    "getPitch()",
+    "isOnGround()",
+    "isMoving()",
+    "getRotating()"
+   ],
+   "notes": "ALREADY IMPLEMENTED as HighValueSummarizers.Move (registerFallback, prefix-matches C03PacketPlayer and its nested C04PacketPlayerPosition/C05PacketPlayerLook/C06PacketPlayerPosLook — one parameterized summarizer, batchGroup 'C03Move'). flags derived from isMoving()/getRotating(): posLook/pos/look/ground. Only-improvement note: for the bare C03PacketPlayer (neither moving nor rotating, on-ground update) x/y/z are stale 0 — existing code correctly emits flags=ground so the 0s aren't misread as a real position; keep that behavior. No change required."
+  },
+  {
+   "packet": "C0BPacketEntityAction",
+   "direction": "OUT",
+   "tier": "A",
+   "category": "movement",
+   "formatString": "entityAction action=%s aux=%d",
+   "getters": [
+    "getAction()",
+    "getAuxData()"
+   ],
+   "notes": "The AI's own state-change commands: getAction() returns the Action enum (START_SNEAKING, STOP_SNEAKING, STOP_SLEEPING, START_SPRINTING, STOP_SPRINTING, RIDING_JUMP, OPEN_INVENTORY) — print action.name(); getAuxData() is an int only meaningful for RIDING_JUMP (horse jump-charge power), 0 otherwise. HONESTY: entityID is a private field with NO public getter, but on OUT it is always the local player, so omitting it loses nothing. Tier A: control-relevant self-actions."
+  },
+  {
+   "packet": "C0CPacketInput",
+   "direction": "OUT",
+   "tier": "A",
+   "category": "movement",
+   "formatString": "input strafe=%.2f forward=%.2f jump=%b sneak=%b",
+   "getters": [
+    "getStrafeSpeed()",
+    "getForwardSpeed()",
+    "isJumping()",
+    "isSneaking()"
+   ],
+   "notes": "Control-critical: the raw movement-input the client sends every tick. getStrafeSpeed() (float, +left/-right), getForwardSpeed() (float, +forward/-back), isJumping()/isSneaking() (booleans decoded from a bitmask on the wire). All four have clean public getters. Tier A: this is the AI's own locomotion command stream."
+  },
+  {
+   "packet": "C13PacketPlayerAbilities",
+   "direction": "OUT",
+   "tier": "A",
+   "category": "movement",
+   "formatString": "abilitiesReq inv=%b fly=%b allowFly=%b creative=%b",
+   "getters": [
+    "isInvulnerable()",
+    "isFlying()",
+    "isAllowFlying()",
+    "isCreativeMode()"
+   ],
+   "notes": "Client request to change abilities (chiefly toggling fly) — control-relevant. HONESTY: unlike S39, C13 exposes NO getter for flySpeed/walkSpeed — both are private fields with only setInvulnerable/setFlySpeed/setWalkSpeed-style SETTERS. Do NOT invent flySpeed/walkSpeed here; only the four booleans (decoded from a bitmask) are readable. Format deliberately omits the speeds. Tier A on the four booleans that capture the fly-toggle intent."
+  },
+  {
+   "packet": "S2APacketParticles",
+   "direction": "IN",
+   "tier": "B",
+   "batchGroup": "WorldFx",
+   "category": "world-fx-tile-misc",
+   "formatString": "fx particle=%s at=%.2f,%.2f,%.2f count=%d",
+   "getters": [
+    "getParticleType()",
+    "getXCoordinate()",
+    "getYCoordinate()",
+    "getZCoordinate()",
+    "getParticleCount()"
+   ],
+   "notes": "getParticleType() returns EnumParticleTypes; use .name() (enum built-in, always public) for the label. getXCoordinate/Y/Z return double (packet stores float internally). Also available if a richer variant is wanted: isLongDistance(), getXOffset()/getYOffset()/getZOffset() (float spread), getParticleSpeed() (float), getParticleArgs() (int[] block/item color args). Null-guard getParticleType() defensively even though readPacketData falls back to BARRIER on unknown id. High-frequency/low-semantic; batched with S28/S29 under one parameterized WorldFx summarizer that instanceof-branches. No packet retained; all getters are synchronous reads."
+  },
+  {
+   "packet": "S28PacketEffect",
+   "direction": "IN",
+   "tier": "B",
+   "batchGroup": "WorldFx",
+   "category": "world-fx-tile-misc",
+   "formatString": "fx effect=%d at=%d,%d,%d data=%d wide=%b",
+   "getters": [
+    "getSoundType()",
+    "getSoundPos()",
+    "getSoundData()",
+    "isSoundServerwide()"
+   ],
+   "notes": "HONESTY: the field is named soundType but it is actually the effect/event id (vanilla 1000-2006 range: door toggle, dispenser fire, block break fx, portal, wither spawn, etc.) — there is no name table on the wire, so surface the raw int, do not invent an event name. getSoundData() is a block/item id or direction depending on the event. getSoundPos() returns BlockPos (null-guard: read x/y/z only when non-null). isSoundServerwide() true = played world-wide (position irrelevant). Batched with S2A/S29 under WorldFx."
+  },
+  {
+   "packet": "S29PacketSoundEffect",
+   "direction": "IN",
+   "tier": "B",
+   "batchGroup": "WorldFx",
+   "category": "world-fx-tile-misc",
+   "formatString": "fx sound=%s at=%.2f,%.2f,%.2f vol=%.2f pitch=%.2f",
+   "getters": [
+    "getSoundName()",
+    "getX()",
+    "getY()",
+    "getZ()",
+    "getVolume()",
+    "getPitch()"
+   ],
+   "notes": "getSoundName() is the registry string (e.g. \"entity.creeper.primed\", \"random.explode\") — genuinely useful semantic signal. getX/Y/Z decode the fixed-point wire (raw/8) internally and return double; getPitch() decodes raw byte /63 internally. posY defaults to Integer.MAX_VALUE in the empty ctor but readPacketData always overwrites all coords, so decoded getters are safe on received packets. Batched with S2A/S28 under WorldFx."
+  },
+  {
+   "packet": "S2CPacketSpawnGlobalEntity",
+   "direction": "IN",
+   "tier": "A",
+   "batchGroup": "",
+   "category": "world-fx-tile-misc",
+   "formatString": "globalEntity eid=%d type=%s at=%.2f,%.2f,%.2f",
+   "getters": [
+    "func_149052_c()",
+    "func_149053_g()",
+    "func_149051_d()",
+    "func_149050_e()",
+    "func_149049_f()"
+   ],
+   "notes": "ALL getters are obfuscated func_ names: func_149052_c()=entityId, func_149053_g()=type, func_149051_d()=x, func_149050_e()=y, func_149049_f()=z. Coords are fixed-point (raw/32.0 -> double blocks). HONESTY: the only defined type is 1 = lightning bolt (see ctor: EntityLightningBolt -> type 1); emit \"lightning\" for type==1 else the raw int, do not fabricate other names. Tier A because a lightning strike is a discrete perceivable world event with a precise location."
+  },
+  {
+   "packet": "S33PacketUpdateSign",
+   "direction": "IN",
+   "tier": "A",
+   "batchGroup": "",
+   "category": "world-fx-tile-misc",
+   "formatString": "sign at=%d,%d,%d lines=\"%s|%s|%s|%s\"",
+   "getters": [
+    "getPos()",
+    "getLines()",
+    "IChatComponent.getUnformattedText()"
+   ],
+   "notes": "getPos() returns BlockPos (null-guard). getLines() returns IChatComponent[4]; read getUnformattedText() per element, null-guarding both the array and each element. Truncate each line defensively (signs are max ~15 chars/line but be safe). HONESTY: the private `world` field is client-side context only, NOT on the wire and has no getter — do not surface it. Tier A: sign text is directly readable world content, high LLM value for reading in-world messages/waypoints."
+  },
+  {
+   "packet": "S35PacketUpdateTileEntity",
+   "direction": "IN",
+   "tier": "A",
+   "batchGroup": "",
+   "category": "world-fx-tile-misc",
+   "formatString": "tileEntity at=%d,%d,%d type=%d nbt=%s",
+   "getters": [
+    "getPos()",
+    "getTileEntityType()",
+    "getNbtCompound()",
+    "NBTTagCompound.getKeySet()"
+   ],
+   "notes": "getPos() -> BlockPos (null-guard). getTileEntityType() returns the vanilla action/metadata id (1=mob spawner, 2=command block, 3=beacon, 4=skull, 5=flower pot, 6=banner, ...) — surface the raw int honestly, no name table. getNbtCompound() -> NBTTagCompound may be null; do NOT dump the full NBT (arbitrary size, e.g. command-block command text or banner patterns). Emit a compact key summary via getKeySet() (join keys) or \"none\" when null/empty. Tier A because tile-entity updates carry command blocks, spawners and beacons — semantically rich world state."
+  },
+  {
+   "packet": "S47PacketPlayerListHeaderFooter",
+   "direction": "IN",
+   "tier": "A",
+   "batchGroup": "",
+   "category": "world-fx-tile-misc",
+   "formatString": "tabHeaderFooter header=\"%s\" footer=\"%s\"",
+   "getters": [
+    "getHeader()",
+    "getFooter()",
+    "IChatComponent.getUnformattedText()"
+   ],
+   "notes": "getHeader()/getFooter() return IChatComponent; read getUnformattedText() with null-guards. HONESTY: the single-arg ctor sets footer=null (header only), but readPacketData always decodes BOTH fields off the wire, so on received packets both are usually non-null — still null-guard and print \"\" for a null side. Truncate long text to ~120 chars mirroring the existing Chat summarizer. Tier A: tab header/footer often carries server MOTD/rules/status text the LLM should perceive."
+  },
+  {
+   "packet": "S34PacketMaps",
+   "direction": "IN",
+   "tier": "C",
+   "batchGroup": "",
+   "category": "world-fx-tile-misc",
+   "formatString": "",
+   "getters": [
+    "getMapId()"
+   ],
+   "notes": "Tier C generic fallback, no summarizer. HONESTY: only getMapId() is public; mapScale, bounds (mapMinX/Y, mapMaxX/Y) and mapVisiblePlayersVec4b have NO public getters (they are consumed privately by setMapdataTo(MapData)), and mapDataBytes is raw pixel color data with no LLM perception value. A richer summary cannot be built honestly without reflecting private fields, so leave as generic fallback."
+  },
+  {
+   "packet": "S36PacketSignEditorOpen",
+   "direction": "IN",
+   "tier": "C",
+   "batchGroup": "",
+   "category": "world-fx-tile-misc",
+   "formatString": "",
+   "getters": [
+    "getSignPosition()"
+   ],
+   "notes": "Tier C generic fallback. Carries only getSignPosition() (BlockPos) — a local UI prompt telling the client to open the sign-edit GUI at that block. Low standalone perception value and low frequency; the generic fallback (class name) suffices. If later elevated, getSignPosition() x/y/z is the only honest field available (format could be `signEditorOpen at=%d,%d,%d`)."
+  },
+  {
+   "packet": "S37PacketStatistics",
+   "direction": "IN",
+   "tier": "C",
+   "batchGroup": "",
+   "category": "world-fx-tile-misc",
+   "formatString": "",
+   "getters": [
+    "func_148974_c()"
+   ],
+   "notes": "Tier C generic fallback. The sole accessor is the obfuscated func_148974_c() returning Map<StatBase,Integer> — a bulk stats dump sent in response to a client stats request, low frequency and low perception value for acting in-world. Dumping the map is noisy; the generic fallback suffices. If ever wanted, func_148974_c().size() gives an honest entry count (format `stats count=%d`)."
+  },
+  {
+   "packet": "S3FPacketCustomPayload",
+   "direction": "IN",
+   "tier": "B",
+   "batchGroup": "CustomPayload",
+   "category": "connection/lifecycle",
+   "formatString": "customPayload channel=%s bytes=%d",
+   "getters": [
+    "getChannelName()",
+    "getBufferData()"
+   ],
+   "notes": "Server->client plugin channel. channel is genuinely useful for LLM server-fingerprinting (MC|Brand, MC|TrList, REGISTER/UNREGISTER, FML|HS). bytes read via getBufferData().readableBytes() which is a non-destructive length query (writerIndex-readerIndex) safe on the Netty thread. HONESTY: payload body is opaque binary; report ONLY the byte length, never dump bytes. Null-guard getBufferData() (report bytes=0 or bytes=? if null). Shares one parameterized summarizer with C17PacketCustomPayload (batchGroup CustomPayload); the two differ only by direction and size cap."
+  },
+  {
+   "packet": "C17PacketCustomPayload",
+   "direction": "OUT",
+   "tier": "B",
+   "batchGroup": "CustomPayload",
+   "category": "connection/lifecycle",
+   "formatString": "customPayload channel=%s bytes=%d",
+   "getters": [
+    "getChannelName()",
+    "getBufferData()"
+   ],
+   "notes": "Client->server plugin channel; identical shape to S3FPacketCustomPayload (getChannelName()+getBufferData()), size cap 32767 vs 1MB. Same parameterized summarizer (batchGroup CustomPayload). Same honesty rule: length only, no byte dump; null-guard the buffer."
+  },
+  {
+   "packet": "S40PacketDisconnect",
+   "direction": "IN",
+   "tier": "A",
+   "batchGroup": "",
+   "category": "connection/lifecycle",
+   "formatString": "disconnect reason=\"%s\"",
+   "getters": [
+    "getReason()"
+   ],
+   "notes": "Play-phase kick. reason is an IChatComponent via getReason(); read getReason().getUnformattedText(). This is control-critical: the LLM must know WHY the session ended. Mirror the Chat summarizer: try/catch around getUnformattedText(), null-guard (empty string), truncate to 120 chars with a trailing ellipsis. NOT batched with the login-phase disconnect because that one uses the obfuscated getter func_149603_c() (different accessor name), so they cannot share one parameterized reader."
+  },
+  {
+   "packet": "S00PacketDisconnect",
+   "direction": "IN",
+   "tier": "A",
+   "batchGroup": "",
+   "category": "connection/lifecycle",
+   "formatString": "loginDisconnect reason=\"%s\"",
+   "getters": [
+    "func_149603_c()"
+   ],
+   "notes": "Login-phase (net.minecraft.network.login.server) disconnect. OBFUSCATED getter: the reason accessor is func_149603_c() (NOT getReason) returning IChatComponent; read func_149603_c().getUnformattedText(). Carries the reason a connection was refused during login (server full, banned, whitelist, outdated client) - genuinely useful. Same defensive pattern as S40: try/catch, null-guard, truncate 120. Distinct class from the play-phase S40PacketDisconnect; register by fully-qualified name to avoid simple-name collision."
+  },
+  {
+   "packet": "S00PacketServerInfo",
+   "direction": "IN",
+   "tier": "A",
+   "batchGroup": "",
+   "category": "connection/lifecycle",
+   "formatString": "serverInfo motd=\"%s\" players=%d/%d version=%s(%d)",
+   "getters": [
+    "getResponse()",
+    "ServerStatusResponse.getServerDescription()",
+    "ServerStatusResponse.getPlayerCountData()",
+    "ServerStatusResponse.PlayerCountData.getOnlinePlayerCount()",
+    "ServerStatusResponse.PlayerCountData.getMaxPlayers()",
+    "ServerStatusResponse.getProtocolVersionInfo()",
+    "ServerStatusResponse.MinecraftProtocolVersionIdentifier.getName()",
+    "ServerStatusResponse.MinecraftProtocolVersionIdentifier.getProtocol()"
+   ],
+   "notes": "STATUS-phase server-list ping response - information-dense and easy to summarize honestly, hence A. getResponse() yields a ServerStatusResponse. HONESTY/null-guards: per the Gson deserializer EVERY sub-object is optional - serverMotd, playerCount, and protocolVersion can each be null. Guard each: motd via getServerDescription().getUnformattedText() (else \"?\"), players via getPlayerCountData() then getOnlinePlayerCount()/getMaxPlayers() (else 0/0 or omit), version via getProtocolVersionInfo() then getName()/getProtocol() (else ?/-1). Do NOT surface getFavicon() (base64 PNG blob, useless to an LLM) or the player sample array. Only fires during server-list ping, not live play - rare but self-contained. NOTE on task hint: the 'S01 join game' example refers to play/server S01PacketJoinGame which is NOT in this connection/lifecycle set; my status S01 is Pong (trivial)."
+  },
+  {
+   "packet": "S46PacketSetCompressionLevel",
+   "direction": "IN",
+   "tier": "C",
+   "batchGroup": "",
+   "category": "connection/lifecycle",
+   "formatString": "",
+   "getters": [
+    "getThreshold()"
+   ],
+   "notes": "Play-phase compression toggle (VarInt threshold). getThreshold() is available but this is a transport-plumbing event with zero perception/control value to an LLM; generic fallback is adequate. No work needed."
+  },
+  {
+   "packet": "S48PacketResourcePackSend",
+   "direction": "IN",
+   "tier": "C",
+   "batchGroup": "",
+   "category": "connection/lifecycle",
+   "formatString": "",
+   "getters": [
+    "getURL()",
+    "getHash()"
+   ],
+   "notes": "Server offers a resource pack (url + sha1 hash). getURL()/getHash() exist but neither is perception- nor control-critical for gameplay; generic fallback is adequate. No work needed."
+  },
+  {
+   "packet": "C19PacketResourcePackStatus",
+   "direction": "OUT",
+   "tier": "C",
+   "batchGroup": "",
+   "category": "connection/lifecycle",
+   "formatString": "",
+   "getters": [],
+   "notes": "HONESTY: this packet has NO public getters at all - both fields (hash:String, status:Action enum {SUCCESSFULLY_LOADED,DECLINED,FAILED_DOWNLOAD,ACCEPTED}) are private with only readPacketData/writePacketData/processPacket. A summarizer could not read status without reflection, which the reference-free contract forbids. Generic fallback is MANDATORY, not merely adequate. No work needed."
+  },
+  {
+   "packet": "C00PacketKeepAlive",
+   "direction": "OUT",
+   "tier": "C",
+   "batchGroup": "",
+   "category": "connection/lifecycle",
+   "formatString": "",
+   "getters": [
+    "getKey()"
+   ],
+   "notes": "Client->server keepalive echo (VarInt key via getKey()). Pure liveness noise; the server-side S00PacketKeepAlive already has a summarizer and that is sufficient for liveness. Generic fallback adequate - do not add a summarizer or it just doubles keepalive spam."
+  },
+  {
+   "packet": "C15PacketClientSettings",
+   "direction": "OUT",
+   "tier": "C",
+   "batchGroup": "",
+   "category": "connection/lifecycle",
+   "formatString": "",
+   "getters": [
+    "getLang()",
+    "getChatVisibility()",
+    "isColorsEnabled()",
+    "getModelPartFlags()"
+   ],
+   "notes": "Client's own settings announcement. HONESTY: the render-distance field `view` (int) has NO public getter - it cannot be reported. Available getters are getLang(), getChatVisibility() (EnumChatVisibility), isColorsEnabled(), getModelPartFlags(). This is the client stating its own already-known config outbound; no perception value. Generic fallback adequate."
+  },
+  {
+   "packet": "C16PacketClientStatus",
+   "direction": "OUT",
+   "tier": "C",
+   "batchGroup": "",
+   "category": "connection/lifecycle",
+   "formatString": "",
+   "getters": [
+    "getStatus()"
+   ],
+   "notes": "Client outbound status: getStatus() returns EnumState {PERFORM_RESPAWN, REQUEST_STATS, OPEN_INVENTORY_ACHIEVEMENT}. Borderline - PERFORM_RESPAWN is a mild control signal - but it is the client's OWN outbound action already known to the actor, so generic fallback is adequate. If a respawn-confirmation one-liner is ever wanted it is trivially `clientStatus status=%s` off getStatus().name(); left as C by default. No work needed now."
+  },
+  {
+   "packet": "C00PacketLoginStart",
+   "direction": "OUT",
+   "tier": "C",
+   "batchGroup": "",
+   "category": "connection/lifecycle",
+   "formatString": "",
+   "getters": [
+    "getProfile()"
+   ],
+   "notes": "Login handshake: getProfile() yields a GameProfile whose getName() is the username (getId() is null here - the client only sends the name, UUID is unknown pre-auth). One-shot pre-play, client's own identity; generic fallback adequate. If a connection-log line is ever wanted use getProfile().getName()."
+  },
+  {
+   "packet": "C01PacketEncryptionResponse",
+   "direction": "OUT",
+   "tier": "C",
+   "batchGroup": "",
+   "category": "connection/lifecycle",
+   "formatString": "",
+   "getters": [],
+   "notes": "SECURITY/HONESTY: no plain getter exists. The only accessors are getSecretKey(PrivateKey) and getVerifyToken(PrivateKey), which REQUIRE the server private key and DECRYPT the shared secret / verify token. A summarizer must NEVER call these - it would both need a key it doesn't have and expose cryptographic secrets. Fields secretKeyEncrypted/verifyTokenEncrypted are private encrypted blobs. Generic fallback MANDATORY. No work needed."
+  },
+  {
+   "packet": "S01PacketEncryptionRequest",
+   "direction": "IN",
+   "tier": "C",
+   "batchGroup": "",
+   "category": "connection/lifecycle",
+   "formatString": "",
+   "getters": [
+    "getServerId()",
+    "getPublicKey()",
+    "getVerifyToken()"
+   ],
+   "notes": "Server auth challenge. Getters exist (getServerId() hashed id, getPublicKey() RSA key, getVerifyToken() nonce) but the content is crypto-handshake material with no perception value and best not surfaced. Generic fallback adequate. No work needed."
+  },
+  {
+   "packet": "S02PacketLoginSuccess",
+   "direction": "IN",
+   "tier": "C",
+   "batchGroup": "",
+   "category": "connection/lifecycle",
+   "formatString": "",
+   "getters": [
+    "getProfile()"
+   ],
+   "notes": "Confirms authenticated identity: getProfile() gives a GameProfile with getName() AND getId() (UUID) both populated here (unlike C00PacketLoginStart). A meaningful login milestone but not perception/control-critical for live gameplay; generic fallback adequate. Optional milestone line if ever wanted: `loginSuccess name=%s uuid=%s` off getProfile().getName()/getId()."
+  },
+  {
+   "packet": "S03PacketEnableCompression",
+   "direction": "IN",
+   "tier": "C",
+   "batchGroup": "",
+   "category": "connection/lifecycle",
+   "formatString": "",
+   "getters": [
+    "getCompressionTreshold()"
+   ],
+   "notes": "Login-phase compression enable. NOTE the misspelled getter getCompressionTreshold() (single 't', matches the private field compressionTreshold). Transport plumbing, no LLM value; generic fallback adequate. Parallel to play-phase S46PacketSetCompressionLevel."
+  },
+  {
+   "packet": "C00Handshake",
+   "direction": "OUT",
+   "tier": "C",
+   "batchGroup": "",
+   "category": "connection/lifecycle",
+   "formatString": "",
+   "getters": [
+    "getProtocolVersion()",
+    "getRequestedState()"
+   ],
+   "notes": "First packet on any connection. HONESTY: the ip (String) and port (int) fields have NO public getters - cannot be reported. Available: getProtocolVersion() (int) and getRequestedState() (EnumConnectionState, LOGIN vs STATUS). Client's own outbound intent; generic fallback adequate."
+  },
+  {
+   "packet": "C00PacketServerQuery",
+   "direction": "OUT",
+   "tier": "C",
+   "batchGroup": "",
+   "category": "connection/lifecycle",
+   "formatString": "",
+   "getters": [],
+   "notes": "Empty request packet - zero fields, empty readPacketData/writePacketData. Nothing to summarize. Generic fallback adequate."
+  },
+  {
+   "packet": "C01PacketPing",
+   "direction": "OUT",
+   "tier": "C",
+   "batchGroup": "",
+   "category": "connection/lifecycle",
+   "formatString": "",
+   "getters": [
+    "getClientTime()"
+   ],
+   "notes": "Status-phase latency ping; getClientTime() (long) available. Out-of-band server-list timing, no gameplay value; generic fallback adequate."
+  },
+  {
+   "packet": "S01PacketPong",
+   "direction": "IN",
+   "tier": "C",
+   "batchGroup": "",
+   "category": "connection/lifecycle",
+   "formatString": "",
+   "getters": [],
+   "notes": "HONESTY: no public getter - clientTime (long) is private with only read/write/processPacket, so a summarizer cannot read it without reflection. Status-phase pong; generic fallback MANDATORY. No work needed. (This is the status S01, NOT play S01PacketJoinGame that the task hint referenced.)"
+  },
+  {
+   "packet": "S03PacketTimeUpdate",
+   "direction": "IN",
+   "category": "world blocks/env",
+   "tier": "A",
+   "batchGroup": "",
+   "formatString": "time total=%d world=%d tod=%d cycle=%s",
+   "getters": [
+    "getTotalWorldTime()",
+    "getWorldTime()"
+   ],
+   "notes": "ALREADY HAS SUMMARIZER (Time in HighValueSummarizers). No improvement needed: worldTime<0 encodes frozen daylight cycle, tod = abs(worldTime)%24000. Reads two public longs only."
+  },
+  {
+   "packet": "S05PacketSpawnPosition",
+   "direction": "IN",
+   "category": "world blocks/env",
+   "tier": "A",
+   "batchGroup": "",
+   "formatString": "spawnPos at=%d,%d,%d",
+   "getters": [
+    "getSpawnPos()",
+    "BlockPos.getX()",
+    "BlockPos.getY()",
+    "BlockPos.getZ()"
+   ],
+   "notes": "Sets the client compass/respawn target. getSpawnPos() returns a BlockPos; null-guard it (emit at=? if null) since it is only set from the wire. Perception-relevant but rare; small rich summary."
+  },
+  {
+   "packet": "S07PacketRespawn",
+   "direction": "IN",
+   "category": "world blocks/env",
+   "tier": "A",
+   "batchGroup": "",
+   "formatString": "respawn dim=%d difficulty=%s game=%s world=%s",
+   "getters": [
+    "getDimensionID()",
+    "getDifficulty()",
+    "EnumDifficulty.getDifficultyResourceKey()",
+    "getGameType()",
+    "WorldSettings.GameType.getName()",
+    "getWorldType()",
+    "WorldType.getWorldTypeName()"
+   ],
+   "notes": "Major state transition (dimension/gamemode/difficulty change). Use getDifficulty().getDifficultyResourceKey() (confirmed public) for the difficulty label rather than name() (EnumDifficulty enum-ness not verified). getGameType().getName() and getWorldType().getWorldTypeName() are confirmed public. Null-guard difficulty/gameType/worldType (worldType defaults to DEFAULT in readPacketData, so non-null in practice)."
+  },
+  {
+   "packet": "S21PacketChunkData",
+   "direction": "IN",
+   "category": "world blocks/env",
+   "tier": "A",
+   "batchGroup": "",
+   "formatString": "chunkData at=%d,%d sections=%d full=%b bytes=%d",
+   "getters": [
+    "getChunkX()",
+    "getChunkZ()",
+    "getExtractedSize()",
+    "func_149274_i()",
+    "getExtractedDataBytes()"
+   ],
+   "notes": "Single-chunk world load (sibling of the existing S26 ChunkBulk summarizer). getExtractedSize() is the 16-bit section bitmask; render sections=Integer.bitCount(getExtractedSize()) for a human count. func_149274_i() is the ground-up-continuous/full-chunk boolean. getExtractedDataBytes() is the raw payload; emit bytes=(arr==null?0:arr.length). Do not decode block data (heavy, off-thread inappropriate)."
+  },
+  {
+   "packet": "S22PacketMultiBlockChange",
+   "direction": "IN",
+   "category": "world blocks/env",
+   "tier": "A",
+   "batchGroup": "",
+   "formatString": "multiBlockChange count=%d first=%d,%d,%d=%s",
+   "getters": [
+    "getChangedBlocks()",
+    "BlockUpdateData.getPos()",
+    "BlockUpdateData.getBlockState()"
+   ],
+   "notes": "World edit burst (sibling of existing S23 BlockChange). chunkPosCoord field has NO public getter, but each getChangedBlocks()[i].getPos() returns the absolute BlockPos so coords are derivable per-entry. count = getChangedBlocks().length; for the first entry emit its getPos() and String.valueOf(getBlockState()) inside a try/catch (mirror S23's state guard). If array empty, emit count=0 with no first= tuple."
+  },
+  {
+   "packet": "S23PacketBlockChange",
+   "direction": "IN",
+   "category": "world blocks/env",
+   "tier": "A",
+   "batchGroup": "",
+   "formatString": "blockChange at=%d,%d,%d state=%s",
+   "getters": [
+    "getBlockPosition()",
+    "getBlockState()"
+   ],
+   "notes": "ALREADY HAS SUMMARIZER (BlockChange in HighValueSummarizers). No change needed; already null-guards BlockPos and try/catches getBlockState() via String.valueOf."
+  },
+  {
+   "packet": "S24PacketBlockAction",
+   "direction": "IN",
+   "category": "world blocks/env",
+   "tier": "B",
+   "batchGroup": "BlockPosEvent",
+   "formatString": "blockAction at=%d,%d,%d instrument=%d pitch=%d block=%d",
+   "getters": [
+    "getBlockPosition()",
+    "getData1()",
+    "getData2()",
+    "getBlockType()"
+   ],
+   "notes": "Positional block event (noteblock/piston/chest lid). getData1()=instrument, getData2()=pitch (semantics depend on block). getBlockType() returns a Block; render its id via Block.getIdFromBlock(getBlockType()) rather than toString (Block has no compact getter). Shares the parameterized BlockPosEvent summarizer with S25: helper formats 'label at=x,y,z <extra kv>', each packet supplies label + extra."
+  },
+  {
+   "packet": "S25PacketBlockBreakAnim",
+   "direction": "IN",
+   "category": "world blocks/env",
+   "tier": "B",
+   "batchGroup": "BlockPosEvent",
+   "formatString": "blockBreakAnim eid=%d at=%d,%d,%d progress=%d",
+   "getters": [
+    "getBreakerId()",
+    "getPosition()",
+    "getProgress()"
+   ],
+   "notes": "Positional mining-progress event. getBreakerId() is the digging entity id, getProgress() is 0-9 stage (255/reset clears). Shares the BlockPosEvent parameterized summarizer with S24. Null-guard getPosition()."
+  },
+  {
+   "packet": "S27PacketExplosion",
+   "direction": "IN",
+   "category": "world blocks/env",
+   "tier": "A",
+   "batchGroup": "",
+   "formatString": "explosion at=%.2f,%.2f,%.2f strength=%.2f affected=%d motion=%.3f,%.3f,%.3f",
+   "getters": [
+    "getX()",
+    "getY()",
+    "getZ()",
+    "getStrength()",
+    "getAffectedBlockPositions()",
+    "func_149149_c()",
+    "func_149144_d()",
+    "func_149147_e()"
+   ],
+   "notes": "Danger-critical env event. affected = getAffectedBlockPositions().size() (null-guard -> 0). func_149149_c/d/e() are the knock-back motion applied to the player (x/y/z floats). Use %.3f for motion (small values), %.2f for pos/strength."
+  },
+  {
+   "packet": "S2BPacketChangeGameState",
+   "direction": "IN",
+   "category": "world blocks/env",
+   "tier": "A",
+   "batchGroup": "",
+   "formatString": "gameState state=%d value=%.2f",
+   "getters": [
+    "getGameState()",
+    "func_149137_d()"
+   ],
+   "notes": "Env opcode channel: state 1=raining-off,2=raining-on,3=gamemode-change,7=rain-gradient,8=thunder-gradient, etc.; func_149137_d() is the associated float (e.g. new gamemode id, gradient level). Semantics vary by opcode so keep the summary raw (state+value) rather than inventing labels — honest and stable."
+  },
+  {
+   "packet": "S41PacketServerDifficulty",
+   "direction": "IN",
+   "category": "world blocks/env",
+   "tier": "A",
+   "batchGroup": "",
+   "formatString": "difficulty diff=%s locked=%b",
+   "getters": [
+    "getDifficulty()",
+    "EnumDifficulty.getDifficultyResourceKey()",
+    "isDifficultyLocked()"
+   ],
+   "notes": "HONESTY: difficultyLocked is NOT on the wire — readPacketData reads only the difficulty byte, so isDifficultyLocked() is always false on received packets. Emit locked=%b faithfully (it will read false) OR omit it; do not imply it reflects server state. Use getDifficulty().getDifficultyResourceKey() for the label; null-guard difficulty."
+  },
+  {
+   "packet": "S44PacketWorldBorder",
+   "direction": "IN",
+   "category": "world blocks/env",
+   "tier": "C",
+   "batchGroup": "",
+   "formatString": "",
+   "getters": [],
+   "notes": "HONESTY / no work: S44 exposes ZERO public getters. All fields (action,size,centerX,centerZ,targetSize,diameter,timeUntilTarget,warningTime,warningDistance) are private; the only public methods are readPacketData/writePacketData/processPacket and func_179788_a(WorldBorder) which mutates a passed border. A reference-free getter-based summarizer CANNOT read the action or sizes, so this falls to the generic C fallback (class-name only). Do not invent fields or use reflection. If a rich border summary is ever wanted it requires a client patch adding getters (out of scope)."
+  },
+  {
+   "packet": "C07PacketPlayerDigging",
+   "direction": "OUT",
+   "category": "world blocks/env",
+   "tier": "A",
+   "batchGroup": "",
+   "formatString": "digging status=%s at=%d,%d,%d face=%s",
+   "getters": [
+    "getStatus()",
+    "C07PacketPlayerDigging.Action.name()",
+    "getPosition()",
+    "getFacing()",
+    "EnumFacing.getName()"
+   ],
+   "notes": "Control-critical: the agent's own mining/drop actions. getStatus() is the Action enum (START_DESTROY_BLOCK/ABORT_DESTROY_BLOCK/STOP_DESTROY_BLOCK/DROP_ALL_ITEMS/DROP_ITEM/RELEASE_USE_ITEM) -> .name(). For the DROP_* and RELEASE_USE_ITEM statuses the position/facing are dummy (BlockPos origin, DOWN) but ARE on the wire, so print them and optionally note they are dummy for non-dig statuses. getFacing().getName() gives 'up/down/north/...'; null-guard status/facing."
+  },
+  {
+   "packet": "C08PacketPlayerBlockPlacement",
+   "direction": "OUT",
+   "category": "world blocks/env",
+   "tier": "A",
+   "batchGroup": "",
+   "formatString": "blockPlace at=%d,%d,%d dir=%d item=%s off=%.2f,%.2f,%.2f",
+   "getters": [
+    "getPosition()",
+    "getPlacedBlockDirection()",
+    "getStack()",
+    "ItemStack.getDisplayName()",
+    "getPlacedBlockOffsetX()",
+    "getPlacedBlockOffsetY()",
+    "getPlacedBlockOffsetZ()"
+   ],
+   "notes": "Control-critical: the agent's own placement/use-item. getPlacedBlockDirection()==255 (with position=-1,-1,-1) means a right-click-in-air / use-item with no target face — note this special case. getStack() may be NULL (empty hand) -> emit item=none; else ItemStack.getDisplayName() (or getItem() id). Offsets are the click sub-block hit vector 0..1."
+  },
+  {
+   "packet": "C12PacketUpdateSign",
+   "direction": "OUT",
+   "category": "world blocks/env",
+   "tier": "A",
+   "batchGroup": "",
+   "formatString": "updateSign at=%d,%d,%d lines=[%s|%s|%s|%s]",
+   "getters": [
+    "getPosition()",
+    "getLines()",
+    "IChatComponent.getUnformattedText()"
+   ],
+   "notes": "The agent's own sign edit. getLines() is always length 4 (IChatComponent[]); render each line via getUnformattedText() with a per-element null-guard (emit empty for null). Truncate each line to a sane length (e.g. 15-ish chars, wire cap 384) to keep the summary short. Null-guard the array itself."
+  },
+  {
+   "packet": "S0CPacketSpawnPlayer",
+   "tier": "A",
+   "direction": "IN",
+   "formatString": "spawnPlayer eid=%d uuid=%s at=%.1f,%.1f,%.1f yaw=%.1f pitch=%.1f heldItem=%d",
+   "getters": [
+    "getEntityID()",
+    "getPlayer()",
+    "getX()",
+    "getY()",
+    "getZ()",
+    "getYaw()",
+    "getPitch()",
+    "getCurrentItemID()"
+   ],
+   "notes": "All getters public+clean. pos=raw/32.0; yaw/pitch are wire bytes, deg=b*360/256; heldItem=item id (0=empty); uuid=getPlayer() UUID."
+  },
+  {
+   "packet": "S0FPacketSpawnMob",
+   "tier": "A",
+   "direction": "IN",
+   "formatString": "spawnMob eid=%d type=%d at=%.1f,%.1f,%.1f yaw=%.1f pitch=%.1f vel=%.3f,%.3f,%.3f",
+   "getters": [
+    "getEntityID()",
+    "getEntityType()",
+    "getX()",
+    "getY()",
+    "getZ()",
+    "getYaw()",
+    "getPitch()",
+    "getVelocityX()",
+    "getVelocityY()",
+    "getVelocityZ()"
+   ],
+   "notes": "Clean getters. type=numeric EntityList id; pos=raw/32.0; vel=raw/8000.0; yaw/pitch byte deg=b*360/256; getHeadPitch() also available."
+  },
+  {
+   "packet": "S0EPacketSpawnObject",
+   "tier": "A",
+   "direction": "IN",
+   "formatString": "spawnObject eid=%d type=%d at=%.1f,%.1f,%.1f data=%d",
+   "getters": [
+    "getEntityID()",
+    "getType()",
+    "getX()",
+    "getY()",
+    "getZ()",
+    "func_149009_m()"
+   ],
+   "notes": "type=object type byte; data via obfuscated func_149009_m(); pos=raw/32.0. speed (getSpeedX/Y/Z /8000) only on wire when data>0; getPitch()/getYaw() are ints."
+  },
+  {
+   "packet": "S0DPacketCollectItem",
+   "tier": "A",
+   "direction": "IN",
+   "formatString": "collectItem item=%d by=%d",
+   "getters": [
+    "getCollectedItemEntityID()",
+    "getEntityID()"
+   ],
+   "notes": "Clean getters. item=collected item-entity id; by=collector entity id. No position on wire."
+  },
+  {
+   "packet": "S11PacketSpawnExperienceOrb",
+   "tier": "B",
+   "batchGroup": "EntitySpawn",
+   "direction": "IN",
+   "formatString": "spawnXPOrb eid=%d at=%.1f,%.1f,%.1f xp=%d",
+   "getters": [
+    "getEntityID()",
+    "getX()",
+    "getY()",
+    "getZ()",
+    "getXPValue()"
+   ],
+   "notes": "Clean getters. pos=raw/32.0; xp=short via getXPValue()."
+  },
+  {
+   "packet": "S2CPacketSpawnGlobalEntity",
+   "tier": "B",
+   "batchGroup": "EntitySpawn",
+   "direction": "IN",
+   "formatString": "spawnGlobal eid=%d type=%d at=%.1f,%.1f,%.1f",
+   "getters": [
+    "func_149052_c()",
+    "func_149051_d()",
+    "func_149050_e()",
+    "func_149049_f()",
+    "func_149053_g()"
+   ],
+   "notes": "ALL getters obfuscated func_ names: c=eid,d=x,e=y,f=z,g=type. pos=raw/32.0; type=1 is only defined value (lightning bolt)."
+  },
+  {
+   "packet": "S10PacketSpawnPainting",
+   "tier": "B",
+   "batchGroup": "EntitySpawn",
+   "direction": "IN",
+   "formatString": "spawnPainting eid=%d title=%s at=%d,%d,%d facing=%s",
+   "getters": [
+    "getEntityID()",
+    "getTitle()",
+    "getPosition()",
+    "getFacing()"
+   ],
+   "notes": "Clean getters. getPosition()=BlockPos (use getX/Y/Z, whole coords not /32); getFacing()=EnumFacing (.name()); title=art id string."
+  },
+  {
+   "packet": "S04PacketEntityEquipment",
+   "tier": "B",
+   "batchGroup": "EntityEquipment",
+   "direction": "IN",
+   "formatString": "entityEquipment eid=%d slot=%d item=%s",
+   "getters": [
+    "getEntityID()",
+    "getEquipmentSlot()",
+    "getItemStack()"
+   ],
+   "notes": "Clean getters. getItemStack()=ItemStack, nullable (null=cleared slot); slot 0=held,1-4 armor. ItemStack.getDisplayName()/getItem() for detail."
+  },
+  {
+   "packet": "S0BPacketAnimation",
+   "tier": "B",
+   "batchGroup": "EntityAction",
+   "direction": "IN",
+   "formatString": "animation eid=%d type=%d",
+   "getters": [
+    "getEntityID()",
+    "getAnimationType()"
+   ],
+   "notes": "Clean getters. type: 0=swingArm,1=takeDamage,2=leaveBed,3=eatFood,4=crit,5=magicCrit (vanilla 1.8.9 codes)."
+  },
+  {
+   "packet": "S0APacketUseBed",
+   "tier": "B",
+   "batchGroup": "EntityAction",
+   "direction": "IN",
+   "formatString": "useBed at=%d,%d,%d",
+   "getters": [
+    "getBedPosition()"
+   ],
+   "notes": "playerID has NO reference-free getter (only getPlayer(World) needs a World); can't emit sleeper eid honestly. getBedPosition()=BlockPos head part (getX/Y/Z whole coords)."
+  },
+  {
+   "packet": "net.minecraft.network.play.server.S13PacketDestroyEntities",
+   "tier": "A",
+   "direction": "IN",
+   "formatString": "destroyEntities count=%d ids=%s",
+   "getters": [
+    "getEntityIDs()"
+   ],
+   "notes": "getEntityIDs() returns int[]; count=length, ids=joined (truncate if long). Entities despawning = perception-critical."
+  },
+  {
+   "packet": "net.minecraft.network.play.server.S43PacketCamera",
+   "tier": "A",
+   "direction": "IN",
+   "formatString": "camera eid=%d",
+   "getters": [
+    "entityId"
+   ],
+   "notes": "entityId is a PUBLIC field; getEntity(World) needs a world so read the field directly. View/spectate target change."
+  },
+  {
+   "packet": "net.minecraft.network.play.server.S1BPacketEntityAttach",
+   "tier": "A",
+   "direction": "IN",
+   "formatString": "entityAttach eid=%d vehicle=%d leash=%d",
+   "getters": [
+    "getEntityId()",
+    "getVehicleEntityId()",
+    "getLeash()"
+   ],
+   "notes": "vehicle=-1 means dismount; leash!=0 is a leash-attach vs mount. Riding/mount changes control semantics."
+  },
+  {
+   "packet": "net.minecraft.network.play.server.S1DPacketEntityEffect",
+   "tier": "B",
+   "batchGroup": "EntityEffect",
+   "direction": "IN",
+   "formatString": "entityEffect eid=%d effect=%d amp=%d dur=%d hideParticles=%b",
+   "getters": [
+    "getEntityId()",
+    "getEffectId()",
+    "getAmplifier()",
+    "getDuration()",
+    "func_179707_f()"
+   ],
+   "notes": "effectId/amplifier are bytes; func_179707_f() is the hideParticles flag (func_149429_c() only tests dur==32767)."
+  },
+  {
+   "packet": "net.minecraft.network.play.server.S1EPacketRemoveEntityEffect",
+   "tier": "B",
+   "batchGroup": "EntityEffect",
+   "direction": "IN",
+   "formatString": "removeEntityEffect eid=%d effect=%d",
+   "getters": [
+    "getEntityId()",
+    "getEffectId()"
+   ],
+   "notes": "effectId is an int here (read as unsigned byte on wire)."
+  },
+  {
+   "packet": "net.minecraft.network.play.server.S1CPacketEntityMetadata",
+   "tier": "B",
+   "batchGroup": "EntityMetadata",
+   "direction": "IN",
+   "formatString": "entityMetadata eid=%d watched=%d",
+   "getters": [
+    "getEntityId()",
+    "func_149376_c()"
+   ],
+   "notes": "func_149376_c() returns List<DataWatcher.WatchableObject> (may be null); count only — per-field meaning needs entity context. WatchableObject has getDataValueId()/getObject()/getObjectType() if detail wanted."
+  },
+  {
+   "packet": "net.minecraft.network.play.server.S20PacketEntityProperties",
+   "tier": "B",
+   "batchGroup": "EntityProperties",
+   "direction": "IN",
+   "formatString": "entityProperties eid=%d attrs=%d",
+   "getters": [
+    "getEntityId()",
+    "func_149441_d()"
+   ],
+   "notes": "func_149441_d() returns List<Snapshot>; Snapshot.func_151409_a()=attr name, func_151410_b()=base value; could join name=value pairs. Modifiers not exposed via base value."
+  },
+  {
+   "packet": "net.minecraft.network.play.server.S19PacketEntityStatus",
+   "tier": "B",
+   "batchGroup": "EntityStatus",
+   "direction": "IN",
+   "formatString": "entityStatus opcode=%d",
+   "getters": [
+    "getOpCode()"
+   ],
+   "notes": "entityId has NO reference-free getter (only getEntity(World) needs a world). Only getOpCode() (byte) is available; opcode meaning is entity-type-dependent."
+  },
+  {
+   "packet": "net.minecraft.network.play.server.S49PacketUpdateEntityNBT",
+   "tier": "C",
+   "direction": "IN",
+   "formatString": "",
+   "getters": [
+    "getTagCompound()"
+   ],
+   "notes": "entityId NOT accessible reference-free (only getEntity(World)). getTagCompound() is available but NBT is bulky/niche — kept generic."
+  },
+  {
+   "packet": "net.minecraft.network.play.client.C18PacketSpectate",
+   "tier": "C",
+   "direction": "OUT",
+   "formatString": "",
+   "getters": [],
+   "notes": "Client->server. UUID id has NO public getter (only getEntity(WorldServer) needs a world). Nothing summarizable reference-free."
+  }
+ ],
+ "categorySummaries": [
+  "This category exposes the server-authoritative scoreboard and tab-list state that an LLM cannot otherwise see: objective definitions and their render mode (S3B), the actual score numbers per entry (S3C), which objective is bound to which display slot — sidebar/list/belowName (S3D), team membership plus nametag prefix/suffix/color/visibility (S3E), and the player tab list (S38, already implemented). The dominant cross-packet design note is conditional wire encoding: S3B, S3C and S3E all read a leading action/mode byte and then read the remaining fields ONLY for specific action values, so a reference-free summarizer must gate each field on the same action check the packet's own readPacketData uses — otherwise it would print ctor-default garbage (empty strings, color=-1, empty player collections) as if it were server data. Each summarizer reads only public getters synchronously on the Netty thread and returns a String; note several use obfuscated func_ names (S3B: func_149339_c/func_149337_d/func_149338_e/func_179817_d; S3D: func_149371_c/func_149370_d) while S3C/S3E/S38 have clear-named getters. These packets don't share field layouts, so no B-tier batch grouping is warranted; each gets a dedicated A summarizer except S38 which already exists.\"",
+  "This packet set covers the player's self-perception and social/control I/O: vitals (S06 health, S1F experience), combat lifecycle (S42 death/combat events, plus the agent's own C02 attack/interact and C0A arm-swing intents), chat (S02 inbound, C01 outbound, S45 on-screen titles), session framing (S01 join, S00 keepalive liveness), and tab-completion (S3A matches inbound, C14 request outbound). Cross-packet design note: several packets are variant-shaped on the wire (S42, S45, C02, C14) — the wire only carries certain fields for certain enum discriminants, so every summarizer must branch on the type/action enum and must NOT read fields that are null/unset for the other variants (S42 deathMessage only for ENTITY_DIED, S45 message only for TITLE/SUBTITLE and times only for TIMES, C02 hitVec only for INTERACT_AT, C14 targetBlock only when non-null). One hard honesty boundary stands out: C02PacketUseEntity's target entityId is on the wire but has NO no-arg getter (only getEntityFromWorld(World)), so the reference-free summarizer honestly cannot report the target eid and must omit it. Four of these already have summarizers (S06/S42/S00/S02) and are correct as-is — only S42 has an optional honest enrichment (fighter/killer eids). The inbound/outbound chat + tab-complete pairs (S02/C01, S3A/C14) deliberately use separate summarizers rather than a shared batch group because their wire shapes differ.",
+  "Inventory/windows is the packet family that lets an LLM perceive and drive containers: what window is open, what items sit in which slots, held-hotbar selection, and the click/creative/enchant actions the client sends back, plus the transaction handshake that gates them. All summarizers read public getters synchronously on the Netty thread and return a String only — never retaining the packet, matching HighValueSummarizers style. Cross-packet design note: item stacks appear in four packets (S2F, S30, C0E, C10), so a single private helper item(ItemStack) should render them uniformly as \"empty\" for null else \"<name>x<count>\" (use getUnlocalizedName()/getDisplayName() + public field stackSize; avoid retaining the stack). Honesty boundary worth flagging up front: several window packets carry a windowId on the wire that has NO public getter — S2EPacketCloseWindow and C0DPacketCloseWindow expose nothing (private windowId, no accessor), and C0FPacketConfirmTransaction's accepted flag has no getter — so those cannot be summarized beyond the generic class name / available fields without reflection, and we do not invent them. None of these packets have existing summarizers in HighValueSummarizers (that set is movement/world/health/chat/combat/tablist), so all are new work except the generic-fallback C-tier ones.",
+  "The movement category splits cleanly along direction and along an entity-identity asymmetry that dictates the tiers. Inbound (IN) server packets describe the world moving: S08 (authoritative player reposition, tier A, already implemented) and S18 (absolute entity teleport, tier A) are rich because they carry full coordinates — and S18 is the ONLY entity-motion packet exposing a public getEntityId(). By contrast the high-frequency relative-motion family S14/S15/S16/S17 collapses into one parameterized batch summarizer ('EntityRelMove', tier B) that decodes byte deltas (dx=byte/32.0 blocks) and byte-angles (deg=byte*360/256), but must honestly omit the entity id because that family exposes only getEntity(World), never a no-arg getter. S19 head-look falls to tier C for the same reason plus a single-byte payload. Outbound (OUT) client packets are the AI's own control echoes: C0C input (tier A, per-tick strafe/forward/jump/sneak), C0B entity-action (tier A, sneak/sprint/jump enum), C13 ability request (tier A) and the C03 movement family (tier B batch 'C03Move', already implemented as the Move fallback). Two cross-packet honesty landmines: (1) entityId is a private/protected field with no public no-arg getter on S14/S15/S16/S17/S19 and on C0B — reported only where OUT means 'the local player' or where S18 genuinely exposes it; (2) C13PacketPlayerAbilities has only setters for flySpeed/walkSpeed (no getters), so its summary is booleans-only, deliberately narrower than its inbound twin S39, which does expose getFlySpeed()/getWalkSpeed(). All fixed-point decodes (1/32-block positions, 256-scale angles) are applied in the summarizer, never left as raw wire ints.",
+  "This category covers server-to-client world effects, tile-entity/sign content, and misc list/stats packets (all inbound, IN). The high-value tier-A picks expose genuine world content an LLM should perceive: readable sign text (S33), tile-entity updates that carry command blocks/spawners/beacons (S35), lightning-strike locations (S2C), and tab-list header/footer server text (S47). A single parameterized \"WorldFx\" summarizer (tier B) covers the three positional fx packets — S2A particles, S28 block/world effect events, S29 named sounds — each emitting `fx <kind>=... at=x,y,z ...` by instanceof-branching, because they share the shape \"a typed effect at a position\" but read different getters. Three packets stay tier C generic fallback: S34 maps (only getMapId() is public — scale/bounds/players have no honest getter, pixel bytes are worthless to an LLM), S36 sign-editor-open (position-only local UI prompt), and S37 statistics (obfuscated bulk stat-map dump, low value). Cross-packet design notes worth flagging: obfuscated func_ getters appear in S2C (all five coord/id accessors) and S37 (func_148974_c()); several \"sound\"-named fields are misnamed (S28.soundType is really the effect/event id); coordinate encodings differ per packet (S29 sound = raw/8 already decoded by getters, S2C = raw/32 must be decoded in the summarizer, S28 uses whole-block BlockPos); and honesty boundaries must be respected — S33's `world` field and S34's scale/bounds are not summarizable without reflecting non-public state, so they are omitted rather than invented. Every summarizer reads getters synchronously on the Netty thread and returns only a String, retaining no packet reference.",
+  "This category is connection/lifecycle plumbing: it establishes, tunes, and tears down the link (handshake, login/auth, compression, keepalive, resource-pack negotiation, plugin channels, disconnects, and status/server-list pings). By design almost nothing here is perception- or control-critical during live play, so 15 of 20 packets are correctly tier C with generic fallback adequate - I confirmed this per-packet rather than assuming it. Only three earn a real summarizer, all tier A because each is a self-contained rich line rather than a batch: S40 play-disconnect and S00 login-disconnect (the reason an LLM was kicked - control-critical; kept separate because login uses the obfuscated getter func_149603_c() while play uses getReason(), so they cannot share one parameterized reader), and S00PacketServerInfo (the information-dense server-list response: MOTD, online/max players, version). One tier-B batchGroup exists, CustomPayload, shared by S3FPacketCustomPayload and C17PacketCustomPayload - identical getChannelName()+getBufferData() shape differing only by direction and size cap; the summarizer emits channel + non-destructive readableBytes() length and never dumps the opaque binary body. Three honesty boundaries are load-bearing and must not be violated: C01PacketEncryptionResponse has NO plain getter (its accessors require the server private key and decrypt secrets - never call them), and C19PacketResourcePackStatus and S01PacketPong have NO public getters at all (private fields, reflection-only), so generic fallback is mandatory not merely adequate for those three. Additional no-getter fields to respect: C15's render-distance `view`, and C00Handshake's ip/port - present on the wire but unreadable, so they must not be invented. Finally, the task's 'S01 join game' A-tier hint refers to play/server S01PacketJoinGame, which is NOT in this set; my status S01 is Pong (trivial, tier C).",
+  "World-blocks/env packets an LLM needs to perceive terrain state, world edits, and environmental danger, plus the client's own block-affecting actions. Server->client (IN) packets dominate: block edits (S23 single, S22 multi), chunk loads (S21), explosions (S27, danger-critical), dimension/gamemode changes (S07), env opcodes (S2B), time (S03), and spawn point (S05). Client->server (OUT) packets are the agent's own control actions: digging (C07), placement (C08), sign edits (C12). Design notes: (1) all summarizers read getters synchronously on the Netty thread and return only a String, never retaining the packet or its BlockPos/IBlockState references. (2) IBlockState/Block are rendered via String.valueOf(...) in a try/catch (mirrors the existing S23 BlockChange guard) since toString is registry-name-ish and cheap; block-id rendering uses the static Block.getIdFromBlock helper. (3) Honesty boundaries found: S44PacketWorldBorder has NO public getters at all (every field private; only codec + func_179788_a(WorldBorder)) so it is forced to tier C generic fallback — a faithful summary is impossible without reflection, which is out of scope; S41's difficultyLocked is never read off the wire (readPacketData reads only difficulty) so it is always false on received packets; S22's chunk-coord (chunkPosCoord) has no getter, but each BlockUpdateData.getPos() yields absolute coords so the summary derives position per-entry. S03 and S23 already have summarizers in HighValueSummarizers and need no change."
+ ],
+ "tierTally": {
+  "A": 57,
+  "C": 25,
+  "B": 25
+ }
+}

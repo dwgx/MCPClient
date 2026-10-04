@@ -29,7 +29,8 @@
 dwm **不是**已完结:底层钉死,产品页还可以写。
 
 **审计:** 2026-09-30 对 v1.0.0 干净基线(`5eec5b9`)→ HEAD 做过一次全量审计,
-报告在工作站 `.ai-notes/docs/audits/2026-09-30-base-to-head.md`(gitignored)。
+报告已入仓 [`history/audits/2026-09-30-base-to-head.md`](history/audits/2026-09-30-base-to-head.md)
+(原先只在工作站 `.ai-notes/`,gitignored,机器一没就没了)。
 结论一句话:**安全脊柱是干净的(找不到任何让未签补丁 arm 的路径),缺陷集中在
 "新写的功能自己骗自己"** —— 2 条 CRITICAL 都在 `drivers/plan/`:搭桥的"确认"谓词把
 水/岩浆当成已铺好的地板,以及规划器把岩浆当成可通行空间(同一个问题,读侧 `LocalGrid`
@@ -56,6 +57,7 @@ dwm **不是**已完结:底层钉死,产品页还可以写。
 | `agency/vendored-tree.md` | 内嵌 Minecraft 树的**查阅手册**(不是叙事):1612 个 `.java` / 25 个顶层包 / 97 条包路径 · **两个注册表的边界**(方块 `0..197` 连续,**198–255 全 58 个无人注册**;物品 187 个显式注册,`426` 是洞,`432–2255` 空 1824 个;ItemBlock 挂在方块自己的 id 上 `1..192`)· **一份「我能不能引这个文件」的对照表**:`BlockLava` 是**替换**不是遗漏(`Blocks.java:49-50`;熔岩照样流动、照烧、照和水反应,审计说它不流动是错的)、木台阶 2 家族整个没进、`client/util` 只有两个 Json 所以追按键必须离开 `net/minecraft` 走 `lwjgl2-shim`、`C02PacketUseItem` **本来就不该在**(1.8.9 的使用物品动词是 `C08`)· 1.7 命名与 1.8 编码并存(**代价在读者不在线路**,`C03PacketPlayer.java:123-125` 与 `:192-196` 可证)· §4 两条规矩组:引用的 7 条(引你没打开过的行号 = 缺陷,不是引用;文档攒数字就会攒过期数字)+ 树本身的 5 条(熔岩伤害的权威是 `Entity.setOnFireFromLava` 不是 `BlockLava.java`;伤害常数是**半心**,所以 `LAVA_CONTACT_DAMAGE = 8` 对应原版 `4.0F` 是对的)· §5 记了审计里 4 处错锚点(含 1 处**结论性错误**)和 1 个树上活着的错锚点 |
 | `agency/failure-shapes.md` | **一种形状的十三处目录,给没进过这个仓库的人看**:能力被写成在做事,而**生产者不在**——只测得到的 `GoalPolicy`、arm 了却改零字节的 `GlClampToEdgePatch`、`require()` 空体的 `AllowAllGate`、拒绝已存在动词的 schema、工具描述里不存在的参数、零调用者的常量、只测够得到的 tactic 记录、谎报 lease 的可观测字段、声明了却无人执行的 schema 边界、写着 "never null" 却返回一个帧前旧值的接口方法、javadoc 里引用不存在的测试类、引了一个根本不读那行代码的测试类 · **四条逃逸路线**(待在注释里 / 数字从 diff 里读来 / 写的时候是真的然后文件动了 / 是个决策而不是实现所以没人问)· **§2.3 是写这份文档时现场抓到的第四处**:`TheSuiteGoesRedThroughTheSeamTest.java` 曾写着 `GoalPolicy` 有 1317 行,而同一个提交里它已经是 1339 行——**那句话现在已改成「No line count」**(`:42-45`),事实是 **10** 个 `new GoalPolicy` 代码构造点 + 5 处全在 javadoc 里的 `main` 引用 · §3 十条例句**全部来自本仓已有规矩**(`guarantees.md` §6.4/6.9/6.10/6.11/6.12、`vendored-tree.md` R1-R3),无一条新造 · §4 **被工人抓到而不是被整合者抓到**的三件(没有测试的 commit `d5a82b6`、归因给一次没发生的删除的测试数、归罪给一个什么都没碰的只读侦察兵的编译失败——真因是两个工人共用一个 Maven 模块) |
 | `agency/test-census.md` | **统计口径定死了**,一条命令复现全部数字(`python scripts/test-census.py --run`,已接进 CI)· **两个总体永不合并**:surefire 的 `*Test` 与 failsafe 的 `*IT`(22 个,三个 pom 的 `skipITs` 默认全 true,普通 `verify` 一个不跑还 BUILD SUCCESS)· **「绿」的定义**:skip 不算绿,连报告都没有(absent)更不算——所以 2543 里是 **2542 绿 + 1 skip**· **去幽灵 join**:报告对不上源码 = 一次删除,不是测试;`pg-engine` 当年被漏的确切机制在 §4.1· §3 记着**当天关掉的四个假绿**:pom 里写了却无人读的 `-Ddwm.live=false`(关后实测 45 个 IT 全绿)、`-pl core` 不带 `-am` 解到过期 jar 报 11 个假错(带 `-am` 后 11 个 skip 正常跑)、`SmokeIT` **结构上不可能通过**(fork 没带 `-javaagent`,KI-4 补丁没生效;argfile 路径也写错,CI 上被两个 `Assume` 遮住——**关掉之后客户端第一次在 headless fork 里真的进了世界**)· §5 列出这仓库发过的**每一个**测试数与它真实的口径——**2543/2547/2548/2146 在整棵树里查无出处** |
+| `history/` | **已入仓的历史与流程**:`history/README.md` 是**语料审计表**(留了什么、丢了什么、为什么丢)· `history/architecture/` 12 篇设计核心 + 5 篇 ADR(原先 `docs/README.md` 索引它们,但它们**不在仓里**)· `history/reference/` 6 篇 = **定制好的开发流程**(commit 规范 / 文档风格 / 工具标注 / 工作流指南)· `history/design-briefs/` 15 篇设计文档 · `history/audits/` 18 份**决策级**审计(逐条裁定表、claims-vs-reality 判定表、一夜手册、贡献审计) |
 
 会话交接不进 git。工作站:`.ai-notes/docs/project/handoff/`。
 
